@@ -104,33 +104,80 @@ func TestAggregateWriteAtNewTimestampStartsCell(t *testing.T) {
 	}
 }
 
-// Production adds a NULL AddToCell input as 0.
-func TestAddToCellWithNoInputAddsZero(t *testing.T) {
-	s, tbl := newAggregateTable(t, minAggregate())
-	mutate(t, s, tbl, addToCell(456))
-	m := addToCell(0)
-	m.GetAddToCell().Input = nil
-	mutate(t, s, tbl, m)
-	want := []aggregateCell{{aggregateTS, 0}}
-	if got := readCells(t, s, tbl, nil); !slices.Equal(got, want) {
-		t.Errorf("got cells %v, want %v", got, want)
+// Production reads a missing input, or an input with no kind, as NULL. It adds a NULL AddToCell input as 0.
+func TestAddToCellWithNullInputAddsZero(t *testing.T) {
+	for name, input := range nullInputs() {
+		t.Run(name, func(t *testing.T) {
+			s, tbl := newAggregateTable(t, minAggregate())
+			mutate(t, s, tbl, addToCell(456))
+			m := addToCell(0)
+			m.GetAddToCell().Input = input
+			mutate(t, s, tbl, m)
+			want := []aggregateCell{{aggregateTS, 0}}
+			if got := readCells(t, s, tbl, nil); !slices.Equal(got, want) {
+				t.Errorf("got cells %v, want %v", got, want)
+			}
+		})
 	}
 }
 
-// Production ignores a NULL MergeToCell input.
-func TestMergeToCellWithNoInputHasNoEffect(t *testing.T) {
-	s, tbl := newAggregateTable(t, minAggregate())
-	noInput := mergeToCell(0)
-	noInput.GetMergeToCell().Input = nil
-	mutate(t, s, tbl, noInput)
-	if got := readCells(t, s, tbl, nil); len(got) != 0 {
-		t.Errorf("on an empty cell: got cells %v, want none", got)
+func TestMergeToCellWithNullInputHasNoEffect(t *testing.T) {
+	for name, input := range nullInputs() {
+		t.Run(name, func(t *testing.T) {
+			s, tbl := newAggregateTable(t, minAggregate())
+			null := mergeToCell(0)
+			null.GetMergeToCell().Input = input
+			mutate(t, s, tbl, null)
+			if got := readCells(t, s, tbl, nil); len(got) != 0 {
+				t.Errorf("on an empty cell: got cells %v, want none", got)
+			}
+			mutate(t, s, tbl, mergeToCell(456))
+			mutate(t, s, tbl, null)
+			want := []aggregateCell{{aggregateTS, 456}}
+			if got := readCells(t, s, tbl, nil); !slices.Equal(got, want) {
+				t.Errorf("on 456: got cells %v, want %v", got, want)
+			}
+		})
 	}
-	mutate(t, s, tbl, mergeToCell(456))
-	mutate(t, s, tbl, noInput)
-	want := []aggregateCell{{aggregateTS, 456}}
-	if got := readCells(t, s, tbl, nil); !slices.Equal(got, want) {
-		t.Errorf("on 456: got cells %v, want %v", got, want)
+}
+
+func nullInputs() map[string]*btpb.Value {
+	return map[string]*btpb.Value{"no input": nil, "an input with no kind": {}}
+}
+
+// Production allows every delete on an aggregate family.
+func TestAggregateFamilyAcceptsDeletes(t *testing.T) {
+	column := []byte(aggregateColumn)
+	tests := []struct {
+		name      string
+		mutation  *btpb.Mutation
+		wantPlain []aggregateCell
+	}{
+		{"DeleteFromColumn", &btpb.Mutation{Mutation: &btpb.Mutation_DeleteFromColumn_{DeleteFromColumn: &btpb.Mutation_DeleteFromColumn{
+			FamilyName: aggregateFamily, ColumnQualifier: column,
+		}}}, []aggregateCell{{aggregateTS, 456}}},
+		{"DeleteFromColumn with a time range", &btpb.Mutation{Mutation: &btpb.Mutation_DeleteFromColumn_{DeleteFromColumn: &btpb.Mutation_DeleteFromColumn{
+			FamilyName: aggregateFamily, ColumnQualifier: column,
+			TimeRange: &btpb.TimestampRange{StartTimestampMicros: aggregateTS, EndTimestampMicros: laterTS},
+		}}}, []aggregateCell{{aggregateTS, 456}}},
+		{"DeleteFromFamily", &btpb.Mutation{Mutation: &btpb.Mutation_DeleteFromFamily_{DeleteFromFamily: &btpb.Mutation_DeleteFromFamily{
+			FamilyName: aggregateFamily,
+		}}}, []aggregateCell{{aggregateTS, 456}}},
+		{"DeleteFromRow", &btpb.Mutation{Mutation: &btpb.Mutation_DeleteFromRow_{DeleteFromRow: &btpb.Mutation_DeleteFromRow{}}}, nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s, tbl := newAggregateTable(t, minAggregate())
+			mutate(t, s, tbl, addToCell(456))
+			mutate(t, s, tbl, setCellIn(plainFamily, 456))
+			mutate(t, s, tbl, tc.mutation)
+			if got := readCells(t, s, tbl, inFamily(aggregateFamily)); len(got) != 0 {
+				t.Errorf("%s: got cells %v, want none", aggregateFamily, got)
+			}
+			if got := readCells(t, s, tbl, inFamily(plainFamily)); !slices.Equal(got, tc.wantPlain) {
+				t.Errorf("%s: got cells %v, want %v", plainFamily, got, tc.wantPlain)
+			}
+		})
 	}
 }
 
