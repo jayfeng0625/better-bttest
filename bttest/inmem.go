@@ -1115,6 +1115,20 @@ func (s *server) MutateRows(req *btpb.MutateRowsRequest, stream btpb.Bigtable_Mu
 
 	fs := tbl.columnFamilies()
 
+	// Production fails every entry, each with its own row, when any entry does not fit its family types.
+	for _, entry := range req.Entries {
+		if checkFamilyTypes(req.TableName, entry.RowKey, entry.Mutations, fs) == nil {
+			continue
+		}
+		for i, entry := range req.Entries {
+			res.Entries[i] = &btpb.MutateRowsResponse_Entry{
+				Index:  int64(i),
+				Status: status.Convert(familyTypeMismatch(req.TableName, entry.RowKey)).Proto(),
+			}
+		}
+		return stream.Send(res)
+	}
+
 	for i, entry := range req.Entries {
 		r := tbl.mutableRow(string(entry.RowKey))
 		r.mu.Lock()

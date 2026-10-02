@@ -26,8 +26,12 @@ func checkFamilyTypes(tableName string, rowKey []byte, muts []*btpb.Mutation, fs
 			continue
 		}
 		if cf, ok := fs[family]; ok && (cf.valueType.GetAggregateType() != nil) != aggregate {
-			return status.Errorf(codes.InvalidArgument, "Error while mutating the row '%s' (%s) : Column family type mismatch", rowKey, tableName)
+			return familyTypeMismatch(tableName, rowKey)
 		}
 	}
 	return nil
+}
+
+func familyTypeMismatch(tableName string, rowKey []byte) error {
+	return status.Errorf(codes.InvalidArgument, "Error while mutating the row '%s' (%s) : Column family type mismatch", rowKey, tableName)
 }

@@ -10,6 +10,8 @@ import (
 
 	btapb "cloud.google.com/go/bigtable/admin/apiv2/adminpb"
 	btpb "cloud.google.com/go/bigtable/apiv2/bigtablepb"
+	statpb "google.golang.org/genproto/googleapis/rpc/status"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -183,6 +185,49 @@ func TestMutateRowRejectsFamilyTypeMismatch(t *testing.T) {
 	}
 }
 
+// Production fails every entry of a MutateRows batch, each with its own row, when any entry has a family type
+// mismatch. The RPC returns OK and writes nothing.
+func TestMutateRowsFailsBatchOnFamilyTypeMismatch(t *testing.T) {
+	addToPlain := addToCell(456)
+	addToPlain.GetAddToCell().FamilyName = plainFamily
+	tests := []struct {
+		name    string
+		entries []*btpb.MutateRowsRequest_Entry
+	}{
+		{"SetCell on an aggregate family, then a valid entry", []*btpb.MutateRowsRequest_Entry{
+			{RowKey: []byte("bad"), Mutations: []*btpb.Mutation{setCellIn(aggregateFamily, 456)}},
+			{RowKey: []byte("good"), Mutations: []*btpb.Mutation{addToCell(456)}},
+		}},
+		{"a valid entry, then SetCell on an aggregate family", []*btpb.MutateRowsRequest_Entry{
+			{RowKey: []byte("good"), Mutations: []*btpb.Mutation{setCellIn(plainFamily, 456)}},
+			{RowKey: []byte("bad"), Mutations: []*btpb.Mutation{setCellIn(aggregateFamily, 456)}},
+		}},
+		{"AddToCell on a plain family, then a valid entry", []*btpb.MutateRowsRequest_Entry{
+			{RowKey: []byte("bad"), Mutations: []*btpb.Mutation{addToPlain}},
+			{RowKey: []byte("good"), Mutations: []*btpb.Mutation{setCellIn(plainFamily, 456)}},
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s, tbl := newAggregateTable(t, minAggregate())
+			stream := &mutateRowsRecorder{}
+			if err := s.MutateRows(&btpb.MutateRowsRequest{TableName: tbl, Entries: tc.entries}, stream); err != nil {
+				t.Fatal(err)
+			}
+			for i, entry := range tc.entries {
+				got := stream.status(i)
+				want := familyTypeMismatchMessage(tbl, string(entry.RowKey))
+				if got.GetCode() != int32(codes.InvalidArgument) || got.GetMessage() != want {
+					t.Errorf("entry %d: got status %v, want code %d and message %q", i, got, codes.InvalidArgument, want)
+				}
+			}
+			if got := readCells(t, s, tbl, nil); len(got) != 0 {
+				t.Errorf("got cells %v, want none", got)
+			}
+		})
+	}
+}
+
 const (
 	aggregateFamily = "agg"
 	plainFamily     = "plain"
@@ -296,4 +341,23 @@ func wantStatus(t *testing.T, err error, code codes.Code, message string) {
 	if got := status.Convert(err).Message(); got != message {
 		t.Errorf("got message %q, want %q", got, message)
 	}
+}
+
+type mutateRowsRecorder struct {
+	grpc.ServerStream
+	entries []*btpb.MutateRowsResponse_Entry
+}
+
+func (r *mutateRowsRecorder) Send(res *btpb.MutateRowsResponse) error {
+	r.entries = append(r.entries, res.Entries...)
+	return nil
+}
+
+func (r *mutateRowsRecorder) status(index int) *statpb.Status {
+	for _, e := range r.entries {
+		if e.Index == int64(index) {
+			return e.Status
+		}
+	}
+	return nil
 }
