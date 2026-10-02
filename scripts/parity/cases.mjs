@@ -117,10 +117,11 @@ const afterSeed = async (name, seed, call) => {
 
 const cases = {}
 const run = async (name, fn) => {
+    const caseName = `${AGG}: ${name}`
     try {
-        cases[`${AGG}: ${name}`] = await fn()
+        cases[caseName] = await fn()
     } catch (err) {
-        cases[`${AGG}: ${name}`] = { caseError: errorOf(err) }
+        cases[caseName] = { caseError: errorOf(err) }
     }
     writeFileSync(out, JSON.stringify(cases, null, 2).replaceAll(runId, '<run>'))
 }
@@ -131,10 +132,10 @@ const seedBoth = [addToCell(AGG), setCell(PLAIN)]
 
 // An application's write and read paths.
 await run('AddToCell merges at one timestamp', () =>
-    steps('merge-add', [
-        ['first write 456', [addToCell(AGG)]],
-        ['later write 678', [addToCell(AGG, { input: { intValue: 678 } })]],
-        ['earlier value 123', [addToCell(AGG, { input: { intValue: 123 } })]],
+    steps('one-ts-add', [
+        ['AddToCell 456', [addToCell(AGG)]],
+        ['AddToCell 123', [addToCell(AGG, { input: { intValue: 123 } })]],
+        ['AddToCell 789', [addToCell(AGG, { input: { intValue: 789 } })]],
     ]),
 )
 await run('row write and latest-cell read', () =>
@@ -172,10 +173,10 @@ await run('AddToCell at two timestamps', () =>
     ]),
 )
 await run('MergeToCell merges at one timestamp', () =>
-    steps('merge-merge', [
+    steps('one-ts-merge', [
         ['MergeToCell 456', [mergeToCell(AGG)]],
-        ['MergeToCell 678', [mergeToCell(AGG, { input: { bytesValue: be(678) } })]],
         ['MergeToCell 123', [mergeToCell(AGG, { input: { bytesValue: be(123) } })]],
+        ['MergeToCell 789', [mergeToCell(AGG, { input: { bytesValue: be(789) } })]],
     ]),
 )
 await run('AddToCell compares negative values as signed', () =>
@@ -259,7 +260,7 @@ await run('CheckAndMutateRow AddToCell with a bytes input in the branch it skips
     afterSeed('cam-input-skipped', seedPlain, (n) => checkAndMutateRow(n, { trueMutations: [setCell(PLAIN)], falseMutations: [addToCell(AGG, intAsBytes)] })),
 )
 
-// NULL inputs: an input with no kind, or no input at all.
+// NULL inputs: an input with no kind, or no input at all. They crash Google's stock emulator, so they run last.
 for (const [label, write] of [
     ['AddToCell', addToCell],
     ['MergeToCell', mergeToCell],

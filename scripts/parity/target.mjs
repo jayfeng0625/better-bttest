@@ -25,6 +25,12 @@ for (const [family, aggregator] of [
 if (!families[PLAIN] || families[PLAIN].valueType) {
     problems.push(`${PLAIN} must be a family with no value type, got ${JSON.stringify(families[PLAIN] ?? null)}`)
 }
+// run.sh gives the emulators' families GC rule never, so the real table's need it too.
+for (const family of [MIN, MAX, PLAIN]) {
+    if (families[family]?.gcRule?.rule) {
+        problems.push(`${family} must have GC rule never, got ${JSON.stringify(families[family].gcRule)}`)
+    }
+}
 if (problems.length) {
     console.error(problems.join('\n'))
     process.exit(2)

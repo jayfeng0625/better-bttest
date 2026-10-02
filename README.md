@@ -58,7 +58,7 @@ The files under `bttest` and `cmd/emulator` are modified from upstream. The git 
 `scripts/parity/run.sh` runs the same cases against a real Bigtable table, the emulator image built from this checkout, and Google's stock emulator.
 It prints a diff for each case where an emulator differs from the real table, then a table of every case.
 It needs Docker, and Application Default Credentials that can write to the table, so CI does not run it.
-The table needs an int64 MIN aggregate family, an int64 MAX aggregate family, and a family with no value type:
+The table needs an int64 MIN aggregate family, an int64 MAX aggregate family, and a family with no value type, each with GC rule `never`:
 
 ```sh
 PARITY_PROJECT=<project> PARITY_INSTANCE=<instance> PARITY_TABLE=<table> \
