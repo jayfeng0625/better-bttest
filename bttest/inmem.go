@@ -2004,6 +2004,10 @@ func newColumnFamily(name string, order uint64, cf *btapb.ColumnFamily) *columnF
 					newInt := int64(binary.BigEndian.Uint64(newVal))
 					return binary.BigEndian.AppendUint64([]byte{}, uint64(existingInt+newInt))
 				}
+			case *btapb.Type_Aggregate_Min_:
+				updateFn = mergeMin
+			case *btapb.Type_Aggregate_Max_:
+				updateFn = mergeMax
 			}
 		default:
 		}
