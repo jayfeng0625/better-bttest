@@ -1,0 +1,9 @@
+# A setup that runs Google's emulator in a container named bigtable on port
+# 8086 can stop that container and start this one in its place.
+services:
+  bigtable:
+    build: .
+    image: better-bttest
+    container_name: bigtable
+    ports:
+      - '127.0.0.1:8086:8086'
