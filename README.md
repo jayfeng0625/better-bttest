@@ -42,7 +42,9 @@ services:
     build:
       context: <path to this checkout>
       target: init
-    depends_on: [bigtable]
+    depends_on:
+      bigtable:
+        condition: service_healthy
     environment:
       BIGTABLE_EMULATOR_HOST: bigtable:8086
     volumes:
