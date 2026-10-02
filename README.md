@@ -47,7 +47,7 @@ services:
       BIGTABLE_EMULATOR_HOST: bigtable:8086
     volumes:
       - ./create-tables.sh:/create-tables.sh:ro
-    command: ["/create-tables.sh"]
+    command: ["bash", "/create-tables.sh"]
 ```
 
 `cbt` reads `BIGTABLE_EMULATOR_HOST` and needs no credentials.
