@@ -1082,6 +1082,9 @@ func (s *server) MutateRow(ctx context.Context, req *btpb.MutateRowRequest) (*bt
 		return nil, status.Errorf(codes.NotFound, "table %q not found", req.TableName)
 	}
 	fs := tbl.columnFamilies()
+	if err := checkFamilyTypes(req.TableName, req.RowKey, req.Mutations, fs); err != nil {
+		return nil, err
+	}
 	r := tbl.mutableRow(string(req.RowKey))
 	r.mu.Lock()
 	defer r.mu.Unlock()

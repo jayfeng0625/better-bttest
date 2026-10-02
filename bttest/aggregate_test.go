@@ -151,8 +151,41 @@ func TestMergeToCellRejectsRawValueInput(t *testing.T) {
 	}
 }
 
+// Production rejects a mutation that does not fit its family's type and writes nothing.
+func TestMutateRowRejectsFamilyTypeMismatch(t *testing.T) {
+	addToPlain := addToCell(456)
+	addToPlain.GetAddToCell().FamilyName = plainFamily
+	mergeToPlain := mergeToCell(456)
+	mergeToPlain.GetMergeToCell().FamilyName = plainFamily
+	tests := []struct {
+		name      string
+		mutations []*btpb.Mutation
+	}{
+		{"SetCell on an aggregate family", []*btpb.Mutation{setCellIn(aggregateFamily, 456)}},
+		{"AddToCell on a plain family", []*btpb.Mutation{addToPlain}},
+		{"MergeToCell on a plain family", []*btpb.Mutation{mergeToPlain}},
+		{"AddToCell, then SetCell on an aggregate family", []*btpb.Mutation{addToCell(456), setCellIn(aggregateFamily, 456)}},
+		{"SetCell on a plain family, then on an aggregate family", []*btpb.Mutation{setCellIn(plainFamily, 456), setCellIn(aggregateFamily, 456)}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s, tbl := newAggregateTable(t, minAggregate())
+			_, err := s.MutateRow(context.Background(), &btpb.MutateRowRequest{
+				TableName: tbl,
+				RowKey:    []byte("row"),
+				Mutations: tc.mutations,
+			})
+			wantStatus(t, err, codes.InvalidArgument, familyTypeMismatchMessage(tbl, "row"))
+			if got := readCells(t, s, tbl, nil); len(got) != 0 {
+				t.Errorf("got cells %v, want none", got)
+			}
+		})
+	}
+}
+
 const (
 	aggregateFamily = "agg"
+	plainFamily     = "plain"
 	aggregateColumn = "col"
 	aggregateTS     = microsPerMilli
 	laterTS         = 2 * microsPerMilli
@@ -198,6 +231,15 @@ func addToCellAt(ts, v int64) *btpb.Mutation {
 	}}}
 }
 
+func setCellIn(family string, v int64) *btpb.Mutation {
+	return &btpb.Mutation{Mutation: &btpb.Mutation_SetCell_{SetCell: &btpb.Mutation_SetCell{
+		FamilyName:      family,
+		ColumnQualifier: []byte(aggregateColumn),
+		TimestampMicros: aggregateTS,
+		Value:           binary.BigEndian.AppendUint64(nil, uint64(v)),
+	}}}
+}
+
 func newAggregateTable(t *testing.T, aggregator *btapb.Type_Aggregate) (*server, string) {
 	t.Helper()
 	s := &server{tables: make(map[string]*table)}
@@ -206,6 +248,7 @@ func newAggregateTable(t *testing.T, aggregator *btapb.Type_Aggregate) (*server,
 		TableId: "t",
 		Table: &btapb.Table{ColumnFamilies: map[string]*btapb.ColumnFamily{
 			aggregateFamily: {ValueType: &btapb.Type{Kind: &btapb.Type_AggregateType{AggregateType: aggregator}}},
+			plainFamily:     {},
 		}},
 	})
 	if err != nil {
@@ -239,4 +282,18 @@ func readCells(t *testing.T, s *server, tbl string, filter *btpb.RowFilter) []ag
 		}
 	}
 	return cells
+}
+
+func familyTypeMismatchMessage(tbl, row string) string {
+	return "Error while mutating the row '" + row + "' (" + tbl + ") : Column family type mismatch"
+}
+
+func wantStatus(t *testing.T, err error, code codes.Code, message string) {
+	t.Helper()
+	if got := status.Code(err); got != code {
+		t.Errorf("got code %v, want %v", got, code)
+	}
+	if got := status.Convert(err).Message(); got != message {
+		t.Errorf("got message %q, want %q", got, message)
+	}
 }
