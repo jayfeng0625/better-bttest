@@ -1241,7 +1241,10 @@ func applyMutations(tbl *table, r *row, muts []*btpb.Mutation, fs map[string]*co
 			col := string(add.GetColumnQualifier().GetRawValue())
 
 			var value []byte
-			switch v := add.Input.Kind.(type) {
+			switch v := add.GetInput().GetKind().(type) {
+			case nil:
+				// Production adds a NULL input as 0.
+				value = encodeInt64(0)
 			case *btpb.Value_IntValue:
 				value = binary.BigEndian.AppendUint64(value, uint64(v.IntValue))
 			default:
@@ -1272,7 +1275,10 @@ func applyMutations(tbl *table, r *row, muts []*btpb.Mutation, fs map[string]*co
 			col := string(add.GetColumnQualifier().GetRawValue())
 
 			var value []byte
-			switch v := add.Input.Kind.(type) {
+			switch v := add.GetInput().GetKind().(type) {
+			case nil:
+				// Production ignores a NULL input.
+				continue
 			case *btpb.Value_BytesValue:
 				value = v.BytesValue
 			default:

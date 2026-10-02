@@ -102,6 +102,36 @@ func TestAggregateWriteAtNewTimestampStartsCell(t *testing.T) {
 	}
 }
 
+// Production adds a NULL AddToCell input as 0.
+func TestAddToCellWithNoInputAddsZero(t *testing.T) {
+	s, tbl := newAggregateTable(t, minAggregate())
+	mutate(t, s, tbl, addToCell(456))
+	m := addToCell(0)
+	m.GetAddToCell().Input = nil
+	mutate(t, s, tbl, m)
+	want := []aggregateCell{{aggregateTS, 0}}
+	if got := readCells(t, s, tbl, nil); !slices.Equal(got, want) {
+		t.Errorf("got cells %v, want %v", got, want)
+	}
+}
+
+// Production ignores a NULL MergeToCell input.
+func TestMergeToCellWithNoInputHasNoEffect(t *testing.T) {
+	s, tbl := newAggregateTable(t, minAggregate())
+	noInput := mergeToCell(0)
+	noInput.GetMergeToCell().Input = nil
+	mutate(t, s, tbl, noInput)
+	if got := readCells(t, s, tbl, nil); len(got) != 0 {
+		t.Errorf("on an empty cell: got cells %v, want none", got)
+	}
+	mutate(t, s, tbl, mergeToCell(456))
+	mutate(t, s, tbl, noInput)
+	want := []aggregateCell{{aggregateTS, 456}}
+	if got := readCells(t, s, tbl, nil); !slices.Equal(got, want) {
+		t.Errorf("on 456: got cells %v, want %v", got, want)
+	}
+}
+
 // Production accepts a MergeToCell input only as bytes_value.
 func TestMergeToCellRejectsRawValueInput(t *testing.T) {
 	s, tbl := newAggregateTable(t, minAggregate())
