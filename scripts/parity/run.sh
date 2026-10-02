@@ -10,7 +10,12 @@
 # Exits 0 when every case matches, 1 on any difference, and 2 when the login or the target is not usable.
 set -euo pipefail
 
-: "${PARITY_PROJECT:?}" "${PARITY_INSTANCE:?}" "${PARITY_TABLE:?}" "${PARITY_AGG_FAMILY:?}" "${PARITY_PLAIN_FAMILY:?}"
+for var in PARITY_PROJECT PARITY_INSTANCE PARITY_TABLE PARITY_AGG_FAMILY PARITY_PLAIN_FAMILY; do
+    if [ -z "${!var:-}" ]; then
+        echo "Set $var. See the usage at the top of $0." >&2
+        exit 2
+    fi
+done
 target=("$PARITY_PROJECT" "$PARITY_INSTANCE" "$PARITY_TABLE")
 families=("$PARITY_AGG_FAMILY" "$PARITY_PLAIN_FAMILY")
 

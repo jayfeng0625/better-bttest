@@ -3,7 +3,13 @@
 import { connect } from './client.mjs'
 
 const [projectId, instanceId, tableId, AGG, PLAIN] = process.argv.slice(2)
-const [metadata] = await connect(projectId, instanceId, tableId).table.getMetadata({ view: 'SCHEMA_VIEW' })
+let metadata
+try {
+    ;[metadata] = await connect(projectId, instanceId, tableId).table.getMetadata({ view: 'SCHEMA_VIEW' })
+} catch (err) {
+    console.error(`Cannot read the schema of ${tableId}: ${err.message}`)
+    process.exit(2)
+}
 const families = metadata.columnFamilies
 
 const problems = []
