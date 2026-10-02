@@ -24,6 +24,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"syscall"
 
 	"github.com/jayfeng0625/better-bttest/bttest"
 	"google.golang.org/grpc"
@@ -57,7 +58,7 @@ func main() {
 		laddr = fmt.Sprintf("%s:%d", *host, *port)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	srv, err := bttest.NewServer(laddr, opts...)
