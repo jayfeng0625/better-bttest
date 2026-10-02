@@ -1,0 +1,9 @@
+# firecrest's start-local-bigtable.sh skips its own emulator when a container
+# named bigtable is running, so firecrest's scripts and tests use this one.
+services:
+  bigtable:
+    build: .
+    image: better-bttest
+    container_name: bigtable
+    ports:
+      - '127.0.0.1:8086:8086'
