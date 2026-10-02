@@ -4,6 +4,7 @@ package bttest
 
 import (
 	"context"
+	"encoding/binary"
 	"slices"
 	"testing"
 
@@ -122,7 +123,7 @@ func mergeToCell(v int64) *btpb.Mutation {
 		FamilyName:      aggregateFamily,
 		ColumnQualifier: &btpb.Value{Kind: &btpb.Value_RawValue{RawValue: []byte(aggregateColumn)}},
 		Timestamp:       &btpb.Value{Kind: &btpb.Value_RawTimestampMicros{RawTimestampMicros: aggregateTS}},
-		Input:           &btpb.Value{Kind: &btpb.Value_RawValue{RawValue: encodeInt64(v)}},
+		Input:           &btpb.Value{Kind: &btpb.Value_RawValue{RawValue: binary.BigEndian.AppendUint64(nil, uint64(v))}},
 	}}}
 }
 
@@ -176,7 +177,7 @@ func readCells(t *testing.T, s *server, tbl string, filter *btpb.RowFilter) []ag
 	var cells []aggregateCell
 	for _, r := range mock.responses {
 		for _, chunk := range r.Chunks {
-			cells = append(cells, aggregateCell{chunk.TimestampMicros, decodeInt64(chunk.Value)})
+			cells = append(cells, aggregateCell{chunk.TimestampMicros, int64(binary.BigEndian.Uint64(chunk.Value))})
 		}
 	}
 	return cells
