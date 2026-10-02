@@ -10,6 +10,8 @@ import (
 
 	btapb "cloud.google.com/go/bigtable/admin/apiv2/adminpb"
 	btpb "cloud.google.com/go/bigtable/apiv2/bigtablepb"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestAggregateMerges(t *testing.T) {
@@ -56,6 +58,13 @@ func TestAggregateMerges(t *testing.T) {
 			want:       -3,
 		},
 		{
+			name:       "MIN over MergeToCell compares negative values as signed",
+			aggregator: minAggregate(),
+			write:      mergeToCell,
+			inputs:     []int64{5, -3},
+			want:       -3,
+		},
+		{
 			name:       "MAX compares negative values as signed",
 			aggregator: maxAggregate(),
 			write:      mergeToCell,
@@ -93,6 +102,25 @@ func TestAggregateWriteAtNewTimestampStartsCell(t *testing.T) {
 	}
 }
 
+// Production accepts a MergeToCell input only as bytes_value.
+func TestMergeToCellRejectsRawValueInput(t *testing.T) {
+	s, tbl := newAggregateTable(t, minAggregate())
+	m := mergeToCell(123)
+	input := m.GetMergeToCell().Input
+	input.Kind = &btpb.Value_RawValue{RawValue: input.GetBytesValue()}
+	_, err := s.MutateRow(context.Background(), &btpb.MutateRowRequest{
+		TableName: tbl,
+		RowKey:    []byte("row"),
+		Mutations: []*btpb.Mutation{m},
+	})
+	if got := status.Code(err); got != codes.InvalidArgument {
+		t.Errorf("got code %v (%v), want %v", got, err, codes.InvalidArgument)
+	}
+	if got := readCells(t, s, tbl, nil); len(got) != 0 {
+		t.Errorf("got cells %v, want none", got)
+	}
+}
+
 const (
 	aggregateFamily = "agg"
 	aggregateColumn = "col"
@@ -123,7 +151,7 @@ func mergeToCell(v int64) *btpb.Mutation {
 		FamilyName:      aggregateFamily,
 		ColumnQualifier: &btpb.Value{Kind: &btpb.Value_RawValue{RawValue: []byte(aggregateColumn)}},
 		Timestamp:       &btpb.Value{Kind: &btpb.Value_RawTimestampMicros{RawTimestampMicros: aggregateTS}},
-		Input:           &btpb.Value{Kind: &btpb.Value_RawValue{RawValue: binary.BigEndian.AppendUint64(nil, uint64(v))}},
+		Input:           &btpb.Value{Kind: &btpb.Value_BytesValue{BytesValue: binary.BigEndian.AppendUint64(nil, uint64(v))}},
 	}}}
 }
 

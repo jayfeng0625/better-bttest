@@ -1273,10 +1273,10 @@ func applyMutations(tbl *table, r *row, muts []*btpb.Mutation, fs map[string]*co
 
 			var value []byte
 			switch v := add.Input.Kind.(type) {
-			case *btpb.Value_RawValue:
-				value = v.RawValue
+			case *btpb.Value_BytesValue:
+				value = v.BytesValue
 			default:
-				return fmt.Errorf("only []bytes values are supported")
+				return status.Errorf(codes.InvalidArgument, "Error in field 'input' : must use `bytes_value`")
 			}
 
 			newCell := cell{ts: ts, value: value}

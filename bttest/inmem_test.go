@@ -2090,7 +2090,7 @@ func TestMutateRowsAggregate_MergeToCell(t *testing.T) {
 				FamilyName:      "sum",
 				ColumnQualifier: &btpb.Value{Kind: &btpb.Value_RawValue{RawValue: []byte("col1")}},
 				Timestamp:       &btpb.Value{Kind: &btpb.Value_RawTimestampMicros{RawTimestampMicros: 0}},
-				Input:           &btpb.Value{Kind: &btpb.Value_RawValue{RawValue: binary.BigEndian.AppendUint64([]byte{}, 1)}},
+				Input:           &btpb.Value{Kind: &btpb.Value_BytesValue{BytesValue: binary.BigEndian.AppendUint64([]byte{}, 1)}},
 			}},
 		}},
 	})
@@ -2107,7 +2107,7 @@ func TestMutateRowsAggregate_MergeToCell(t *testing.T) {
 				FamilyName:      "sum",
 				ColumnQualifier: &btpb.Value{Kind: &btpb.Value_RawValue{RawValue: []byte("col1")}},
 				Timestamp:       &btpb.Value{Kind: &btpb.Value_RawTimestampMicros{RawTimestampMicros: 0}},
-				Input:           &btpb.Value{Kind: &btpb.Value_RawValue{RawValue: binary.BigEndian.AppendUint64([]byte{}, 2)}},
+				Input:           &btpb.Value{Kind: &btpb.Value_BytesValue{BytesValue: binary.BigEndian.AppendUint64([]byte{}, 2)}},
 			}},
 		}},
 	})
