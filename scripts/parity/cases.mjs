@@ -1,7 +1,7 @@
 // Run every parity case against one target and write the results as JSON, with the run id replaced by <run>.
 // The file is rewritten after each case, so it keeps the finished cases if the target dies.
 // Usage: node cases.mjs <out.json> <project> <instance> <table> <aggregate family> <plain family>
-// The aggregate family must be an int64 MIN aggregate.
+// The aggregate family must be an int64 MIN or MAX aggregate. Each case name starts with the aggregate family's name.
 import { writeFileSync } from 'node:fs'
 import { caseKey, connect } from './client.mjs'
 
@@ -118,9 +118,9 @@ const afterSeed = async (name, seed, call) => {
 const cases = {}
 const run = async (name, fn) => {
     try {
-        cases[name] = await fn()
+        cases[`${AGG}: ${name}`] = await fn()
     } catch (err) {
-        cases[name] = { caseError: errorOf(err) }
+        cases[`${AGG}: ${name}`] = { caseError: errorOf(err) }
     }
     writeFileSync(out, JSON.stringify(cases, null, 2).replaceAll(runId, '<run>'))
 }
@@ -130,8 +130,8 @@ const seedPlain = [setCell(PLAIN)]
 const seedBoth = [addToCell(AGG), setCell(PLAIN)]
 
 // An application's write and read paths.
-await run('AddToCell keeps the minimum', () =>
-    steps('min', [
+await run('AddToCell merges at one timestamp', () =>
+    steps('merge-add', [
         ['first write 456', [addToCell(AGG)]],
         ['later write 678', [addToCell(AGG, { input: { intValue: 678 } })]],
         ['earlier value 123', [addToCell(AGG, { input: { intValue: 123 } })]],
@@ -171,11 +171,23 @@ await run('AddToCell at two timestamps', () =>
         ['123 at 2000', [addToCell(AGG, { input: { intValue: 123 }, ts: 2000 })]],
     ]),
 )
-await run('MergeToCell keeps the minimum', () =>
-    steps('merge-min', [
+await run('MergeToCell merges at one timestamp', () =>
+    steps('merge-merge', [
         ['MergeToCell 456', [mergeToCell(AGG)]],
         ['MergeToCell 678', [mergeToCell(AGG, { input: { bytesValue: be(678) } })]],
         ['MergeToCell 123', [mergeToCell(AGG, { input: { bytesValue: be(123) } })]],
+    ]),
+)
+await run('AddToCell compares negative values as signed', () =>
+    steps('signed-add', [
+        ['AddToCell -3', [addToCell(AGG, { input: { intValue: -3 } })]],
+        ['AddToCell 5', [addToCell(AGG, { input: { intValue: 5 } })]],
+    ]),
+)
+await run('MergeToCell compares negative values as signed', () =>
+    steps('signed-merge', [
+        ['MergeToCell -3', [mergeToCell(AGG, { input: { bytesValue: be(-3) } })]],
+        ['MergeToCell 5', [mergeToCell(AGG, { input: { bytesValue: be(5) } })]],
     ]),
 )
 
@@ -233,6 +245,7 @@ const intAsBytes = { input: { bytesValue: be(456) } }
 const bytesAsInt = { input: { intValue: 456 } }
 await run('MutateRow AddToCell with a bytes input', () => mutateRowCase('add-bytes', [], [addToCell(AGG, intAsBytes)]))
 await run('MutateRow MergeToCell with an int input', () => mutateRowCase('merge-int', [], [mergeToCell(AGG, bytesAsInt)]))
+await run('MutateRow MergeToCell with a raw input', () => mutateRowCase('merge-raw', [], [mergeToCell(AGG, { input: { rawValue: be(456) } })]))
 await run('MutateRow SetCell on plain, then AddToCell with a bytes input', () =>
     mutateRowCase('input-second', [], [setCell(PLAIN), addToCell(AGG, intAsBytes)]),
 )

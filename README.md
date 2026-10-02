@@ -55,17 +55,19 @@ The files under `bttest` and `cmd/emulator` are modified from upstream. The git 
 
 ## Parity with production
 
-`scripts/parity/run.sh` runs the same cases against a real Bigtable table and against the emulator built from this checkout, and prints a diff for each case that differs.
-It needs Application Default Credentials that can write to the table, so CI does not run it.
-The table needs an int64 MIN aggregate family and a family with no value type:
+`scripts/parity/run.sh` runs the same cases against a real Bigtable table, the emulator image built from this checkout, and Google's stock emulator.
+It prints a diff for each case where an emulator differs from the real table, then a table of every case.
+It needs Docker, and Application Default Credentials that can write to the table, so CI does not run it.
+The table needs an int64 MIN aggregate family, an int64 MAX aggregate family, and a family with no value type:
 
 ```sh
 PARITY_PROJECT=<project> PARITY_INSTANCE=<instance> PARITY_TABLE=<table> \
-PARITY_AGG_FAMILY=<aggregate family> PARITY_PLAIN_FAMILY=<plain family> \
+PARITY_MIN_FAMILY=<MIN family> PARITY_MAX_FAMILY=<MAX family> PARITY_PLAIN_FAMILY=<plain family> \
 scripts/parity/run.sh
 ```
 
-It exits 0 when every case matches, 1 on a difference, and 2 when the login or the table is not usable.
+It exits 0 when every case matches on this checkout's emulator, 1 on a difference there, and 2 when the login or the table is not usable.
+A stock emulator difference only shows in the report.
 It deletes the rows it wrote, even after a failure or an interrupt.
 
 ## License
