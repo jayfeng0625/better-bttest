@@ -25,7 +25,7 @@ import (
 	"os"
 	"os/signal"
 
-	"cloud.google.com/go/bigtable/bttest"
+	"github.com/jayfeng0625/better-bttest/bttest"
 	"google.golang.org/grpc"
 )
 

@@ -21,7 +21,7 @@ import (
 	"log"
 
 	"cloud.google.com/go/bigtable"
-	"cloud.google.com/go/bigtable/bttest"
+	"github.com/jayfeng0625/better-bttest/bttest"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
