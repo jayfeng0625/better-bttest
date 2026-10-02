@@ -38,6 +38,21 @@ go run ./cmd/emulator -host 0.0.0.0 -port 8086
 
 Point a client at it with `BIGTABLE_EMULATOR_HOST=localhost:8086`.
 
+## Parity with production
+
+`scripts/parity/run.sh` runs the same cases against a real Bigtable table and against the emulator built from this checkout, and prints a diff for each case that differs.
+It needs Application Default Credentials that can write to the table, so CI does not run it.
+The table needs an int64 MIN aggregate family and a family with no value type:
+
+```sh
+PARITY_PROJECT=<project> PARITY_INSTANCE=<instance> PARITY_TABLE=<table> \
+PARITY_AGG_FAMILY=<aggregate family> PARITY_PLAIN_FAMILY=<plain family> \
+scripts/parity/run.sh
+```
+
+It exits 0 when every case matches, 1 on a difference, and 2 when the login or the table is not usable.
+It deletes the rows it wrote, even after a failure or an interrupt.
+
 ## License
 
 Apache License 2.0, as upstream. See `LICENSE`.
