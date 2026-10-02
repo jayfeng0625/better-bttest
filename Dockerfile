@@ -1,13 +1,20 @@
-FROM golang:1.26 AS build
+# The Go stages run on the build platform and cross-compile for the target, so
+# a multi-platform build runs nothing under emulation.
+FROM --platform=$BUILDPLATFORM golang:1.26 AS build
+ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -o /emulator ./cmd/emulator
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /emulator ./cmd/emulator
 
-# cbt has no tagged releases, so this pins a pseudo-version.
-FROM golang:1.26 AS cbt-build
-RUN CGO_ENABLED=0 GOBIN=/out go install -trimpath cloud.google.com/go/cbt@v0.0.0-20260929161620-d553ae611d4e
+# cbt has no tagged releases, so this pins a pseudo-version. go install refuses
+# GOBIN for a cross build and puts the binary in $GOPATH/bin/<os>_<arch>, so
+# the binary moves from whichever directory holds it.
+FROM --platform=$BUILDPLATFORM golang:1.26 AS cbt-build
+ARG TARGETOS TARGETARCH
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go install -trimpath cloud.google.com/go/cbt@v0.0.0-20260929161620-d553ae611d4e \
+    && mkdir /out && find "$(go env GOPATH)/bin" -name cbt -type f -exec mv {} /out/cbt \;
 
 FROM debian:12-slim AS init
 COPY --from=cbt-build /out/cbt /usr/local/bin/cbt

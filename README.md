@@ -62,6 +62,36 @@ cbt -project demo -instance demo createtable events \
     'families=recent:maxage=1s||maxversions=1,lowest:never:intmin'
 ```
 
+### Pull a published image
+
+Each push to `main` publishes both images to GHCR, tagged with the full commit SHA:
+
+- `ghcr.io/jayfeng0625/better-bttest`: the emulator.
+- `ghcr.io/jayfeng0625/better-bttest-init`: bash and `cbt`, from the `init` target.
+
+Each tag is one index holding linux/amd64 and linux/arm64, so one digest serves both platforms.
+The images are private while the repository is, so log in first with a token that has `read:packages`:
+
+```sh
+gh auth token | docker login ghcr.io -u <GitHub user> --password-stdin
+```
+
+Print a commit's index digest:
+
+```sh
+docker buildx imagetools inspect ghcr.io/jayfeng0625/better-bttest:<commit SHA> --format '{{.Manifest.Digest}}'
+```
+
+A compose file then pins each image by digest in place of `build:`:
+
+```yaml
+services:
+  bigtable:
+    image: ghcr.io/jayfeng0625/better-bttest@sha256:<digest>
+  bigtable-init:
+    image: ghcr.io/jayfeng0625/better-bttest-init@sha256:<digest>
+```
+
 ### Use it in Go tests
 
 A Go test can run the emulator in its own process, with no Docker.
