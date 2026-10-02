@@ -232,16 +232,15 @@ func TestMutateRowsFailsBatchOnFamilyTypeMismatch(t *testing.T) {
 // with cells takes the true branch.
 func TestCheckAndMutateRowChecksFamilyTypesInAppliedBranch(t *testing.T) {
 	tests := []struct {
-		name      string
-		req       *btpb.CheckAndMutateRowRequest
-		wantErr   bool
-		wantCells []aggregateCell
+		name    string
+		req     *btpb.CheckAndMutateRowRequest
+		wantErr bool
+		wantAgg []aggregateCell
 	}{
 		{
-			name:      "SetCell on an aggregate family in the applied branch",
-			req:       &btpb.CheckAndMutateRowRequest{TrueMutations: []*btpb.Mutation{setCellIn(aggregateFamily, 789)}},
-			wantErr:   true,
-			wantCells: []aggregateCell{{aggregateTS, 456}},
+			name:    "SetCell on an aggregate family in the applied branch",
+			req:     &btpb.CheckAndMutateRowRequest{TrueMutations: []*btpb.Mutation{setCellIn(aggregateFamily, 789)}},
+			wantErr: true,
 		},
 		{
 			name: "SetCell on an aggregate family in the branch it skips",
@@ -249,7 +248,7 @@ func TestCheckAndMutateRowChecksFamilyTypesInAppliedBranch(t *testing.T) {
 				TrueMutations:  []*btpb.Mutation{addToCell(123)},
 				FalseMutations: []*btpb.Mutation{setCellIn(aggregateFamily, 789)},
 			},
-			wantCells: []aggregateCell{{aggregateTS, 123}, {aggregateTS, 456}},
+			wantAgg: []aggregateCell{{aggregateTS, 123}},
 		},
 	}
 	for _, tc := range tests {
@@ -263,8 +262,12 @@ func TestCheckAndMutateRowChecksFamilyTypesInAppliedBranch(t *testing.T) {
 			} else if err != nil || !res.PredicateMatched {
 				t.Errorf("got response %v and error %v, want a matched predicate", res, err)
 			}
-			if got := readCells(t, s, tbl, nil); !slices.Equal(got, tc.wantCells) {
-				t.Errorf("got cells %v, want %v", got, tc.wantCells)
+			if got := readCells(t, s, tbl, inFamily(aggregateFamily)); !slices.Equal(got, tc.wantAgg) {
+				t.Errorf("%s: got cells %v, want %v", aggregateFamily, got, tc.wantAgg)
+			}
+			wantPlain := []aggregateCell{{aggregateTS, 456}}
+			if got := readCells(t, s, tbl, inFamily(plainFamily)); !slices.Equal(got, wantPlain) {
+				t.Errorf("%s: got cells %v, want %v", plainFamily, got, wantPlain)
 			}
 		})
 	}
@@ -404,6 +407,10 @@ func readCells(t *testing.T, s *server, tbl string, filter *btpb.RowFilter) []ag
 		}
 	}
 	return cells
+}
+
+func inFamily(family string) *btpb.RowFilter {
+	return &btpb.RowFilter{Filter: &btpb.RowFilter_FamilyNameRegexFilter{FamilyNameRegexFilter: family}}
 }
 
 func familyTypeMismatchMessage(tbl, row string) string {
