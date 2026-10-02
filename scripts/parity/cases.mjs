@@ -1,9 +1,9 @@
 // Run every parity case against one target and write the results as JSON, with the run id replaced by <run>.
 // The file is rewritten after each case, so it keeps the finished cases if the target dies.
 // Usage: node cases.mjs <out.json> <project> <instance> <table> <aggregate family> <plain family>
-// The aggregate family must be an int64 MIN aggregate. Set BIGTABLE_EMULATOR_HOST to target an emulator.
+// The aggregate family must be an int64 MIN aggregate.
 import { writeFileSync } from 'node:fs'
-import { connect, ROW_PREFIX } from './client.mjs'
+import { caseKey, connect } from './client.mjs'
 
 const [out, projectId, instanceId, tableId, AGG, PLAIN] = process.argv.slice(2)
 const runId = crypto.randomUUID()
@@ -37,7 +37,7 @@ const deleteFromRow = () => ({ deleteFromRow: {} })
 const increment = (family) => ({ familyName: family, columnQualifier: utf8(COL), incrementAmount: 1 })
 const append = (family) => ({ familyName: family, columnQualifier: utf8(COL), appendValue: utf8('x') })
 
-const key = (name) => `${ROW_PREFIX}${runId}#${name}`
+const key = (name) => caseKey(runId, name)
 const errorOf = (err) => ({ code: err.code, details: String(err.details ?? err.message) })
 
 const attempt = async (fn) => {

@@ -1,18 +1,11 @@
 #!/usr/bin/env bash
 # Run the parity cases against a real Bigtable table and against the emulator built from this checkout, and diff the
-# results. It needs Application Default Credentials with write access to the table, so CI cannot run it.
-#
-# Usage:
-#   PARITY_PROJECT=<project> PARITY_INSTANCE=<instance> PARITY_TABLE=<table> \
-#   PARITY_AGG_FAMILY=<int64 MIN aggregate family> PARITY_PLAIN_FAMILY=<family with no value type> \
-#   scripts/parity/run.sh
-#
-# Exits 0 when every case matches, 1 on any difference, and 2 when the login or the target is not usable.
+# results. README.md gives the usage and the exit codes.
 set -euo pipefail
 
 for var in PARITY_PROJECT PARITY_INSTANCE PARITY_TABLE PARITY_AGG_FAMILY PARITY_PLAIN_FAMILY; do
     if [ -z "${!var:-}" ]; then
-        echo "Set $var. See the usage at the top of $0." >&2
+        echo "Set $var. README.md gives the usage." >&2
         exit 2
     fi
 done
