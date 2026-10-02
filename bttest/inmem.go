@@ -57,6 +57,7 @@ import (
 	"net"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -1075,6 +1076,9 @@ func (s *server) MutateRow(ctx context.Context, req *btpb.MutateRowRequest) (*bt
 			"No mutations provided",
 		)
 	}
+	if err := checkInputKinds("Error in field 'Mutation list'", req.Mutations); err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	tbl, ok := s.tables[req.TableName]
 	s.mu.Unlock()
@@ -1082,6 +1086,9 @@ func (s *server) MutateRow(ctx context.Context, req *btpb.MutateRowRequest) (*bt
 		return nil, status.Errorf(codes.NotFound, "table %q not found", req.TableName)
 	}
 	fs := tbl.columnFamilies()
+	if !fitFamilyTypes(req.Mutations, fs) {
+		return nil, familyTypeMismatch(req.TableName, req.RowKey)
+	}
 	r := tbl.mutableRow(string(req.RowKey))
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -1102,6 +1109,12 @@ func (s *server) MutateRows(req *btpb.MutateRowsRequest, stream btpb.Bigtable_Mu
 			"No mutations provided",
 		)
 	}
+	for i, entry := range req.Entries {
+		field := fmt.Sprintf("Error in field 'Entry list' : Error in element #%d : Error in field 'Mutation list'", i)
+		if err := checkInputKinds(field, entry.Mutations); err != nil {
+			return err
+		}
+	}
 	s.mu.Lock()
 	tbl, ok := s.tables[req.TableName]
 	s.mu.Unlock()
@@ -1111,6 +1124,17 @@ func (s *server) MutateRows(req *btpb.MutateRowsRequest, stream btpb.Bigtable_Mu
 	res := &btpb.MutateRowsResponse{Entries: make([]*btpb.MutateRowsResponse_Entry, len(req.Entries))}
 
 	fs := tbl.columnFamilies()
+
+	// Production fails every entry, each with its own row, when any entry does not fit its family types.
+	if slices.ContainsFunc(req.Entries, func(e *btpb.MutateRowsRequest_Entry) bool { return !fitFamilyTypes(e.Mutations, fs) }) {
+		for i, entry := range req.Entries {
+			res.Entries[i] = &btpb.MutateRowsResponse_Entry{
+				Index:  int64(i),
+				Status: status.Convert(familyTypeMismatch(req.TableName, entry.RowKey)).Proto(),
+			}
+		}
+		return stream.Send(res)
+	}
 
 	for i, entry := range req.Entries {
 		r := tbl.mutableRow(string(entry.RowKey))
@@ -1130,6 +1154,12 @@ func (s *server) MutateRows(req *btpb.MutateRowsRequest, stream btpb.Bigtable_Mu
 }
 
 func (s *server) CheckAndMutateRow(ctx context.Context, req *btpb.CheckAndMutateRowRequest) (*btpb.CheckAndMutateRowResponse, error) {
+	if err := checkInputKinds("Error in field 'true mutation list'", req.TrueMutations); err != nil {
+		return nil, err
+	}
+	if err := checkInputKinds("Error in field 'false mutation list'", req.FalseMutations); err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	tbl, ok := s.tables[req.TableName]
 	s.mu.Unlock()
@@ -1166,6 +1196,9 @@ func (s *server) CheckAndMutateRow(ctx context.Context, req *btpb.CheckAndMutate
 		muts = req.TrueMutations
 	}
 
+	if !fitFamilyTypes(muts, fs) {
+		return nil, familyTypeMismatch(req.TableName, req.RowKey)
+	}
 	if err := applyMutations(tbl, r, muts, fs); err != nil {
 		return nil, err
 	}
@@ -1227,9 +1260,6 @@ func applyMutations(tbl *table, r *row, muts []*btpb.Mutation, fs map[string]*co
 			if !ok {
 				return fmt.Errorf("unknown family %q", add.FamilyName)
 			}
-			if cf.valueType == nil || cf.valueType.GetAggregateType() == nil {
-				return fmt.Errorf("illegal attempt to use AddToCell on non-aggregate cell")
-			}
 			// The timestamp must be non-negative and match the table's
 			// granularity.
 			ts := add.Timestamp.GetRawTimestampMicros()
@@ -1240,15 +1270,8 @@ func applyMutations(tbl *table, r *row, muts []*btpb.Mutation, fs map[string]*co
 			fam := add.FamilyName
 			col := string(add.GetColumnQualifier().GetRawValue())
 
-			var value []byte
-			switch v := add.Input.Kind.(type) {
-			case *btpb.Value_IntValue:
-				value = binary.BigEndian.AppendUint64(value, uint64(v.IntValue))
-			default:
-				return fmt.Errorf("only int64 values are supported")
-			}
-
-			newCell := cell{ts: ts, value: value}
+			// Production adds a NULL input as 0.
+			newCell := cell{ts: ts, value: encodeInt64(add.GetInput().GetIntValue())}
 			f := r.getOrCreateFamily(fam, fs[fam].order)
 			f.cells[col] = appendOrReplaceCell(f.cellsByColumn(col), newCell, cf)
 
@@ -1258,9 +1281,6 @@ func applyMutations(tbl *table, r *row, muts []*btpb.Mutation, fs map[string]*co
 			if !ok {
 				return fmt.Errorf("unknown family %q", add.FamilyName)
 			}
-			if cf.valueType == nil || cf.valueType.GetAggregateType() == nil {
-				return fmt.Errorf("illegal attempt to use MergeToCell on non-aggregate cell")
-			}
 			// The timestamp must be non-negative and match the table's
 			// granularity.
 			ts := add.Timestamp.GetRawTimestampMicros()
@@ -1268,18 +1288,14 @@ func applyMutations(tbl *table, r *row, muts []*btpb.Mutation, fs map[string]*co
 				return tbl.invalidTimestampError(ts)
 			}
 
-			fam := add.FamilyName
-			col := string(add.GetColumnQualifier().GetRawValue())
-
-			var value []byte
-			switch v := add.Input.Kind.(type) {
-			case *btpb.Value_RawValue:
-				value = v.RawValue
-			default:
-				return fmt.Errorf("only []bytes values are supported")
+			// Production ignores a NULL input.
+			if add.GetInput().GetKind() == nil {
+				continue
 			}
 
-			newCell := cell{ts: ts, value: value}
+			fam := add.FamilyName
+			col := string(add.GetColumnQualifier().GetRawValue())
+			newCell := cell{ts: ts, value: add.GetInput().GetBytesValue()}
 			f := r.getOrCreateFamily(fam, fs[fam].order)
 			f.cells[col] = appendOrReplaceCell(f.cellsByColumn(col), newCell, cf)
 
@@ -1379,6 +1395,9 @@ func (s *server) ReadModifyWriteRow(ctx context.Context, req *btpb.ReadModifyWri
 	}
 
 	fs := tbl.columnFamilies()
+	if !rulesFitFamilyTypes(req.Rules, fs) {
+		return nil, familyTypeMismatch(req.TableName, req.RowKey)
+	}
 
 	rowKey := string(req.RowKey)
 	r := tbl.mutableRow(rowKey)
@@ -1967,6 +1986,10 @@ func newColumnFamily(name string, order uint64, cf *btapb.ColumnFamily) *columnF
 					newInt := int64(binary.BigEndian.Uint64(newVal))
 					return binary.BigEndian.AppendUint64([]byte{}, uint64(existingInt+newInt))
 				}
+			case *btapb.Type_Aggregate_Min_:
+				updateFn = mergeMin
+			case *btapb.Type_Aggregate_Max_:
+				updateFn = mergeMax
 			}
 		default:
 		}
