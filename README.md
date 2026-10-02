@@ -29,6 +29,37 @@ Scripts that look for the `bigtable` container then reach this one.
 
 Without Docker, run `go run ./cmd/emulator -host 0.0.0.0 -port 8086`.
 
+### Create tables from compose
+
+The Dockerfile's `init` target builds a Debian image with bash and [`cbt`](https://pkg.go.dev/cloud.google.com/go/cbt), about 210 MB unpacked.
+A compose service can build it and run a table script against the emulator:
+
+```yaml
+services:
+  bigtable:
+    build: <path to this checkout>
+  bigtable-init:
+    build:
+      context: <path to this checkout>
+      target: init
+    depends_on: [bigtable]
+    environment:
+      BIGTABLE_EMULATOR_HOST: bigtable:8086
+    volumes:
+      - ./create-tables.sh:/create-tables.sh:ro
+    command: ["/create-tables.sh"]
+```
+
+`cbt` reads `BIGTABLE_EMULATOR_HOST` and needs no credentials.
+Families take cbt's `name:gcrule[:intmin]` form; quote them, since `||` is a shell operator:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+cbt -project demo -instance demo createtable events \
+    'families=recent:maxage=1s||maxversions=1,lowest:never:intmin'
+```
+
 ### Use it in Go tests
 
 A Go test can run the emulator in its own process, with no Docker.
