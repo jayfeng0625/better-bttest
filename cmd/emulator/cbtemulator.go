@@ -42,6 +42,9 @@ const (
 func main() {
 	grpc.EnableTracing = false
 	flag.Parse()
+	if *probeAddr != "" {
+		os.Exit(runProbe(*probeAddr))
+	}
 	opts := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(maxMsgSize),
 		grpc.MaxSendMsgSize(maxMsgSize),

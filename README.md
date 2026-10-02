@@ -13,6 +13,17 @@ This builds the emulator and serves it on `localhost:8086`, in a container named
 Point a client at it with `BIGTABLE_EMULATOR_HOST=localhost:8086`.
 `docker compose down` stops it.
 
+The image declares a healthcheck, so the container reports healthy once the emulator serves.
+A service that needs the emulator can wait for it:
+
+```yaml
+depends_on:
+  bigtable:
+    condition: service_healthy
+```
+
+The healthcheck runs `/emulator -probe localhost:8086`, which lists tables at that address and exits non-zero when the call fails.
+
 To use it in place of Google's emulator in a container named `bigtable` on port 8086, stop that container first.
 Scripts that look for the `bigtable` container then reach this one.
 
