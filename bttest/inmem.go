@@ -1918,43 +1918,6 @@ func (r *row) String() string {
 	return r.key
 }
 
-var gcTypeWarn sync.Once
-
-// applyGC applies the given GC rule to the cells.
-func applyGC(cells []cell, rule *btapb.GcRule) []cell {
-	switch rule := rule.Rule.(type) {
-	default:
-		// TODO(dsymonds): Support GcRule_Intersection_
-		gcTypeWarn.Do(func() {
-			log.Printf("Unsupported GC rule type %T", rule)
-		})
-	case *btapb.GcRule_Union_:
-		for _, sub := range rule.Union.Rules {
-			cells = applyGC(cells, sub)
-		}
-		return cells
-	case *btapb.GcRule_MaxAge:
-		// Timestamps are in microseconds.
-		cutoff := time.Now().UnixNano() / 1e3
-		cutoff -= rule.MaxAge.Seconds * 1e6
-		cutoff -= int64(rule.MaxAge.Nanos) / 1e3
-		// The slice of cells in in descending timestamp order.
-		// This sort.Search will return the index of the first cell whose timestamp is chronologically before the cutoff.
-		si := sort.Search(len(cells), func(i int) bool { return cells[i].ts < cutoff })
-		if si < len(cells) {
-			log.Printf("bttest: GC MaxAge(%v) deleted %d cells.", rule.MaxAge, len(cells)-si)
-		}
-		return cells[:si]
-	case *btapb.GcRule_MaxNumVersions:
-		n := int(rule.MaxNumVersions)
-		if len(cells) > n {
-			cells = cells[:n]
-		}
-		return cells
-	}
-	return cells
-}
-
 type family struct {
 	name     string            // Column family name
 	order    uint64            // Creation order of column family
