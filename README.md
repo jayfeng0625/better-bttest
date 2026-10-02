@@ -5,21 +5,28 @@ It adds the production behaviour that the upstream emulator lacks.
 
 ## Upstream
 
-Forked from tag `bigtable/v1.58.0` (`967a532a6d1f3ffe5210c7f972b82b20ef663c2d`).
+The fork tracks google-cloud-go's bigtable releases.
+The `cloud.google.com/go/bigtable` version in `go.mod` is the release it is on.
 
 | Upstream path | Fork path |
 | --- | --- |
 | `bigtable/bttest` | `bttest` |
 | `bigtable/cmd/emulator` | `cmd/emulator` |
 
-The files keep upstream's names and layout, so an upstream diff applies directly.
-From a google-cloud-go checkout, with `OLD` as the recorded tag and `NEW` as the target:
+The `upstream` branch holds upstream's files unmodified, one commit per imported release.
+`main` merges it, so git has the right base for a 3-way merge.
+
+To move to the latest release, or to a named one:
 
 ```sh
-git diff OLD NEW -- bigtable/bttest bigtable/cmd/emulator | git -C ../better-bttest apply -p2 --3way
+scripts/sync-upstream.sh
+scripts/sync-upstream.sh bigtable/v1.59.0
 ```
 
-Then update the tag above and the `cloud.google.com/go/bigtable` version in `go.mod`.
+The script imports the release onto `upstream` and merges it into a sync branch.
+It moves `go.mod` to the same release, then builds and tests.
+On success it fast-forwards `main`; on a conflict or a failure it stops on the sync branch.
+It pushes nothing: run `git push origin main upstream` after it.
 
 The files under `bttest` and `cmd/emulator` are modified from upstream. The git history records each change.
 
