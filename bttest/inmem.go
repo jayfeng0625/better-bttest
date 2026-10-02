@@ -1183,6 +1183,9 @@ func (s *server) CheckAndMutateRow(ctx context.Context, req *btpb.CheckAndMutate
 		muts = req.TrueMutations
 	}
 
+	if err := checkFamilyTypes(req.TableName, req.RowKey, muts, fs); err != nil {
+		return nil, err
+	}
 	if err := applyMutations(tbl, r, muts, fs); err != nil {
 		return nil, err
 	}
@@ -1402,6 +1405,9 @@ func (s *server) ReadModifyWriteRow(ctx context.Context, req *btpb.ReadModifyWri
 	}
 
 	fs := tbl.columnFamilies()
+	if err := checkRuleFamilies(req.TableName, req.RowKey, req.Rules, fs); err != nil {
+		return nil, err
+	}
 
 	rowKey := string(req.RowKey)
 	r := tbl.mutableRow(rowKey)

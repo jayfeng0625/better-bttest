@@ -32,6 +32,16 @@ func checkFamilyTypes(tableName string, rowKey []byte, muts []*btpb.Mutation, fs
 	return nil
 }
 
+// checkRuleFamilies returns production's error when a ReadModifyWriteRow rule targets an aggregate family.
+func checkRuleFamilies(tableName string, rowKey []byte, rules []*btpb.ReadModifyWriteRule, fs map[string]*columnFamily) error {
+	for _, rule := range rules {
+		if cf, ok := fs[rule.FamilyName]; ok && cf.valueType.GetAggregateType() != nil {
+			return familyTypeMismatch(tableName, rowKey)
+		}
+	}
+	return nil
+}
+
 func familyTypeMismatch(tableName string, rowKey []byte) error {
 	return status.Errorf(codes.InvalidArgument, "Error while mutating the row '%s' (%s) : Column family type mismatch", rowKey, tableName)
 }

@@ -228,6 +228,83 @@ func TestMutateRowsFailsBatchOnFamilyTypeMismatch(t *testing.T) {
 	}
 }
 
+// Production checks family types only in the CheckAndMutateRow branch it applies. With no predicate, a row
+// with cells takes the true branch.
+func TestCheckAndMutateRowChecksFamilyTypesInAppliedBranch(t *testing.T) {
+	tests := []struct {
+		name      string
+		req       *btpb.CheckAndMutateRowRequest
+		wantErr   bool
+		wantCells []aggregateCell
+	}{
+		{
+			name:      "SetCell on an aggregate family in the applied branch",
+			req:       &btpb.CheckAndMutateRowRequest{TrueMutations: []*btpb.Mutation{setCellIn(aggregateFamily, 789)}},
+			wantErr:   true,
+			wantCells: []aggregateCell{{aggregateTS, 456}},
+		},
+		{
+			name: "SetCell on an aggregate family in the branch it skips",
+			req: &btpb.CheckAndMutateRowRequest{
+				TrueMutations:  []*btpb.Mutation{addToCell(123)},
+				FalseMutations: []*btpb.Mutation{setCellIn(aggregateFamily, 789)},
+			},
+			wantCells: []aggregateCell{{aggregateTS, 123}, {aggregateTS, 456}},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s, tbl := newAggregateTable(t, minAggregate())
+			mutate(t, s, tbl, setCellIn(plainFamily, 456))
+			tc.req.TableName, tc.req.RowKey = tbl, []byte("row")
+			res, err := s.CheckAndMutateRow(context.Background(), tc.req)
+			if tc.wantErr {
+				wantStatus(t, err, codes.InvalidArgument, familyTypeMismatchMessage(tbl, "row"))
+			} else if err != nil || !res.PredicateMatched {
+				t.Errorf("got response %v and error %v, want a matched predicate", res, err)
+			}
+			if got := readCells(t, s, tbl, nil); !slices.Equal(got, tc.wantCells) {
+				t.Errorf("got cells %v, want %v", got, tc.wantCells)
+			}
+		})
+	}
+}
+
+// Production rejects a ReadModifyWriteRow rule on an aggregate family and leaves the row unchanged.
+func TestReadModifyWriteRowRejectsAggregateFamily(t *testing.T) {
+	increment := func(family string) *btpb.ReadModifyWriteRule {
+		return &btpb.ReadModifyWriteRule{FamilyName: family, ColumnQualifier: []byte(aggregateColumn), Rule: &btpb.ReadModifyWriteRule_IncrementAmount{IncrementAmount: 1}}
+	}
+	appendTo := func(family string) *btpb.ReadModifyWriteRule {
+		return &btpb.ReadModifyWriteRule{FamilyName: family, ColumnQualifier: []byte(aggregateColumn), Rule: &btpb.ReadModifyWriteRule_AppendValue{AppendValue: []byte("x")}}
+	}
+	tests := []struct {
+		name  string
+		seed  *btpb.Mutation
+		rules []*btpb.ReadModifyWriteRule
+	}{
+		{"increment", addToCell(456), []*btpb.ReadModifyWriteRule{increment(aggregateFamily)}},
+		{"append", addToCell(456), []*btpb.ReadModifyWriteRule{appendTo(aggregateFamily)}},
+		{"increment on an empty cell", nil, []*btpb.ReadModifyWriteRule{increment(aggregateFamily)}},
+		{"increment on a plain family, then on an aggregate family", setCellIn(plainFamily, 456), []*btpb.ReadModifyWriteRule{increment(plainFamily), increment(aggregateFamily)}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s, tbl := newAggregateTable(t, minAggregate())
+			var want []aggregateCell
+			if tc.seed != nil {
+				mutate(t, s, tbl, tc.seed)
+				want = []aggregateCell{{aggregateTS, 456}}
+			}
+			_, err := s.ReadModifyWriteRow(context.Background(), &btpb.ReadModifyWriteRowRequest{TableName: tbl, RowKey: []byte("row"), Rules: tc.rules})
+			wantStatus(t, err, codes.InvalidArgument, familyTypeMismatchMessage(tbl, "row"))
+			if got := readCells(t, s, tbl, nil); !slices.Equal(got, want) {
+				t.Errorf("got cells %v, want %v", got, want)
+			}
+		})
+	}
+}
+
 const (
 	aggregateFamily = "agg"
 	plainFamily     = "plain"
