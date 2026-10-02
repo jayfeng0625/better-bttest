@@ -7,3 +7,8 @@ services:
     container_name: bigtable
     ports:
       - '127.0.0.1:8086:8086'
+    healthcheck:
+      test: ['CMD', '/emulator', '-probe', 'localhost:8086']
+      interval: 2s
+      timeout: 5s
+      retries: 15
