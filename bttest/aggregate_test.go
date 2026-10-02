@@ -27,6 +27,20 @@ func TestAggregateMerges(t *testing.T) {
 			want:       123,
 		},
 		{
+			name:       "MIN over MergeToCell keeps the minimum",
+			aggregator: minAggregate(),
+			write:      mergeToCell,
+			inputs:     []int64{456, 123, 789},
+			want:       123,
+		},
+		{
+			name:       "MAX over AddToCell keeps the maximum",
+			aggregator: maxAggregate(),
+			write:      addToCell,
+			inputs:     []int64{456, 789, 123},
+			want:       789,
+		},
+		{
 			name:       "MAX over MergeToCell keeps the maximum",
 			aggregator: maxAggregate(),
 			write:      mergeToCell,
@@ -79,8 +93,10 @@ func TestAggregateWriteAtNewTimestampStartsCell(t *testing.T) {
 }
 
 const (
-	aggregateTS = microsPerMilli
-	laterTS     = 2 * microsPerMilli
+	aggregateFamily = "agg"
+	aggregateColumn = "col"
+	aggregateTS     = microsPerMilli
+	laterTS         = 2 * microsPerMilli
 )
 
 type aggregateCell struct {
@@ -103,8 +119,8 @@ func maxAggregate() *btapb.Type_Aggregate {
 
 func mergeToCell(v int64) *btpb.Mutation {
 	return &btpb.Mutation{Mutation: &btpb.Mutation_MergeToCell_{MergeToCell: &btpb.Mutation_MergeToCell{
-		FamilyName:      "agg",
-		ColumnQualifier: &btpb.Value{Kind: &btpb.Value_RawValue{RawValue: []byte("col")}},
+		FamilyName:      aggregateFamily,
+		ColumnQualifier: &btpb.Value{Kind: &btpb.Value_RawValue{RawValue: []byte(aggregateColumn)}},
 		Timestamp:       &btpb.Value{Kind: &btpb.Value_RawTimestampMicros{RawTimestampMicros: aggregateTS}},
 		Input:           &btpb.Value{Kind: &btpb.Value_RawValue{RawValue: encodeInt64(v)}},
 	}}}
@@ -116,14 +132,13 @@ func addToCell(v int64) *btpb.Mutation {
 
 func addToCellAt(ts, v int64) *btpb.Mutation {
 	return &btpb.Mutation{Mutation: &btpb.Mutation_AddToCell_{AddToCell: &btpb.Mutation_AddToCell{
-		FamilyName:      "agg",
-		ColumnQualifier: &btpb.Value{Kind: &btpb.Value_RawValue{RawValue: []byte("col")}},
+		FamilyName:      aggregateFamily,
+		ColumnQualifier: &btpb.Value{Kind: &btpb.Value_RawValue{RawValue: []byte(aggregateColumn)}},
 		Timestamp:       &btpb.Value{Kind: &btpb.Value_RawTimestampMicros{RawTimestampMicros: ts}},
 		Input:           &btpb.Value{Kind: &btpb.Value_IntValue{IntValue: v}},
 	}}}
 }
 
-// newAggregateTable creates a table whose family "agg" has the aggregator.
 func newAggregateTable(t *testing.T, aggregator *btapb.Type_Aggregate) (*server, string) {
 	t.Helper()
 	s := &server{tables: make(map[string]*table)}
@@ -131,7 +146,7 @@ func newAggregateTable(t *testing.T, aggregator *btapb.Type_Aggregate) (*server,
 		Parent:  "cluster",
 		TableId: "t",
 		Table: &btapb.Table{ColumnFamilies: map[string]*btapb.ColumnFamily{
-			"agg": {ValueType: &btapb.Type{Kind: &btapb.Type_AggregateType{AggregateType: aggregator}}},
+			aggregateFamily: {ValueType: &btapb.Type{Kind: &btapb.Type_AggregateType{AggregateType: aggregator}}},
 		}},
 	})
 	if err != nil {
@@ -152,8 +167,6 @@ func mutate(t *testing.T, s *server, tbl string, m *btpb.Mutation) {
 	}
 }
 
-// readCells returns the cells that a read of the table with filter returns, in read order.
-// A nil filter reads every version.
 func readCells(t *testing.T, s *server, tbl string, filter *btpb.RowFilter) []aggregateCell {
 	t.Helper()
 	mock := &MockReadRowsServer{}
