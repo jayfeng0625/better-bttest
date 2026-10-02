@@ -53,6 +53,23 @@ func TestGCRules(t *testing.T) {
 			wantAges: []time.Duration{10 * time.Minute, 30 * time.Minute},
 		},
 		{
+			name:     "union keeps a lone future cell",
+			rule:     gcUnion(gcMaxAge(time.Second), gcMaxNumVersions(1)),
+			ages:     []time.Duration{-time.Hour},
+			wantAges: []time.Duration{-time.Hour},
+		},
+		{
+			name:     "union keeps the newer of two future cells",
+			rule:     gcUnion(gcMaxAge(time.Second), gcMaxNumVersions(1)),
+			ages:     []time.Duration{-time.Hour, -2 * time.Hour},
+			wantAges: []time.Duration{-2 * time.Hour},
+		},
+		{
+			name: "union erases a lone cell past its max age",
+			rule: gcUnion(gcMaxAge(time.Second), gcMaxNumVersions(1)),
+			ages: []time.Duration{time.Minute},
+		},
+		{
 			name:     "empty intersection keeps every cell",
 			rule:     gcIntersection(),
 			ages:     []time.Duration{2 * time.Hour, 3 * time.Hour},
