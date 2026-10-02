@@ -57,6 +57,7 @@ import (
 	"net"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -1075,7 +1076,7 @@ func (s *server) MutateRow(ctx context.Context, req *btpb.MutateRowRequest) (*bt
 			"No mutations provided",
 		)
 	}
-	if err := checkInputKinds("Mutation list", req.Mutations); err != nil {
+	if err := checkInputKinds("Error in field 'Mutation list'", req.Mutations); err != nil {
 		return nil, err
 	}
 	s.mu.Lock()
@@ -1085,8 +1086,8 @@ func (s *server) MutateRow(ctx context.Context, req *btpb.MutateRowRequest) (*bt
 		return nil, status.Errorf(codes.NotFound, "table %q not found", req.TableName)
 	}
 	fs := tbl.columnFamilies()
-	if err := checkFamilyTypes(req.TableName, req.RowKey, req.Mutations, fs); err != nil {
-		return nil, err
+	if !fitFamilyTypes(req.Mutations, fs) {
+		return nil, familyTypeMismatch(req.TableName, req.RowKey)
 	}
 	r := tbl.mutableRow(string(req.RowKey))
 	r.mu.Lock()
@@ -1109,8 +1110,9 @@ func (s *server) MutateRows(req *btpb.MutateRowsRequest, stream btpb.Bigtable_Mu
 		)
 	}
 	for i, entry := range req.Entries {
-		if err := checkInputKinds("Mutation list", entry.Mutations); err != nil {
-			return status.Errorf(codes.InvalidArgument, "Error in field 'Entry list' : Error in element #%d : %s", i, status.Convert(err).Message())
+		field := fmt.Sprintf("Error in field 'Entry list' : Error in element #%d : Error in field 'Mutation list'", i)
+		if err := checkInputKinds(field, entry.Mutations); err != nil {
+			return err
 		}
 	}
 	s.mu.Lock()
@@ -1124,10 +1126,7 @@ func (s *server) MutateRows(req *btpb.MutateRowsRequest, stream btpb.Bigtable_Mu
 	fs := tbl.columnFamilies()
 
 	// Production fails every entry, each with its own row, when any entry does not fit its family types.
-	for _, entry := range req.Entries {
-		if checkFamilyTypes(req.TableName, entry.RowKey, entry.Mutations, fs) == nil {
-			continue
-		}
+	if slices.ContainsFunc(req.Entries, func(e *btpb.MutateRowsRequest_Entry) bool { return !fitFamilyTypes(e.Mutations, fs) }) {
 		for i, entry := range req.Entries {
 			res.Entries[i] = &btpb.MutateRowsResponse_Entry{
 				Index:  int64(i),
@@ -1155,10 +1154,10 @@ func (s *server) MutateRows(req *btpb.MutateRowsRequest, stream btpb.Bigtable_Mu
 }
 
 func (s *server) CheckAndMutateRow(ctx context.Context, req *btpb.CheckAndMutateRowRequest) (*btpb.CheckAndMutateRowResponse, error) {
-	if err := checkInputKinds("true mutation list", req.TrueMutations); err != nil {
+	if err := checkInputKinds("Error in field 'true mutation list'", req.TrueMutations); err != nil {
 		return nil, err
 	}
-	if err := checkInputKinds("false mutation list", req.FalseMutations); err != nil {
+	if err := checkInputKinds("Error in field 'false mutation list'", req.FalseMutations); err != nil {
 		return nil, err
 	}
 	s.mu.Lock()
@@ -1197,8 +1196,8 @@ func (s *server) CheckAndMutateRow(ctx context.Context, req *btpb.CheckAndMutate
 		muts = req.TrueMutations
 	}
 
-	if err := checkFamilyTypes(req.TableName, req.RowKey, muts, fs); err != nil {
-		return nil, err
+	if !fitFamilyTypes(muts, fs) {
+		return nil, familyTypeMismatch(req.TableName, req.RowKey)
 	}
 	if err := applyMutations(tbl, r, muts, fs); err != nil {
 		return nil, err
@@ -1261,9 +1260,6 @@ func applyMutations(tbl *table, r *row, muts []*btpb.Mutation, fs map[string]*co
 			if !ok {
 				return fmt.Errorf("unknown family %q", add.FamilyName)
 			}
-			if cf.valueType == nil || cf.valueType.GetAggregateType() == nil {
-				return fmt.Errorf("illegal attempt to use AddToCell on non-aggregate cell")
-			}
 			// The timestamp must be non-negative and match the table's
 			// granularity.
 			ts := add.Timestamp.GetRawTimestampMicros()
@@ -1274,18 +1270,8 @@ func applyMutations(tbl *table, r *row, muts []*btpb.Mutation, fs map[string]*co
 			fam := add.FamilyName
 			col := string(add.GetColumnQualifier().GetRawValue())
 
-			var value []byte
-			switch v := add.GetInput().GetKind().(type) {
-			case nil:
-				// Production adds a NULL input as 0.
-				value = encodeInt64(0)
-			case *btpb.Value_IntValue:
-				value = binary.BigEndian.AppendUint64(value, uint64(v.IntValue))
-			default:
-				return fmt.Errorf("only int64 values are supported")
-			}
-
-			newCell := cell{ts: ts, value: value}
+			// Production adds a NULL input as 0.
+			newCell := cell{ts: ts, value: encodeInt64(add.GetInput().GetIntValue())}
 			f := r.getOrCreateFamily(fam, fs[fam].order)
 			f.cells[col] = appendOrReplaceCell(f.cellsByColumn(col), newCell, cf)
 
@@ -1295,9 +1281,6 @@ func applyMutations(tbl *table, r *row, muts []*btpb.Mutation, fs map[string]*co
 			if !ok {
 				return fmt.Errorf("unknown family %q", add.FamilyName)
 			}
-			if cf.valueType == nil || cf.valueType.GetAggregateType() == nil {
-				return fmt.Errorf("illegal attempt to use MergeToCell on non-aggregate cell")
-			}
 			// The timestamp must be non-negative and match the table's
 			// granularity.
 			ts := add.Timestamp.GetRawTimestampMicros()
@@ -1305,21 +1288,14 @@ func applyMutations(tbl *table, r *row, muts []*btpb.Mutation, fs map[string]*co
 				return tbl.invalidTimestampError(ts)
 			}
 
-			fam := add.FamilyName
-			col := string(add.GetColumnQualifier().GetRawValue())
-
-			var value []byte
-			switch v := add.GetInput().GetKind().(type) {
-			case nil:
-				// Production ignores a NULL input.
+			// Production ignores a NULL input.
+			if add.GetInput().GetKind() == nil {
 				continue
-			case *btpb.Value_BytesValue:
-				value = v.BytesValue
-			default:
-				return status.Errorf(codes.InvalidArgument, "Error in field 'input' : must use `bytes_value`")
 			}
 
-			newCell := cell{ts: ts, value: value}
+			fam := add.FamilyName
+			col := string(add.GetColumnQualifier().GetRawValue())
+			newCell := cell{ts: ts, value: add.GetInput().GetBytesValue()}
 			f := r.getOrCreateFamily(fam, fs[fam].order)
 			f.cells[col] = appendOrReplaceCell(f.cellsByColumn(col), newCell, cf)
 
@@ -1419,8 +1395,8 @@ func (s *server) ReadModifyWriteRow(ctx context.Context, req *btpb.ReadModifyWri
 	}
 
 	fs := tbl.columnFamilies()
-	if err := checkRuleFamilies(req.TableName, req.RowKey, req.Rules, fs); err != nil {
-		return nil, err
+	if !rulesFitFamilyTypes(req.Rules, fs) {
+		return nil, familyTypeMismatch(req.TableName, req.RowKey)
 	}
 
 	rowKey := string(req.RowKey)

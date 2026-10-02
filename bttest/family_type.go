@@ -9,8 +9,9 @@ import (
 )
 
 // checkInputKinds returns production's error when an AddToCell input is not an int_value, or a MergeToCell
-// input is not a bytes_value. A NULL input passes. field names the request's mutation list, as in "Mutation list".
-func checkInputKinds(field string, muts []*btpb.Mutation) error {
+// input is not a bytes_value. A NULL input passes. prefix is the field path production puts before the
+// mutation's index, as in "Error in field 'Mutation list'".
+func checkInputKinds(prefix string, muts []*btpb.Mutation) error {
 	for i, mut := range muts {
 		var want string
 		switch mut := mut.Mutation.(type) {
@@ -28,16 +29,16 @@ func checkInputKinds(field string, muts []*btpb.Mutation) error {
 			}
 		}
 		if want != "" {
-			return status.Errorf(codes.InvalidArgument, "Error in field '%s' : Error in element #%d : Error in field 'input' : must use `%s`", field, i, want)
+			return status.Errorf(codes.InvalidArgument, "%s : Error in element #%d : Error in field 'input' : must use `%s`", prefix, i, want)
 		}
 	}
 	return nil
 }
 
-// checkFamilyTypes returns production's error when a mutation does not fit its family's type.
-// SetCell needs a family with no aggregate type, and AddToCell and MergeToCell need an aggregate family.
-// Deletes fit either. An unknown family is left to applyMutations.
-func checkFamilyTypes(tableName string, rowKey []byte, muts []*btpb.Mutation, fs map[string]*columnFamily) error {
+// fitFamilyTypes reports whether every mutation fits its family's type. SetCell needs a family with no
+// aggregate type, and AddToCell and MergeToCell need an aggregate family. An unknown family is left to
+// applyMutations.
+func fitFamilyTypes(muts []*btpb.Mutation, fs map[string]*columnFamily) bool {
 	for _, mut := range muts {
 		var family string
 		var aggregate bool
@@ -52,22 +53,23 @@ func checkFamilyTypes(tableName string, rowKey []byte, muts []*btpb.Mutation, fs
 			continue
 		}
 		if cf, ok := fs[family]; ok && (cf.valueType.GetAggregateType() != nil) != aggregate {
-			return familyTypeMismatch(tableName, rowKey)
+			return false
 		}
 	}
-	return nil
+	return true
 }
 
-// checkRuleFamilies returns production's error when a ReadModifyWriteRow rule targets an aggregate family.
-func checkRuleFamilies(tableName string, rowKey []byte, rules []*btpb.ReadModifyWriteRule, fs map[string]*columnFamily) error {
+// rulesFitFamilyTypes reports whether every ReadModifyWriteRow rule targets a family with no aggregate type.
+func rulesFitFamilyTypes(rules []*btpb.ReadModifyWriteRule, fs map[string]*columnFamily) bool {
 	for _, rule := range rules {
 		if cf, ok := fs[rule.FamilyName]; ok && cf.valueType.GetAggregateType() != nil {
-			return familyTypeMismatch(tableName, rowKey)
+			return false
 		}
 	}
-	return nil
+	return true
 }
 
+// familyTypeMismatch returns production's error for a mutation that does not fit its family's type.
 func familyTypeMismatch(tableName string, rowKey []byte) error {
 	return status.Errorf(codes.InvalidArgument, "Error while mutating the row '%s' (%s) : Column family type mismatch", rowKey, tableName)
 }

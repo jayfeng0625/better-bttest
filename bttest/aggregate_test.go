@@ -4,7 +4,6 @@ package bttest
 
 import (
 	"context"
-	"encoding/binary"
 	"slices"
 	"testing"
 
@@ -110,9 +109,7 @@ func TestAddToCellWithNullInputAddsZero(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			s, tbl := newAggregateTable(t, minAggregate())
 			mutate(t, s, tbl, addToCell(456))
-			m := addToCell(0)
-			m.GetAddToCell().Input = input
-			mutate(t, s, tbl, m)
+			mutate(t, s, tbl, addToCellWithInput(input))
 			want := []aggregateCell{{aggregateTS, 0}}
 			if got := readCells(t, s, tbl, nil); !slices.Equal(got, want) {
 				t.Errorf("got cells %v, want %v", got, want)
@@ -125,8 +122,7 @@ func TestMergeToCellWithNullInputHasNoEffect(t *testing.T) {
 	for name, input := range nullInputs() {
 		t.Run(name, func(t *testing.T) {
 			s, tbl := newAggregateTable(t, minAggregate())
-			null := mergeToCell(0)
-			null.GetMergeToCell().Input = input
+			null := mergeToCellWithInput(input)
 			mutate(t, s, tbl, null)
 			if got := readCells(t, s, tbl, nil); len(got) != 0 {
 				t.Errorf("on an empty cell: got cells %v, want none", got)
@@ -183,17 +179,13 @@ func TestAggregateFamilyAcceptsDeletes(t *testing.T) {
 
 // Production rejects a mutation that does not fit its family's type and writes nothing.
 func TestMutateRowRejectsFamilyTypeMismatch(t *testing.T) {
-	addToPlain := addToCell(456)
-	addToPlain.GetAddToCell().FamilyName = plainFamily
-	mergeToPlain := mergeToCell(456)
-	mergeToPlain.GetMergeToCell().FamilyName = plainFamily
 	tests := []struct {
 		name      string
 		mutations []*btpb.Mutation
 	}{
 		{"SetCell on an aggregate family", []*btpb.Mutation{setCellIn(aggregateFamily, 456)}},
-		{"AddToCell on a plain family", []*btpb.Mutation{addToPlain}},
-		{"MergeToCell on a plain family", []*btpb.Mutation{mergeToPlain}},
+		{"AddToCell on a plain family", []*btpb.Mutation{addToCellIn(plainFamily, 456)}},
+		{"MergeToCell on a plain family", []*btpb.Mutation{mergeToCellIn(plainFamily, 456)}},
 		{"AddToCell, then SetCell on an aggregate family", []*btpb.Mutation{addToCell(456), setCellIn(aggregateFamily, 456)}},
 		{"SetCell on a plain family, then on an aggregate family", []*btpb.Mutation{setCellIn(plainFamily, 456), setCellIn(aggregateFamily, 456)}},
 	}
@@ -216,8 +208,6 @@ func TestMutateRowRejectsFamilyTypeMismatch(t *testing.T) {
 // Production fails every entry of a MutateRows batch, each with its own row, when any entry has a family type
 // mismatch. The RPC returns OK and writes nothing.
 func TestMutateRowsFailsBatchOnFamilyTypeMismatch(t *testing.T) {
-	addToPlain := addToCell(456)
-	addToPlain.GetAddToCell().FamilyName = plainFamily
 	tests := []struct {
 		name    string
 		entries []*btpb.MutateRowsRequest_Entry
@@ -231,7 +221,7 @@ func TestMutateRowsFailsBatchOnFamilyTypeMismatch(t *testing.T) {
 			{RowKey: []byte("bad"), Mutations: []*btpb.Mutation{setCellIn(aggregateFamily, 456)}},
 		}},
 		{"AddToCell on a plain family, then a valid entry", []*btpb.MutateRowsRequest_Entry{
-			{RowKey: []byte("bad"), Mutations: []*btpb.Mutation{addToPlain}},
+			{RowKey: []byte("bad"), Mutations: []*btpb.Mutation{addToCellIn(plainFamily, 456)}},
 			{RowKey: []byte("good"), Mutations: []*btpb.Mutation{setCellIn(plainFamily, 456)}},
 		}},
 	}
@@ -338,12 +328,9 @@ func TestReadModifyWriteRowRejectsAggregateFamily(t *testing.T) {
 
 // Production checks each mutation's input kind for the whole request before it writes anything.
 func TestMutateRowRejectsWrongInputKind(t *testing.T) {
-	addBytes := addToCell(0)
-	addBytes.GetAddToCell().Input = &btpb.Value{Kind: &btpb.Value_BytesValue{BytesValue: binary.BigEndian.AppendUint64(nil, 456)}}
-	mergeInt := mergeToCell(0)
-	mergeInt.GetMergeToCell().Input = &btpb.Value{Kind: &btpb.Value_IntValue{IntValue: 456}}
-	mergeRaw := mergeToCell(0)
-	mergeRaw.GetMergeToCell().Input = &btpb.Value{Kind: &btpb.Value_RawValue{RawValue: binary.BigEndian.AppendUint64(nil, 456)}}
+	addBytes := addToCellWithInput(bytesInput(456))
+	mergeInt := mergeToCellWithInput(&btpb.Value{Kind: &btpb.Value_IntValue{IntValue: 456}})
+	mergeRaw := mergeToCellWithInput(&btpb.Value{Kind: &btpb.Value_RawValue{RawValue: encodeInt64(456)}})
 	tests := []struct {
 		name      string
 		mutations []*btpb.Mutation
@@ -389,12 +376,11 @@ func TestMutateRowRejectsWrongInputKind(t *testing.T) {
 // Production fails the whole MutateRows RPC on a wrong input kind, before it writes any entry.
 func TestMutateRowsRejectsWrongInputKind(t *testing.T) {
 	s, tbl := newAggregateTable(t, minAggregate())
-	addBytes := addToCell(0)
-	addBytes.GetAddToCell().Input = &btpb.Value{Kind: &btpb.Value_BytesValue{BytesValue: binary.BigEndian.AppendUint64(nil, 456)}}
+	addBytes := addToCellWithInput(bytesInput(456))
 	err := s.MutateRows(&btpb.MutateRowsRequest{TableName: tbl, Entries: []*btpb.MutateRowsRequest_Entry{
 		{RowKey: []byte("good"), Mutations: []*btpb.Mutation{setCellIn(plainFamily, 456)}},
 		{RowKey: []byte("bad"), Mutations: []*btpb.Mutation{setCellIn(plainFamily, 456), addBytes}},
-	}}, &mutateRowsRecorder{})
+	}}, &bigtableTestingMutateRowsServer{})
 	wantStatus(t, err, codes.InvalidArgument, "Error in field 'Entry list' : Error in element #1 : Error in field 'Mutation list' : Error in element #1 : Error in field 'input' : must use `int_value`")
 	if got := readCells(t, s, tbl, nil); len(got) != 0 {
 		t.Errorf("got cells %v, want none", got)
@@ -403,8 +389,7 @@ func TestMutateRowsRejectsWrongInputKind(t *testing.T) {
 
 // Production checks input kinds in both CheckAndMutateRow branches, including the one it skips.
 func TestCheckAndMutateRowRejectsWrongInputKindInEitherBranch(t *testing.T) {
-	addBytes := addToCell(0)
-	addBytes.GetAddToCell().Input = &btpb.Value{Kind: &btpb.Value_BytesValue{BytesValue: binary.BigEndian.AppendUint64(nil, 456)}}
+	addBytes := addToCellWithInput(bytesInput(456))
 	tests := []struct {
 		name string
 		req  *btpb.CheckAndMutateRowRequest
@@ -470,7 +455,7 @@ func mergeToCell(v int64) *btpb.Mutation {
 		FamilyName:      aggregateFamily,
 		ColumnQualifier: &btpb.Value{Kind: &btpb.Value_RawValue{RawValue: []byte(aggregateColumn)}},
 		Timestamp:       &btpb.Value{Kind: &btpb.Value_RawTimestampMicros{RawTimestampMicros: aggregateTS}},
-		Input:           &btpb.Value{Kind: &btpb.Value_BytesValue{BytesValue: binary.BigEndian.AppendUint64(nil, uint64(v))}},
+		Input:           bytesInput(v),
 	}}}
 }
 
@@ -487,12 +472,40 @@ func addToCellAt(ts, v int64) *btpb.Mutation {
 	}}}
 }
 
+func addToCellIn(family string, v int64) *btpb.Mutation {
+	m := addToCell(v)
+	m.GetAddToCell().FamilyName = family
+	return m
+}
+
+func mergeToCellIn(family string, v int64) *btpb.Mutation {
+	m := mergeToCell(v)
+	m.GetMergeToCell().FamilyName = family
+	return m
+}
+
+func addToCellWithInput(input *btpb.Value) *btpb.Mutation {
+	m := addToCell(0)
+	m.GetAddToCell().Input = input
+	return m
+}
+
+func mergeToCellWithInput(input *btpb.Value) *btpb.Mutation {
+	m := mergeToCell(0)
+	m.GetMergeToCell().Input = input
+	return m
+}
+
+func bytesInput(v int64) *btpb.Value {
+	return &btpb.Value{Kind: &btpb.Value_BytesValue{BytesValue: encodeInt64(v)}}
+}
+
 func setCellIn(family string, v int64) *btpb.Mutation {
 	return &btpb.Mutation{Mutation: &btpb.Mutation_SetCell_{SetCell: &btpb.Mutation_SetCell{
 		FamilyName:      family,
 		ColumnQualifier: []byte(aggregateColumn),
 		TimestampMicros: aggregateTS,
-		Value:           binary.BigEndian.AppendUint64(nil, uint64(v)),
+		Value:           encodeInt64(v),
 	}}}
 }
 
@@ -534,7 +547,7 @@ func readCells(t *testing.T, s *server, tbl string, filter *btpb.RowFilter) []ag
 	var cells []aggregateCell
 	for _, r := range mock.responses {
 		for _, chunk := range r.Chunks {
-			cells = append(cells, aggregateCell{chunk.TimestampMicros, int64(binary.BigEndian.Uint64(chunk.Value))})
+			cells = append(cells, aggregateCell{chunk.TimestampMicros, decodeInt64(chunk.Value)})
 		}
 	}
 	return cells
