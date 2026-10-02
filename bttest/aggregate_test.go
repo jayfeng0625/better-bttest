@@ -134,25 +134,6 @@ func TestMergeToCellWithNoInputHasNoEffect(t *testing.T) {
 	}
 }
 
-// Production accepts a MergeToCell input only as bytes_value.
-func TestMergeToCellRejectsRawValueInput(t *testing.T) {
-	s, tbl := newAggregateTable(t, minAggregate())
-	m := mergeToCell(123)
-	input := m.GetMergeToCell().Input
-	input.Kind = &btpb.Value_RawValue{RawValue: input.GetBytesValue()}
-	_, err := s.MutateRow(context.Background(), &btpb.MutateRowRequest{
-		TableName: tbl,
-		RowKey:    []byte("row"),
-		Mutations: []*btpb.Mutation{m},
-	})
-	if got := status.Code(err); got != codes.InvalidArgument {
-		t.Errorf("got code %v (%v), want %v", got, err, codes.InvalidArgument)
-	}
-	if got := readCells(t, s, tbl, nil); len(got) != 0 {
-		t.Errorf("got cells %v, want none", got)
-	}
-}
-
 // Production rejects a mutation that does not fit its family's type and writes nothing.
 func TestMutateRowRejectsFamilyTypeMismatch(t *testing.T) {
 	addToPlain := addToCell(456)
@@ -301,6 +282,109 @@ func TestReadModifyWriteRowRejectsAggregateFamily(t *testing.T) {
 			}
 			_, err := s.ReadModifyWriteRow(context.Background(), &btpb.ReadModifyWriteRowRequest{TableName: tbl, RowKey: []byte("row"), Rules: tc.rules})
 			wantStatus(t, err, codes.InvalidArgument, familyTypeMismatchMessage(tbl, "row"))
+			if got := readCells(t, s, tbl, nil); !slices.Equal(got, want) {
+				t.Errorf("got cells %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+// Production checks each mutation's input kind for the whole request before it writes anything.
+func TestMutateRowRejectsWrongInputKind(t *testing.T) {
+	addBytes := addToCell(0)
+	addBytes.GetAddToCell().Input = &btpb.Value{Kind: &btpb.Value_BytesValue{BytesValue: binary.BigEndian.AppendUint64(nil, 456)}}
+	mergeInt := mergeToCell(0)
+	mergeInt.GetMergeToCell().Input = &btpb.Value{Kind: &btpb.Value_IntValue{IntValue: 456}}
+	mergeRaw := mergeToCell(0)
+	mergeRaw.GetMergeToCell().Input = &btpb.Value{Kind: &btpb.Value_RawValue{RawValue: binary.BigEndian.AppendUint64(nil, 456)}}
+	tests := []struct {
+		name      string
+		mutations []*btpb.Mutation
+		want      string
+	}{
+		{
+			name:      "AddToCell with a bytes input",
+			mutations: []*btpb.Mutation{addBytes},
+			want:      "Error in field 'Mutation list' : Error in element #0 : Error in field 'input' : must use `int_value`",
+		},
+		{
+			name:      "MergeToCell with an int input",
+			mutations: []*btpb.Mutation{mergeInt},
+			want:      "Error in field 'Mutation list' : Error in element #0 : Error in field 'input' : must use `bytes_value`",
+		},
+		{
+			name:      "MergeToCell with a raw input",
+			mutations: []*btpb.Mutation{mergeRaw},
+			want:      "Error in field 'Mutation list' : Error in element #0 : Error in field 'input' : must use `bytes_value`",
+		},
+		{
+			name:      "SetCell on a plain family, then AddToCell with a bytes input",
+			mutations: []*btpb.Mutation{setCellIn(plainFamily, 456), addBytes},
+			want:      "Error in field 'Mutation list' : Error in element #1 : Error in field 'input' : must use `int_value`",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s, tbl := newAggregateTable(t, minAggregate())
+			_, err := s.MutateRow(context.Background(), &btpb.MutateRowRequest{
+				TableName: tbl,
+				RowKey:    []byte("row"),
+				Mutations: tc.mutations,
+			})
+			wantStatus(t, err, codes.InvalidArgument, tc.want)
+			if got := readCells(t, s, tbl, nil); len(got) != 0 {
+				t.Errorf("got cells %v, want none", got)
+			}
+		})
+	}
+}
+
+// Production fails the whole MutateRows RPC on a wrong input kind, before it writes any entry.
+func TestMutateRowsRejectsWrongInputKind(t *testing.T) {
+	s, tbl := newAggregateTable(t, minAggregate())
+	addBytes := addToCell(0)
+	addBytes.GetAddToCell().Input = &btpb.Value{Kind: &btpb.Value_BytesValue{BytesValue: binary.BigEndian.AppendUint64(nil, 456)}}
+	err := s.MutateRows(&btpb.MutateRowsRequest{TableName: tbl, Entries: []*btpb.MutateRowsRequest_Entry{
+		{RowKey: []byte("good"), Mutations: []*btpb.Mutation{setCellIn(plainFamily, 456)}},
+		{RowKey: []byte("bad"), Mutations: []*btpb.Mutation{setCellIn(plainFamily, 456), addBytes}},
+	}}, &mutateRowsRecorder{})
+	wantStatus(t, err, codes.InvalidArgument, "Error in field 'Entry list' : Error in element #1 : Error in field 'Mutation list' : Error in element #1 : Error in field 'input' : must use `int_value`")
+	if got := readCells(t, s, tbl, nil); len(got) != 0 {
+		t.Errorf("got cells %v, want none", got)
+	}
+}
+
+// Production checks input kinds in both CheckAndMutateRow branches, including the one it skips.
+func TestCheckAndMutateRowRejectsWrongInputKindInEitherBranch(t *testing.T) {
+	addBytes := addToCell(0)
+	addBytes.GetAddToCell().Input = &btpb.Value{Kind: &btpb.Value_BytesValue{BytesValue: binary.BigEndian.AppendUint64(nil, 456)}}
+	tests := []struct {
+		name string
+		req  *btpb.CheckAndMutateRowRequest
+		want string
+	}{
+		{
+			name: "in the applied branch",
+			req:  &btpb.CheckAndMutateRowRequest{TrueMutations: []*btpb.Mutation{setCellIn(plainFamily, 789), addBytes}},
+			want: "Error in field 'true mutation list' : Error in element #1 : Error in field 'input' : must use `int_value`",
+		},
+		{
+			name: "in the branch it skips",
+			req: &btpb.CheckAndMutateRowRequest{
+				TrueMutations:  []*btpb.Mutation{setCellIn(plainFamily, 789)},
+				FalseMutations: []*btpb.Mutation{addBytes},
+			},
+			want: "Error in field 'false mutation list' : Error in element #0 : Error in field 'input' : must use `int_value`",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s, tbl := newAggregateTable(t, minAggregate())
+			mutate(t, s, tbl, setCellIn(plainFamily, 456))
+			tc.req.TableName, tc.req.RowKey = tbl, []byte("row")
+			_, err := s.CheckAndMutateRow(context.Background(), tc.req)
+			wantStatus(t, err, codes.InvalidArgument, tc.want)
+			want := []aggregateCell{{aggregateTS, 456}}
 			if got := readCells(t, s, tbl, nil); !slices.Equal(got, want) {
 				t.Errorf("got cells %v, want %v", got, want)
 			}

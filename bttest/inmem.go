@@ -1075,6 +1075,9 @@ func (s *server) MutateRow(ctx context.Context, req *btpb.MutateRowRequest) (*bt
 			"No mutations provided",
 		)
 	}
+	if err := checkInputKinds("Mutation list", req.Mutations); err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	tbl, ok := s.tables[req.TableName]
 	s.mu.Unlock()
@@ -1104,6 +1107,11 @@ func (s *server) MutateRows(req *btpb.MutateRowsRequest, stream btpb.Bigtable_Mu
 			codes.InvalidArgument,
 			"No mutations provided",
 		)
+	}
+	for i, entry := range req.Entries {
+		if err := checkInputKinds("Mutation list", entry.Mutations); err != nil {
+			return status.Errorf(codes.InvalidArgument, "Error in field 'Entry list' : Error in element #%d : %s", i, status.Convert(err).Message())
+		}
 	}
 	s.mu.Lock()
 	tbl, ok := s.tables[req.TableName]
@@ -1147,6 +1155,12 @@ func (s *server) MutateRows(req *btpb.MutateRowsRequest, stream btpb.Bigtable_Mu
 }
 
 func (s *server) CheckAndMutateRow(ctx context.Context, req *btpb.CheckAndMutateRowRequest) (*btpb.CheckAndMutateRowResponse, error) {
+	if err := checkInputKinds("true mutation list", req.TrueMutations); err != nil {
+		return nil, err
+	}
+	if err := checkInputKinds("false mutation list", req.FalseMutations); err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	tbl, ok := s.tables[req.TableName]
 	s.mu.Unlock()

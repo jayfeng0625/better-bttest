@@ -8,6 +8,32 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// checkInputKinds returns production's error when an AddToCell input is not an int_value, or a MergeToCell
+// input is not a bytes_value. A NULL input passes. field names the request's mutation list, as in "Mutation list".
+func checkInputKinds(field string, muts []*btpb.Mutation) error {
+	for i, mut := range muts {
+		var want string
+		switch mut := mut.Mutation.(type) {
+		case *btpb.Mutation_AddToCell_:
+			switch mut.AddToCell.GetInput().GetKind().(type) {
+			case nil, *btpb.Value_IntValue:
+			default:
+				want = "int_value"
+			}
+		case *btpb.Mutation_MergeToCell_:
+			switch mut.MergeToCell.GetInput().GetKind().(type) {
+			case nil, *btpb.Value_BytesValue:
+			default:
+				want = "bytes_value"
+			}
+		}
+		if want != "" {
+			return status.Errorf(codes.InvalidArgument, "Error in field '%s' : Error in element #%d : Error in field 'input' : must use `%s`", field, i, want)
+		}
+	}
+	return nil
+}
+
 // checkFamilyTypes returns production's error when a mutation does not fit its family's type.
 // SetCell needs a family with no aggregate type, and AddToCell and MergeToCell need an aggregate family.
 // Deletes fit either. An unknown family is left to applyMutations.
