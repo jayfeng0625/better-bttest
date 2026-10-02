@@ -8,9 +8,9 @@ It adds the production behaviour that the upstream emulator lacks.
 The fork tracks google-cloud-go's bigtable releases.
 The `cloud.google.com/go/bigtable` version in `go.mod` is the release it is on.
 
-| Upstream path | Fork path |
-| --- | --- |
-| `bigtable/bttest` | `bttest` |
+| Upstream path           | Fork path      |
+|-------------------------|----------------|
+| `bigtable/bttest`       | `bttest`       |
 | `bigtable/cmd/emulator` | `cmd/emulator` |
 
 The `upstream` branch holds upstream's files unmodified, one commit per imported release.
