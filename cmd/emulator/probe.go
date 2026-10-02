@@ -20,7 +20,6 @@ var probeAddr = flag.String("probe", "", "address:port of an emulator to probe; 
 
 const probeTimeout = 5 * time.Second
 
-// runProbe probes addr and returns the process exit code.
 func runProbe(addr string) int {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()

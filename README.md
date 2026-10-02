@@ -13,7 +13,7 @@ This builds the emulator and serves it on `localhost:8086`, in a container named
 Point a client at it with `BIGTABLE_EMULATOR_HOST=localhost:8086`.
 `docker compose down` stops it.
 
-The container reports healthy once the emulator serves.
+The image declares a healthcheck, so the container reports healthy once the emulator serves.
 A service that needs the emulator can wait for it:
 
 ```yaml
