@@ -149,7 +149,7 @@ await run('row write and latest-cell read', () =>
                 setCell(PLAIN, { column: 'ttl', value: be(789), ts: 123000 }),
                 setCell(PLAIN, { column: 'marker', value: be(1), ts: 789000 }),
                 setCell(PLAIN, { column: 'brands', value: utf8('["default"]'), ts: 123000 }),
-                setCell(PLAIN, { column: 'brandFirstWrittenAt', value: be(222), ts: 222000 }),
+                setCell(PLAIN, { column: 'firstSeenAt', value: be(222), ts: 222000 }),
             ],
         ],
         ['replace row again', [setCell(PLAIN, { column: 'lastUpdatedAt', value: be(456), ts: 456000 }), addToCell(AGG, { input: { intValue: 678 } })]],
