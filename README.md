@@ -83,6 +83,12 @@ Where that section does not state the behaviour, a [parity case](CONTRIBUTING.md
   A `MergeToCell` input is a `bytes_value` that holds an int64 as [8 big-endian bytes](https://cloud.google.com/bigtable/docs/data-types#aggregates).
   A missing input is [NULL](https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#value), so an `AddToCell` adds 0 and a `MergeToCell` changes nothing.
   The stock emulator takes a `MergeToCell` input only as a `raw_value`, and crashes on a missing input.
+- **[SQL queries](https://cloud.google.com/bigtable/docs/googlesql-overview).**
+  `PrepareQuery` and `ExecuteQuery` run a `SELECT` over one table. [GoogleSQL's analyzer](https://github.com/goccy/go-googlesql) types each query.
+  A query can use a select list with aliases and `*`, `WHERE`, `ORDER BY`, `LIMIT`, `fam['col']`, comparisons, `AND`, `OR`, `NOT`, `IS NULL`, `IN`, `BETWEEN`, `LIKE`, `STARTS_WITH`, `CAST` between `BYTES` and `STRING`, `TO_INT64`, and query parameters.
+  Any other construct fails `PrepareQuery` with `InvalidArgument`.
+  A prepared query expires 40 s after `PrepareQuery`, or once a family it reads is dropped, with production's error.
+  The stock emulator returns `Unimplemented`.
 
 Two more changes have no production counterpart:
 
@@ -93,7 +99,8 @@ Two more changes have no production counterpart:
 
 The fork does not support these yet:
 
-- SQL queries. `PrepareQuery` and `ExecuteQuery` return `Unimplemented`.
+- SQL beyond the constructs listed above, such as `GROUP BY`, `UNNEST`, and `OFFSET`.
+- A runtime SQL error's second line, `(while evaluating <expression>)`.
 - Materialized views.
 - HyperLogLog (HLL) aggregate families.
 
