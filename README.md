@@ -1,7 +1,7 @@
 # better-bttest
 
 better-bttest is a fork of the Cloud Bigtable emulator (`bttest` and `cbtemulator`) from [googleapis/google-cloud-go](https://github.com/googleapis/google-cloud-go).
-It behaves like production Bigtable where the upstream emulator does not, as [Differences from upstream](#differences-from-upstream) lists.
+It behaves like production Bigtable where the stock emulator does not, as [Differences from upstream](#differences-from-upstream) lists.
 
 ## Run
 
@@ -70,50 +70,28 @@ cbt -project demo -instance demo createtable events \
 
 ## Differences from upstream
 
-The fork changes these behaviours to match production Bigtable.
-Each entry names the test that shows the behaviour and links the nearest section of the Cloud Bigtable documentation.
-Where that section does not state the behaviour, the entry also names a [parity case](#parity-with-production) that shows it on a real table.
+The fork supports these production Bigtable features, which the stock emulator does not.
+Each entry links the nearest section of the Cloud Bigtable documentation.
+Where that section does not state the behaviour, a [parity case](#parity-with-production) shows it on a real table.
 
-- **Intersection rules.**
-  GC removes a cell only when every rule in an intersection rule would remove it.
-  Docs: [Combinations of expiration and version number rules](https://cloud.google.com/bigtable/docs/garbage-collection#combinations).
-  Test: `TestGCRules`.
-- **MIN and MAX aggregate families.**
-  In a MIN family, the inputs at one timestamp merge into their minimum, and in a MAX family they merge into their maximum.
-  Both compare the inputs as signed int64 values.
-  Docs: [Aggregates](https://cloud.google.com/bigtable/docs/data-types#aggregates).
-  Test: `TestAggregateMerges`.
-- **Family type checks.**
-  A `SetCell` or a `ReadModifyWriteRow` rule on an aggregate family fails with `InvalidArgument` and production's `Column family type mismatch` message.
-  An `AddToCell` or a `MergeToCell` on any other family fails the same way, and so does a `MergeToCell` input that is not 8 bytes long.
-  An entry with such a write fails every entry of a `MutateRows` batch.
-  `CheckAndMutateRow` checks only the branch it applies.
-  Docs: [Aggregates](https://cloud.google.com/bigtable/docs/data-types#aggregates).
-  Test: `TestMutateRowRejectsFamilyTypeMismatch`.
-  Parity cases: `MutateRows SetCell on aggregate, then a valid entry` and `MergeToCell with a 3-byte input on 456`.
-- **Input kinds.**
-  `AddToCell` takes an `int_value` input.
-  `MergeToCell` takes a `bytes_value` input that holds an int64 as 8 big-endian bytes.
-  Any other kind fails with `InvalidArgument`, and the message starts with production's field path, such as `Error in field 'Mutation list' : Error in element #0`.
-  `CheckAndMutateRow` checks both branches.
-  Docs: [MergeToCell](https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#mergetocell).
-  Test: `TestMutateRowRejectsWrongInputKind`.
-  Parity cases: `MutateRow MergeToCell with an int input` and `MutateRows a valid entry, then AddToCell with a bytes input`.
-- **NULL input.**
-  An `AddToCell` with no input adds 0, and a `MergeToCell` with no input or an empty `bytes_value` changes nothing.
-  Docs: [MergeToCell](https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#mergetocell).
-  Tests: `TestAddToCellWithNullInputAddsZero` and `TestMergeToCellWithNullInputHasNoEffect`.
-  Parity cases: `AddToCell with no input on 456` and `MergeToCell with a 0-byte input on 456`.
+- **[Intersection GC rules](https://cloud.google.com/bigtable/docs/garbage-collection#combinations).**
+  GC removes a cell only when every rule in the intersection would remove it.
+  The stock emulator logs that it does not support the rule, and keeps every cell.
+- **[MIN and MAX aggregates](https://cloud.google.com/bigtable/docs/writes#increments).**
+  A MIN family merges its inputs into their minimum, and a MAX family merges them into their maximum.
+  The stock emulator merges only Sum, so a MIN or MAX cell keeps the last input.
+- **[Family types](https://cloud.google.com/bigtable/docs/data-types#aggregates).**
+  A write that does not fit its family's type fails with production's error.
+  The stock emulator accepts a `SetCell` or a `ReadModifyWriteRow` on an aggregate family.
+- **[Aggregate inputs](https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#mergetocell).**
+  A `MergeToCell` input is a `bytes_value` that holds an int64 as 8 big-endian bytes.
+  A missing input is NULL, so an `AddToCell` adds 0 and a `MergeToCell` changes nothing.
+  The stock emulator takes a `MergeToCell` input only as a `raw_value`, and crashes on a missing input.
 
 Two more changes have no production counterpart:
 
-- **`-probe`.**
-  `emulator -probe <address:port>` exits 0 if the emulator at that address lists its tables, or 1 if it does not.
-  The image's healthcheck uses it.
-  Test: `TestProbeExitsZeroWhenTheEmulatorServes`.
-- **SIGTERM.**
-  The emulator shuts down cleanly and exits 0 on SIGTERM, as it does on an interrupt.
-  Test: `TestEmulatorShutsDownCleanlyOnSIGTERM`.
+- The image's healthcheck runs `emulator -probe`, which `go doc ./cmd/emulator` describes.
+- The emulator shuts down cleanly on SIGTERM, as it does on an interrupt.
 
 ## Not supported yet
 
