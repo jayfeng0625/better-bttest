@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
+// The file name sorts after cbtemulator.go, so go doc shows upstream's package
+// comment, and its synopsis, before this comment.
+
 /*
 Usage:
 
