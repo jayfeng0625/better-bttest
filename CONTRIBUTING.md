@@ -6,7 +6,7 @@
 scripts/check.sh
 ```
 
-The script runs the checks that CI runs: gofmt, the license headers, `go mod tidy`, `go vet`, staticcheck, and the tests under the race detector.
+The script runs the checks that CI runs: gofmt, the license headers, `go mod tidy`, the test value encoding, `go vet`, staticcheck, and the tests under the race detector.
 CI runs it on the newest Go 1.26 patch, with `GOTOOLCHAIN=local`.
 
 ## Change an upstream file
@@ -29,14 +29,15 @@ Keep Google's Apache-2.0 header in an upstream file.
 
 Write each test input and expected value with `binary.BigEndian`, in the bytes that production stores.
 Upstream's aggregate tests in `bttest/inmem_test.go` do the same.
-A test that uses the code's own codec, such as `encodeInt64`, still passes when the code and the test share an encoding bug.
+A test that uses the code's own codec still passes when the code and the test share an encoding bug.
+`scripts/check.sh` fails when a test in `bttest` calls `encodeInt64` or `decodeInt64`.
 
 ## Check behaviour against production
 
 `scripts/parity/run.sh` runs each parity case against a real Bigtable table, the emulator image built from this checkout, and Google's stock emulator.
 The script needs Docker, and Application Default Credentials that can write to the table, so CI does not run it.
 
-To check a claim about production's behaviour:
+To check a claim about production's behaviour, follow these steps:
 
 1. Create a table with these families, each with GC rule `never`:
    - an int64 MIN aggregate family
@@ -62,3 +63,6 @@ Its exit codes mean:
 - 1 when a case differs on this checkout's emulator, or the script cannot delete its rows.
   A stock emulator difference shows only in the report.
 - 2 when a `PARITY_*` variable is unset, or the login or the table is not usable.
+
+When a step such as `npm ci` or `docker build` fails, the script exits with that step's code.
+On an interrupt or SIGTERM, it exits with 130.
