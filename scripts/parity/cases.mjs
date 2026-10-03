@@ -148,7 +148,7 @@ await run('row write and latest-cell read', () =>
                 addToCell(AGG),
                 setCell(PLAIN, { column: 'updatedAt', value: be(123), ts: 123000 }),
                 setCell(PLAIN, { column: 'expiresAt', value: be(789), ts: 123000 }),
-                setCell(PLAIN, { column: 'marker', value: be(1), ts: 789000 }),
+                setCell(PLAIN, { column: 'flag', value: be(1), ts: 789000 }),
                 setCell(PLAIN, { column: 'labels', value: utf8('["default"]'), ts: 123000 }),
                 setCell(PLAIN, { column: 'createdAt', value: be(222), ts: 222000 }),
             ],
