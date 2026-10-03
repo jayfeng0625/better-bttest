@@ -32,11 +32,26 @@ A test that encodes with the code's own codec, such as `encodeInt64`, still pass
 It prints a diff for each case where an emulator differs from the real table, then a table of every case.
 To check a claim about production's behaviour, add a case to `scripts/parity/cases.mjs` and run the script.
 The script needs Docker, and Application Default Credentials that can write to the table, so CI does not run it.
-The table needs an int64 MIN aggregate family, an int64 MAX aggregate family, and a family with no value type, each with GC rule `never`:
+The table needs these families, each with GC rule `never`:
+
+- an int64 MIN aggregate family
+- an int64 MAX aggregate family
+- an int64 Sum aggregate family
+- a family with no value type
+
+`cbt createtable` creates such a table:
+
+```sh
+cbt -project <project> -instance <instance> createtable <table> \
+    'families=min:never:intmin,max:never:intmax,sum:never:intsum,plain:never'
+```
+
+Run the cases against it:
 
 ```sh
 PARITY_PROJECT=<project> PARITY_INSTANCE=<instance> PARITY_TABLE=<table> \
-PARITY_MIN_FAMILY=<MIN family> PARITY_MAX_FAMILY=<MAX family> PARITY_PLAIN_FAMILY=<plain family> \
+PARITY_MIN_FAMILY=<MIN family> PARITY_MAX_FAMILY=<MAX family> PARITY_SUM_FAMILY=<Sum family> \
+PARITY_PLAIN_FAMILY=<plain family> \
 scripts/parity/run.sh
 ```
 

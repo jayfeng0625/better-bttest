@@ -4,14 +4,15 @@
 # codes.
 set -euo pipefail
 
-for var in PARITY_PROJECT PARITY_INSTANCE PARITY_TABLE PARITY_MIN_FAMILY PARITY_MAX_FAMILY PARITY_PLAIN_FAMILY; do
+for var in PARITY_PROJECT PARITY_INSTANCE PARITY_TABLE PARITY_MIN_FAMILY PARITY_MAX_FAMILY PARITY_SUM_FAMILY \
+    PARITY_PLAIN_FAMILY; do
     if [ -z "${!var:-}" ]; then
         echo "Set $var. CONTRIBUTING.md gives the usage." >&2
         exit 2
     fi
 done
 target=("$PARITY_PROJECT" "$PARITY_INSTANCE" "$PARITY_TABLE")
-aggregates=("$PARITY_MIN_FAMILY" "$PARITY_MAX_FAMILY")
+aggregates=("$PARITY_MIN_FAMILY" "$PARITY_MAX_FAMILY" "$PARITY_SUM_FAMILY")
 
 # The smallest gcloud image that ships the Bigtable emulator.
 STOCK_IMAGE=gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
@@ -55,7 +56,7 @@ start_emulator() {
         sleep 0.2
     done
     cbt_emulator createtable "$PARITY_TABLE" \
-        "families=${PARITY_MIN_FAMILY}:never:intmin,${PARITY_MAX_FAMILY}:never:intmax,${PARITY_PLAIN_FAMILY}:never"
+        "families=${PARITY_MIN_FAMILY}:never:intmin,${PARITY_MAX_FAMILY}:never:intmax,${PARITY_SUM_FAMILY}:never:intsum,${PARITY_PLAIN_FAMILY}:never"
 }
 
 # Run the cases for each aggregate family on a fresh emulator, so a crash in one family's cases leaves the next
