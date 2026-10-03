@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Run the parity cases against a real Bigtable table, the emulator image built from this checkout, and Google's stock
-# emulator, and diff each emulator's results against the real table's. README.md gives the usage and the exit codes.
+# emulator, and diff each emulator's results against the real table's. CONTRIBUTING.md gives the usage and the exit
+# codes.
 set -euo pipefail
 
 for var in PARITY_PROJECT PARITY_INSTANCE PARITY_TABLE PARITY_MIN_FAMILY PARITY_MAX_FAMILY PARITY_PLAIN_FAMILY; do
     if [ -z "${!var:-}" ]; then
-        echo "Set $var. README.md gives the usage." >&2
+        echo "Set $var. CONTRIBUTING.md gives the usage." >&2
         exit 2
     fi
 done

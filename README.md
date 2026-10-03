@@ -72,7 +72,7 @@ cbt -project demo -instance demo createtable events \
 
 The fork supports these production Bigtable features, which the stock emulator does not.
 Each entry links the nearest section of the Cloud Bigtable documentation.
-Where that section does not state the behaviour, a [parity case](#parity-with-production) shows it on a real table.
+Where that section does not state the behaviour, a [parity case](CONTRIBUTING.md#check-behaviour-against-production) shows it on a real table.
 
 - **[Intersection GC rules](https://cloud.google.com/bigtable/docs/garbage-collection#combinations).**
   GC removes a cell only when every rule in the intersection would remove it.
@@ -123,22 +123,9 @@ scripts/sync-upstream.sh bigtable/v1.59.0
 The script's header comment says what it changes and where it stops.
 After the script finishes, push both branches with `git push origin main upstream`.
 
-## Parity with production
+## Contributing
 
-`scripts/parity/run.sh` runs each parity case against a real Bigtable table, the emulator image built from this checkout, and Google's stock emulator.
-It prints a diff for each case where an emulator differs from the real table, then a table of every case.
-It needs Docker, and Application Default Credentials that can write to the table, so CI does not run it.
-The table needs an int64 MIN aggregate family, an int64 MAX aggregate family, and a family with no value type, each with GC rule `never`:
-
-```sh
-PARITY_PROJECT=<project> PARITY_INSTANCE=<instance> PARITY_TABLE=<table> \
-PARITY_MIN_FAMILY=<MIN family> PARITY_MAX_FAMILY=<MAX family> PARITY_PLAIN_FAMILY=<plain family> \
-scripts/parity/run.sh
-```
-
-It exits 0 when every case matches on this checkout's emulator, 1 on a difference there, and 2 when the login or the table is not usable.
-A stock emulator difference only shows in the report.
-It deletes the rows it wrote, even after a failure or an interrupt.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) gives the checks to run and the rules for a change.
 
 ## License
 
