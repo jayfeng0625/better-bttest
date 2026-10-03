@@ -88,6 +88,7 @@ func TestAggregateMerges(t *testing.T) {
 }
 
 // Bigtable merges only cells at the same timestamp.
+// See https://cloud.google.com/bigtable/docs/create-update-counters#update-counters.
 func TestAggregateWriteAtNewTimestampStartsCell(t *testing.T) {
 	s, tbl := newAggregateTable(t, minAggregate())
 	mutate(t, s, tbl, addToCellAt(aggregateTS, 123))
@@ -104,6 +105,7 @@ func TestAggregateWriteAtNewTimestampStartsCell(t *testing.T) {
 }
 
 // Production reads a missing input, or an input with no kind, as NULL. It adds a NULL AddToCell input as 0.
+// See https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#value.
 func TestAddToCellWithNullInputAddsZero(t *testing.T) {
 	for name, input := range nullInputs() {
 		t.Run(name, func(t *testing.T) {
@@ -142,6 +144,7 @@ func nullInputs() map[string]*btpb.Value {
 }
 
 // Production allows every delete on an aggregate family.
+// See https://cloud.google.com/bigtable/docs/writes#increments.
 func TestAggregateFamilyAcceptsDeletes(t *testing.T) {
 	column := []byte(aggregateColumn)
 	tests := []struct {
@@ -178,6 +181,7 @@ func TestAggregateFamilyAcceptsDeletes(t *testing.T) {
 }
 
 // Production rejects a mutation that does not fit its family's type and writes nothing.
+// See https://cloud.google.com/bigtable/docs/data-types#aggregates.
 func TestMutateRowRejectsFamilyTypeMismatch(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -207,6 +211,7 @@ func TestMutateRowRejectsFamilyTypeMismatch(t *testing.T) {
 
 // Production fails every entry of a MutateRows batch, each with its own row, when any entry has a family type
 // mismatch. The RPC returns OK and writes nothing.
+// See https://cloud.google.com/bigtable/docs/data-types#aggregates.
 func TestMutateRowsFailsBatchOnFamilyTypeMismatch(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -248,6 +253,7 @@ func TestMutateRowsFailsBatchOnFamilyTypeMismatch(t *testing.T) {
 
 // Production checks family types only in the CheckAndMutateRow branch it applies. With no predicate, a row
 // with cells takes the true branch.
+// See https://cloud.google.com/bigtable/docs/data-types#aggregates.
 func TestCheckAndMutateRowChecksFamilyTypesInAppliedBranch(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -292,6 +298,7 @@ func TestCheckAndMutateRowChecksFamilyTypesInAppliedBranch(t *testing.T) {
 }
 
 // Production rejects a ReadModifyWriteRow rule on an aggregate family and leaves the row unchanged.
+// See https://cloud.google.com/bigtable/docs/writes#increments.
 func TestReadModifyWriteRowRejectsAggregateFamily(t *testing.T) {
 	increment := func(family string) *btpb.ReadModifyWriteRule {
 		return &btpb.ReadModifyWriteRule{FamilyName: family, ColumnQualifier: []byte(aggregateColumn), Rule: &btpb.ReadModifyWriteRule_IncrementAmount{IncrementAmount: 1}}
@@ -327,6 +334,7 @@ func TestReadModifyWriteRowRejectsAggregateFamily(t *testing.T) {
 }
 
 // Production checks each mutation's input kind for the whole request before it writes anything.
+// See https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#addtocell.
 func TestMutateRowRejectsWrongInputKind(t *testing.T) {
 	addBytes := addToCellWithInput(bytesInput(456))
 	mergeInt := mergeToCellWithInput(&btpb.Value{Kind: &btpb.Value_IntValue{IntValue: 456}})
@@ -374,6 +382,7 @@ func TestMutateRowRejectsWrongInputKind(t *testing.T) {
 }
 
 // Production fails the whole MutateRows RPC on a wrong input kind, before it writes any entry.
+// See https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#addtocell.
 func TestMutateRowsRejectsWrongInputKind(t *testing.T) {
 	s, tbl := newAggregateTable(t, minAggregate())
 	addBytes := addToCellWithInput(bytesInput(456))
@@ -388,6 +397,7 @@ func TestMutateRowsRejectsWrongInputKind(t *testing.T) {
 }
 
 // Production checks input kinds in both CheckAndMutateRow branches, including the one it skips.
+// See https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#addtocell.
 func TestCheckAndMutateRowRejectsWrongInputKindInEitherBranch(t *testing.T) {
 	addBytes := addToCellWithInput(bytesInput(456))
 	tests := []struct {

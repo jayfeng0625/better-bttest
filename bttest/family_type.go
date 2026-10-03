@@ -10,7 +10,9 @@ import (
 
 // checkInputKinds returns production's error when an AddToCell input is not an int_value, or a MergeToCell
 // input is not a bytes_value. A NULL input passes. prefix is the field path production puts before the
-// mutation's index, as in "Error in field 'Mutation list'".
+// mutation's index, as in "Error in field 'Mutation list'". See
+// https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#addtocell and
+// https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#mergetocell.
 func checkInputKinds(prefix string, muts []*btpb.Mutation) error {
 	for i, mut := range muts {
 		var want string
@@ -69,7 +71,8 @@ func rulesFitFamilyTypes(rules []*btpb.ReadModifyWriteRule, fs map[string]*colum
 	return true
 }
 
-// familyTypeMismatch returns production's error for a mutation that does not fit its family's type.
+// familyTypeMismatch returns production's error for a mutation that does not fit its family's type. See
+// https://cloud.google.com/bigtable/docs/data-types#aggregates.
 func familyTypeMismatch(tableName string, rowKey []byte) error {
 	return status.Errorf(codes.InvalidArgument, "Error while mutating the row '%s' (%s) : Column family type mismatch", rowKey, tableName)
 }

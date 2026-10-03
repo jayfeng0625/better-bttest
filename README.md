@@ -1,7 +1,7 @@
 # better-bttest
 
-A fork of the Cloud Bigtable emulator (`bttest` and `cbtemulator`) from [googleapis/google-cloud-go](https://github.com/googleapis/google-cloud-go).
-It adds the production behaviour that the upstream emulator lacks.
+better-bttest is a fork of the Cloud Bigtable emulator (`bttest` and `cbtemulator`) from [googleapis/google-cloud-go](https://github.com/googleapis/google-cloud-go).
+It behaves like production Bigtable where the upstream emulator does not, as [Differences from upstream](#differences-from-upstream) lists.
 
 ## Run
 
@@ -9,10 +9,11 @@ It adds the production behaviour that the upstream emulator lacks.
 docker compose up --build -d
 ```
 
-This builds the emulator and serves it on `localhost:8086`, in a container named `bigtable`.
-Point a client at it with `BIGTABLE_EMULATOR_HOST=localhost:8086`, and stop it with `docker compose down`.
+The command builds the emulator and serves it on `localhost:8086`, in a container named `bigtable`.
+Point a client at it with `BIGTABLE_EMULATOR_HOST=localhost:8086`.
+Stop it with `docker compose down`.
 
-`go doc ./cmd/emulator` lists the emulator's flags, for a run without Docker.
+To run the emulator without Docker, see `go doc ./cmd/emulator`.
 `go doc ./bttest` shows how a Go test runs the emulator in its own process.
 The repository is private, so `go get github.com/jayfeng0625/better-bttest` needs `GOPRIVATE=github.com/jayfeng0625/*` and git access to GitHub.
 
@@ -23,8 +24,8 @@ Each push to `main` publishes two images to GHCR, tagged with the full commit SH
 - `ghcr.io/jayfeng0625/better-bttest`: the emulator.
 - `ghcr.io/jayfeng0625/better-bttest-init`: the init image, with bash and [`cbt`](https://pkg.go.dev/cloud.google.com/go/cbt).
 
-Each tag is one index holding linux/amd64 and linux/arm64, so one digest serves both platforms.
-From a checkout, `docker build .` builds the emulator image, and `docker build --target init .` the init image.
+Each tag is one image index with a linux/amd64 and a linux/arm64 image, so one digest works on both platforms.
+From a checkout, `docker build .` builds the emulator image, and `docker build --target init .` builds the init image.
 The images are private while the repository is, so log in first with a token that has `read:packages`:
 
 ```sh
@@ -37,8 +38,8 @@ Print a commit's index digest:
 docker buildx imagetools inspect ghcr.io/jayfeng0625/better-bttest:<commit SHA> --format '{{.Manifest.Digest}}'
 ```
 
-A compose file pins each image by digest.
-The emulator image reports healthy once the emulator serves, so the init image can wait for it and run a table script:
+The compose file below pins each image by digest.
+The emulator image reports healthy once the emulator serves, so the init image waits for it and then runs a table script:
 
 ```yaml
 services:
@@ -57,7 +58,8 @@ services:
 ```
 
 `cbt` reads `BIGTABLE_EMULATOR_HOST` and needs no credentials.
-Families take cbt's `name:gcrule[:intmin]` form; quote them, since `||` is a shell operator:
+Each family takes cbt's `name:gcrule[:intmin]` form.
+Quote the families, because `||` is a shell operator:
 
 ```bash
 #!/usr/bin/env bash
@@ -65,6 +67,56 @@ set -euo pipefail
 cbt -project demo -instance demo createtable events \
     'families=recent:maxage=1s||maxversions=1,lowest:never:intmin'
 ```
+
+## Differences from upstream
+
+The fork changes these behaviours to match production Bigtable.
+Each entry links the nearest section of the Cloud Bigtable documentation.
+Where that section does not state the behaviour, the entry names a parity case that shows it on a real table.
+
+- **Intersection rules.**
+  GC removes a cell only when every rule in an intersection rule would remove it.
+  Docs: [Combinations of expiration and version number rules](https://cloud.google.com/bigtable/docs/garbage-collection#combinations).
+  Test: `TestGCRules`.
+- **MIN and MAX aggregate families.**
+  In a MIN family, the inputs at one timestamp merge into their minimum, and in a MAX family they merge into their maximum.
+  Both compare the inputs as signed int64 values.
+  Docs: [Aggregates](https://cloud.google.com/bigtable/docs/data-types#aggregates).
+  Test: `TestAggregateMerges`.
+- **Family type checks.**
+  These writes fail with `InvalidArgument` and production's `Column family type mismatch` message: a `SetCell` or a `ReadModifyWriteRow` rule on an aggregate family, and an `AddToCell` or a `MergeToCell` on any other family.
+  One such entry fails every entry of a `MutateRows` batch.
+  Docs: [Aggregates](https://cloud.google.com/bigtable/docs/data-types#aggregates).
+  Test: `TestMutateRowRejectsFamilyTypeMismatch`.
+  Parity case: `MutateRows SetCell on aggregate, then a valid entry`.
+- **Input kinds.**
+  `AddToCell` takes an `int_value` input.
+  `MergeToCell` takes a `bytes_value` input that holds an int64 as 8 big-endian bytes.
+  Any other kind fails with `InvalidArgument`, and the message starts with production's field path, such as `Error in field 'Mutation list' : Error in element #0`.
+  Docs: [MergeToCell](https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#mergetocell).
+  Parity cases: `MutateRow MergeToCell with an int input` and `MutateRows a valid entry, then AddToCell with a bytes input`.
+- **NULL input.**
+  An `AddToCell` with no input adds 0, and a `MergeToCell` with no input changes nothing.
+  Docs: [MergeToCell](https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#mergetocell).
+  Parity case: `AddToCell with no input on 456`.
+
+Two more changes have no production counterpart:
+
+- **`-probe`.**
+  The flag runs a probe against an emulator and exits with the result.
+  The image's healthcheck uses it.
+  Test: `TestProbeExitsZeroWhenTheEmulatorServes`.
+- **SIGTERM.**
+  The emulator shuts down cleanly and exits 0 on SIGTERM, as it does on an interrupt.
+  Test: `TestEmulatorShutsDownCleanlyOnSIGTERM`.
+
+## Not supported yet
+
+The fork does not support these yet:
+
+- SQL queries. `PrepareQuery` and `ExecuteQuery` return `Unimplemented`.
+- Materialized views.
+- HyperLogLog (HLL) aggregate families.
 
 ## Upstream
 
@@ -76,7 +128,8 @@ The `cloud.google.com/go/bigtable` version in `go.mod` is the release it is on.
 | `bigtable/bttest`       | `bttest`       |
 | `bigtable/cmd/emulator` | `cmd/emulator` |
 
-The `upstream` branch holds each upstream file unmodified, one commit per imported release, and `main` merges it, so git has the right base for a 3-way merge.
+The `upstream` branch holds each upstream file unmodified, with one commit per imported release.
+`main` merges the `upstream` branch, so git has the right base for a 3-way merge.
 To merge the latest release, or a named one:
 
 ```sh
@@ -85,9 +138,7 @@ scripts/sync-upstream.sh bigtable/v1.59.0
 ```
 
 The script's header comment says what it changes and where it stops.
-Push both branches after it: `git push origin main upstream`.
-
-The files under `bttest` and `cmd/emulator` are modified from upstream. The git history records each change.
+After the script finishes, push both branches with `git push origin main upstream`.
 
 ## Parity with production
 
@@ -108,4 +159,4 @@ It deletes the rows it wrote, even after a failure or an interrupt.
 
 ## License
 
-Apache License 2.0, as upstream. See `LICENSE`.
+The fork uses the Apache License 2.0, as upstream does. See `LICENSE`.
