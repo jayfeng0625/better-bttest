@@ -22,14 +22,16 @@ func applyGC(cells []cell, rule *btapb.GcRule) []cell {
 	// made of them. So once a cell is erased, every older cell is, and GC keeps
 	// a prefix.
 	kept := sort.Search(len(cells), func(i int) bool {
-		return gcErases(rule, cells[i], i, now)
+		erases, _ := gcErases(rule, cells[i], i, now)
+		return erases
 	})
 	if kept == len(cells) {
 		return cells
 	}
 	deleted := make(map[*btapb.GcRule]int)
 	for i, c := range cells[kept:] {
-		deleted[maxAgeEraser(rule, c, kept+i, now)]++
+		_, maxAge := gcErases(rule, c, kept+i, now)
+		deleted[maxAge]++
 	}
 	for _, maxAge := range maxAgeRules(rule) {
 		if n := deleted[maxAge]; n > 0 {
@@ -44,57 +46,41 @@ func applyGC(cells []cell, rule *btapb.GcRule) []cell {
 // intersection rule erases a cell only when every one of its rules would, and
 // a union rule erases a cell when any of them would. See
 // https://cloud.google.com/bigtable/docs/garbage-collection#combinations.
-func gcErases(rule *btapb.GcRule, c cell, rank int, now int64) bool {
-	switch rule := rule.Rule.(type) {
+// When the rule erases c, gcErases also returns the MaxAge rule that the GC
+// log credits, or nil when no MaxAge rule takes part.
+func gcErases(rule *btapb.GcRule, c cell, rank int, now int64) (bool, *btapb.GcRule) {
+	switch r := rule.Rule.(type) {
 	default:
 		gcTypeWarn.Do(func() {
-			log.Printf("Unsupported GC rule type %T", rule)
+			log.Printf("Unsupported GC rule type %T", r)
 		})
 	case *btapb.GcRule_MaxAge:
-		return c.ts < now-rule.MaxAge.AsDuration().Microseconds()
+		return c.ts < now-r.MaxAge.AsDuration().Microseconds(), rule
 	case *btapb.GcRule_MaxNumVersions:
-		return rank >= int(rule.MaxNumVersions)
+		return rank >= int(r.MaxNumVersions), nil
 	case *btapb.GcRule_Intersection_:
-		rules := rule.Intersection.GetRules()
+		rules := r.Intersection.GetRules()
+		var credit *btapb.GcRule
 		for _, sub := range rules {
-			if !gcErases(sub, c, rank, now) {
-				return false
+			erases, maxAge := gcErases(sub, c, rank, now)
+			if !erases {
+				return false, nil
+			}
+			if credit == nil {
+				credit = maxAge
 			}
 		}
-		return len(rules) > 0
-	case *btapb.GcRule_Union_:
-		for _, sub := range rule.Union.GetRules() {
-			if gcErases(sub, c, rank, now) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// maxAgeEraser returns the MaxAge rule that the GC log credits with erasing
-// cell c, or nil when no MaxAge rule takes part. The rule must erase c.
-func maxAgeEraser(rule *btapb.GcRule, c cell, rank int, now int64) *btapb.GcRule {
-	switch r := rule.Rule.(type) {
-	case *btapb.GcRule_MaxAge:
-		return rule
+		return len(rules) > 0, credit
 	case *btapb.GcRule_Union_:
 		// Upstream applies a union's rules in turn, so the first rule that
 		// erases c is the one that deletes it.
 		for _, sub := range r.Union.GetRules() {
-			if gcErases(sub, c, rank, now) {
-				return maxAgeEraser(sub, c, rank, now)
-			}
-		}
-	case *btapb.GcRule_Intersection_:
-		// Each rule of the intersection erases c.
-		for _, sub := range r.Intersection.GetRules() {
-			if maxAge := maxAgeEraser(sub, c, rank, now); maxAge != nil {
-				return maxAge
+			if erases, maxAge := gcErases(sub, c, rank, now); erases {
+				return true, maxAge
 			}
 		}
 	}
-	return nil
+	return false, nil
 }
 
 // maxAgeRules returns the MaxAge rules in rule, in the order upstream applies
