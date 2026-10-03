@@ -1,4 +1,3 @@
-# Moves the SHA pins in .github/workflows to new action releases.
 version: 2
 updates:
   - package-ecosystem: github-actions

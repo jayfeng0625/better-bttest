@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run the checks that CI runs: formatting, license headers, module tidiness,
-# vet, and the tests under the race detector.
+# vet, staticcheck, and the tests under the race detector.
 # Usage: scripts/check.sh
 set -euo pipefail
 
@@ -40,7 +40,7 @@ go vet ./...
 # filtered findings sit in upstream code, which keeps upstream's style.
 staticcheck_bin=$(mktemp -d)
 trap 'rm -rf "$staticcheck_bin"' EXIT
-GOBIN=$staticcheck_bin go install honnef.co/go/tools/cmd/staticcheck@v0.8.1 # 2026.2.1
+GOBIN=$staticcheck_bin go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
 findings=$("$staticcheck_bin/staticcheck" ./... 2>&1 |
     grep -v -e '^bttest/example_test.go:[0-9:]* google.golang.org/grpc.Dial is deprecated' \
         -e '^bttest/inmem.go:[0-9:]* const maxValidMilliSeconds is unused' \
