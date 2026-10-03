@@ -81,7 +81,7 @@ Where that section does not state the behaviour, a [parity case](CONTRIBUTING.md
   The stock emulator accepts a `SetCell`, an increment, or an append on an aggregate family.
 - **[Aggregate inputs](https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#mergetocell).**
   A `MergeToCell` input is a `bytes_value` that holds an int64 as [8 big-endian bytes](https://cloud.google.com/bigtable/docs/data-types#aggregates).
-  A missing input is NULL, so an `AddToCell` adds 0 and a `MergeToCell` changes nothing.
+  A missing input is [NULL](https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#value), so an `AddToCell` adds 0 and a `MergeToCell` changes nothing.
   The stock emulator takes a `MergeToCell` input only as a `raw_value`, and crashes on a missing input.
 
 Two more changes have no production counterpart:

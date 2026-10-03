@@ -322,8 +322,8 @@ func TestCheckAndMutateRowChecksFamilyTypesInAppliedBranch(t *testing.T) {
 	}
 }
 
-// Production rejects a MergeToCell input that is not 8 bytes long into a Sum, MIN, or MAX cell that holds a value,
-// and leaves the cell unchanged.
+// Production rejects a MergeToCell input that is not 8 bytes long into a Sum, MIN, or MAX family, and leaves a cell
+// that holds a value unchanged.
 // See https://cloud.google.com/bigtable/docs/data-types#aggregates.
 func TestMergeToCellRejectsWrongLengthInput(t *testing.T) {
 	aggregators := map[string]*btapb.Type_Aggregate{"MIN": minAggregate(), "MAX": maxAggregate(), "Sum": sumAggregate()}
@@ -384,8 +384,9 @@ func TestReadModifyWriteRowRejectsAggregateFamily(t *testing.T) {
 	}
 }
 
-// Production checks each mutation's input kind for the whole request before it writes anything.
-// See https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#addtocell.
+// Production checks each mutation's input kind for the whole request before it writes anything. See
+// https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#addtocell and
+// https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#mergetocell.
 func TestMutateRowRejectsWrongInputKind(t *testing.T) {
 	addBytes := addToCellWithInput(bytesInput(456))
 	mergeInt := mergeToCellWithInput(&btpb.Value{Kind: &btpb.Value_IntValue{IntValue: 456}})

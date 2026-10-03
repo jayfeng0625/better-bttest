@@ -47,7 +47,9 @@ func applyGC(cells []cell, rule *btapb.GcRule) []cell {
 // a union rule erases a cell when any of them would. See
 // https://cloud.google.com/bigtable/docs/garbage-collection#combinations.
 // When the rule erases c, gcErases also returns the MaxAge rule that the GC
-// log credits, or nil when no MaxAge rule takes part.
+// log credits with the deletion, or nil when it credits none. A union passes
+// on the credit of its first rule that erases c. An intersection passes on the
+// first credit among its rules.
 func gcErases(rule *btapb.GcRule, c cell, rank int, now int64) (bool, *btapb.GcRule) {
 	switch r := rule.Rule.(type) {
 	default:
