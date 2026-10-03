@@ -46,6 +46,12 @@ A parity case sends the same requests to a real table and to the emulator.
 - **[Missing values](https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#value).**
   A request with no value counts as NULL, so an `AddToCell` adds 0 and a `MergeToCell` changes nothing.
   Google's emulator crashes on a missing value.
+- **[SQL queries](https://cloud.google.com/bigtable/docs/googlesql-overview).**
+  `PrepareQuery` and `ExecuteQuery` run a `SELECT` over one table. [GoogleSQL's analyzer](https://github.com/goccy/go-googlesql) types each query.
+  A query can use a select list with aliases and `*`, `WHERE`, `ORDER BY`, `LIMIT`, `fam['col']`, comparisons, `AND`, `OR`, `NOT`, `IS NULL`, `IN`, `BETWEEN`, `LIKE`, `STARTS_WITH`, `CAST` between `BYTES` and `STRING`, `TO_INT64`, and query parameters.
+  Any other construct fails `PrepareQuery` with `InvalidArgument`.
+  A prepared query expires 40 s after `PrepareQuery`, or once a family it reads is dropped, with production's error.
+  The stock emulator returns `Unimplemented`.
 - **[Materialized views](https://cloud.google.com/bigtable/docs/materialized-views).**
   `CreateMaterializedView` stores a view, and `GetMaterializedView` returns it.
   A view that does not exist, or an ID that is taken, gets the error that production returns.
@@ -63,7 +69,8 @@ Three more changes have nothing to match in production:
 
 ## Not supported yet
 
-- SQL queries. `PrepareQuery` and `ExecuteQuery` return `Unimplemented`.
+- SQL beyond the constructs listed above, such as `GROUP BY`, `UNNEST`, and `OFFSET`.
+- A runtime SQL error's second line, `(while evaluating <expression>)`.
 - Listing, updating, and deleting materialized views, and reading from a view.
 - HyperLogLog (HLL) aggregate families.
 
