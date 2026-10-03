@@ -39,8 +39,8 @@ func checkInputKinds(prefix string, muts []*btpb.Mutation) error {
 }
 
 // fitFamilyTypes reports whether every mutation fits its family's type. SetCell needs a family with no
-// aggregate type, and AddToCell and MergeToCell need an aggregate family. A MergeToCell input must fit the
-// family's values, as mergeInputFits checks. An unknown family is left to applyMutations.
+// aggregate type, and AddToCell and MergeToCell need an aggregate family. A MergeToCell input must also pass
+// mergeInputFits. An unknown family is left to applyMutations.
 func fitFamilyTypes(muts []*btpb.Mutation, fs map[string]*columnFamily) bool {
 	for _, mut := range muts {
 		var family string
@@ -65,8 +65,8 @@ func fitFamilyTypes(muts []*btpb.Mutation, fs map[string]*columnFamily) bool {
 	return true
 }
 
-// mergeInputFits reports whether a MergeToCell input fits a Sum, MIN or MAX family, whose values are int64s in 8
-// big-endian bytes. An empty input is NULL, and fits. Any input fits another family.
+// mergeInputFits reports whether a MergeToCell input fits a Sum, MIN, or MAX family, whose values are int64s in 8
+// big-endian bytes. An empty input is NULL, and fits. Any input fits a family of another type.
 func mergeInputFits(input []byte, cf *columnFamily) bool {
 	switch cf.valueType.GetAggregateType().GetAggregator().(type) {
 	case *btapb.Type_Aggregate_Sum_, *btapb.Type_Aggregate_Min_, *btapb.Type_Aggregate_Max_:

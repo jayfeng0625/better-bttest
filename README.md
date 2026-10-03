@@ -13,9 +13,9 @@ The command builds the emulator and serves it on `localhost:8086`, in a containe
 Point a client at it with `BIGTABLE_EMULATOR_HOST=localhost:8086`.
 Stop it with `docker compose down`.
 
-To run the emulator without Docker, see `go doc ./cmd/emulator`.
-`go doc ./bttest` shows how a Go test runs the emulator in its own process.
-The repository is private, so `go get github.com/jayfeng0625/better-bttest` needs `GOPRIVATE=github.com/jayfeng0625/*` and git access to GitHub.
+To run the emulator without Docker, see the [`emulator` command docs](https://pkg.go.dev/github.com/jayfeng0625/better-bttest/cmd/emulator).
+A Go test can also run the emulator in the test's own process, as the [`bttest` package docs](https://pkg.go.dev/github.com/jayfeng0625/better-bttest/bttest) show.
+Add the module with `go get github.com/jayfeng0625/better-bttest`.
 
 ## Images
 
@@ -26,11 +26,6 @@ Each push to `main` publishes two images to GHCR, tagged with the full commit SH
 
 Each tag is one image index with a linux/amd64 and a linux/arm64 image, so one digest works on both platforms.
 From a checkout, `docker build .` builds the emulator image, and `docker build --target init .` builds the init image.
-The images are private while the repository is, so log in first with a token that has `read:packages`:
-
-```sh
-gh auth token | docker login ghcr.io -u <GitHub user> --password-stdin
-```
 
 Print a commit's index digest:
 
@@ -39,7 +34,8 @@ docker buildx imagetools inspect ghcr.io/jayfeng0625/better-bttest:<commit SHA> 
 ```
 
 The compose file below pins each image by digest.
-The emulator image reports healthy once the emulator serves, so the init image waits for it and then runs a table script:
+The emulator image has a healthcheck that passes once the emulator serves.
+`condition: service_healthy` makes the init container wait for that healthcheck, and then the init container runs a table script:
 
 ```yaml
 services:
@@ -72,7 +68,7 @@ cbt -project demo -instance demo createtable events \
 
 The fork supports these production Bigtable features, which the stock emulator does not.
 Each entry links the nearest section of the Cloud Bigtable documentation.
-Where that section does not state the behaviour, a [parity case](#parity-with-production) shows it on a real table.
+Where that section does not state the behaviour, a [parity case](CONTRIBUTING.md#check-behaviour-against-production) shows it on a real table.
 
 - **[Intersection GC rules](https://cloud.google.com/bigtable/docs/garbage-collection#combinations).**
   GC removes a cell only when every rule in the intersection would remove it.
@@ -82,16 +78,16 @@ Where that section does not state the behaviour, a [parity case](#parity-with-pr
   The stock emulator merges only Sum, so a MIN or MAX cell keeps the last input.
 - **[Family types](https://cloud.google.com/bigtable/docs/data-types#aggregates).**
   A write that does not fit its family's type fails with production's error.
-  The stock emulator accepts a `SetCell` or a `ReadModifyWriteRow` on an aggregate family.
+  The stock emulator accepts a `SetCell`, an increment, or an append on an aggregate family.
 - **[Aggregate inputs](https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#mergetocell).**
-  A `MergeToCell` input is a `bytes_value` that holds an int64 as 8 big-endian bytes.
-  A missing input is NULL, so an `AddToCell` adds 0 and a `MergeToCell` changes nothing.
+  A `MergeToCell` input is a `bytes_value` that holds an int64 as [8 big-endian bytes](https://cloud.google.com/bigtable/docs/data-types#aggregates).
+  A missing input is [NULL](https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#value), so an `AddToCell` adds 0 and a `MergeToCell` changes nothing.
   The stock emulator takes a `MergeToCell` input only as a `raw_value`, and crashes on a missing input.
 
 Two more changes have no production counterpart:
 
-- The image's healthcheck runs `emulator -probe`, which `go doc ./cmd/emulator` describes.
-- The emulator shuts down cleanly on SIGTERM, as it does on an interrupt.
+- The image's healthcheck runs `emulator -probe`, which the [`emulator` command docs](https://pkg.go.dev/github.com/jayfeng0625/better-bttest/cmd/emulator) describe.
+- On SIGTERM, the emulator prints its shutdown line, closes the server, and exits, as it does on an interrupt.
 
 ## Not supported yet
 
@@ -123,22 +119,9 @@ scripts/sync-upstream.sh bigtable/v1.59.0
 The script's header comment says what it changes and where it stops.
 After the script finishes, push both branches with `git push origin main upstream`.
 
-## Parity with production
+## Contributing
 
-`scripts/parity/run.sh` runs each parity case against a real Bigtable table, the emulator image built from this checkout, and Google's stock emulator.
-It prints a diff for each case where an emulator differs from the real table, then a table of every case.
-It needs Docker, and Application Default Credentials that can write to the table, so CI does not run it.
-The table needs an int64 MIN aggregate family, an int64 MAX aggregate family, and a family with no value type, each with GC rule `never`:
-
-```sh
-PARITY_PROJECT=<project> PARITY_INSTANCE=<instance> PARITY_TABLE=<table> \
-PARITY_MIN_FAMILY=<MIN family> PARITY_MAX_FAMILY=<MAX family> PARITY_PLAIN_FAMILY=<plain family> \
-scripts/parity/run.sh
-```
-
-It exits 0 when every case matches on this checkout's emulator, 1 on a difference there, and 2 when the login or the table is not usable.
-A stock emulator difference only shows in the report.
-It deletes the rows it wrote, even after a failure or an interrupt.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) gives the checks to run and the rules for a change.
 
 ## License
 

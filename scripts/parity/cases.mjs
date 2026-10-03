@@ -1,7 +1,8 @@
 // Run every parity case against one target and write the results as JSON, with the run id replaced by <run>.
 // The file is rewritten after each case, so it keeps the finished cases if the target dies.
 // Usage: node cases.mjs <out.json> <project> <instance> <table> <aggregate family> <plain family>
-// The aggregate family must be an int64 MIN or MAX aggregate. Each case name starts with the aggregate family's name.
+// The aggregate family must be an int64 MIN, MAX, or Sum aggregate.
+// Each case name starts with the aggregate family's name.
 import { writeFileSync } from 'node:fs'
 import { caseKey, connect } from './client.mjs'
 
@@ -260,26 +261,26 @@ await run('CheckAndMutateRow AddToCell with a bytes input in the branch it skips
     afterSeed('cam-input-skipped', seedPlain, (n) => checkAndMutateRow(n, { trueMutations: [setCell(PLAIN)], falseMutations: [addToCell(AGG, intAsBytes)] })),
 )
 
-// MergeToCell inputs that are not 8 bytes long. The 9-byte input is 456 with a leading zero byte. The cases on an
-// empty cell run first, because a merge into 456 can crash an emulator.
+// The cases on an empty cell run first, so a crash on a merge into 456 leaves their results.
+const threeBytes = be(456).subarray(5)
 const oddLengths = [
     ['a 0-byte', Buffer.alloc(0)],
-    ['a 3-byte', be(456).subarray(5)],
+    ['a 3-byte', threeBytes],
     ['a 9-byte', Buffer.concat([Buffer.alloc(1), be(456)])],
 ]
 for (const [label, bytesValue] of oddLengths) {
     await run(`MergeToCell with ${label} input on an empty cell`, () => mutateRowCase(`merge-${bytesValue.length}-empty`, [], [mergeToCell(AGG, { input: { bytesValue } })]))
 }
-const threeBytes = mergeToCell(AGG, { input: { bytesValue: be(456).subarray(5) } })
-await run('MutateRow SetCell on plain, then MergeToCell with a 3-byte input', () => mutateRowCase('merge-3-second', [], [setCell(PLAIN), threeBytes]))
+const mergeThreeBytes = mergeToCell(AGG, { input: { bytesValue: threeBytes } })
+await run('MutateRow SetCell on plain, then MergeToCell with a 3-byte input', () => mutateRowCase('merge-3-second', [], [setCell(PLAIN), mergeThreeBytes]))
 await run('MutateRows MergeToCell with a 3-byte input, then a valid entry', () =>
-    mutateRowsCase([['rows-merge-3-bad', [threeBytes]], ['rows-merge-3-good', [setCell(PLAIN)]]]),
+    mutateRowsCase([['rows-merge-3-bad', [mergeThreeBytes]], ['rows-merge-3-good', [setCell(PLAIN)]]]),
 )
 await run('CheckAndMutateRow MergeToCell with a 3-byte input in the applied branch', () =>
-    afterSeed('cam-merge-3-applied', seedPlain, (n) => checkAndMutateRow(n, { trueMutations: [setCell(PLAIN), threeBytes] })),
+    afterSeed('cam-merge-3-applied', seedPlain, (n) => checkAndMutateRow(n, { trueMutations: [setCell(PLAIN), mergeThreeBytes] })),
 )
 await run('CheckAndMutateRow MergeToCell with a 3-byte input in the branch it skips', () =>
-    afterSeed('cam-merge-3-skipped', seedPlain, (n) => checkAndMutateRow(n, { trueMutations: [setCell(PLAIN)], falseMutations: [threeBytes] })),
+    afterSeed('cam-merge-3-skipped', seedPlain, (n) => checkAndMutateRow(n, { trueMutations: [setCell(PLAIN)], falseMutations: [mergeThreeBytes] })),
 )
 for (const [label, bytesValue] of oddLengths) {
     await run(`MergeToCell with ${label} input on 456`, () => mutateRowCase(`merge-${bytesValue.length}-seeded`, seedAgg, [mergeToCell(AGG, { input: { bytesValue } })]))
