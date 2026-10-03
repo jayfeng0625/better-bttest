@@ -9,13 +9,20 @@ permissions:
   contents: read
 
 jobs:
+  # Tests the newest 1.26 patch, the one the golang:1.26 image in the
+  # Dockerfile tracks. setup-go takes the runner's cached patch without
+  # check-latest. GOTOOLCHAIN=local fails a go.mod go line above 1.26, where
+  # go would fetch the newer toolchain and test it.
   check:
     runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
+          go-version: '1.26.x'
+          check-latest: true
       - run: scripts/check.sh
 
   # Publishes each image as one linux/amd64 and linux/arm64 index tagged with

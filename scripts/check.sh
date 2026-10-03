@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Run the checks that CI runs: formatting, license headers, vet, and the tests
-# under the race detector.
+# Run the checks that CI runs: formatting, license headers, module tidiness,
+# vet, and the tests under the race detector.
 # Usage: scripts/check.sh
 set -euo pipefail
 
@@ -21,6 +21,11 @@ unlicensed=$(git ls-files --cached --others --exclude-standard '*.go' |
 if [ -n "$unlicensed" ]; then
     echo "Start each of these files with // SPDX-License-Identifier: Apache-2.0" >&2
     echo "$unlicensed" >&2
+    exit 1
+fi
+
+if ! go mod tidy -diff; then
+    echo "Run go mod tidy." >&2
     exit 1
 fi
 
