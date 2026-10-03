@@ -1126,6 +1126,7 @@ func (s *server) MutateRows(req *btpb.MutateRowsRequest, stream btpb.Bigtable_Mu
 	fs := tbl.columnFamilies()
 
 	// Production fails every entry, each with its own row, when any entry does not fit its family types.
+	// See https://cloud.google.com/bigtable/docs/data-types#aggregates.
 	if slices.ContainsFunc(req.Entries, func(e *btpb.MutateRowsRequest_Entry) bool { return !fitFamilyTypes(e.Mutations, fs) }) {
 		for i, entry := range req.Entries {
 			res.Entries[i] = &btpb.MutateRowsResponse_Entry{
@@ -1271,6 +1272,7 @@ func applyMutations(tbl *table, r *row, muts []*btpb.Mutation, fs map[string]*co
 			col := string(add.GetColumnQualifier().GetRawValue())
 
 			// Production adds a NULL input as 0.
+			// See https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#value.
 			newCell := cell{ts: ts, value: encodeInt64(add.GetInput().GetIntValue())}
 			f := r.getOrCreateFamily(fam, fs[fam].order)
 			f.cells[col] = appendOrReplaceCell(f.cellsByColumn(col), newCell, cf)
@@ -1288,8 +1290,9 @@ func applyMutations(tbl *table, r *row, muts []*btpb.Mutation, fs map[string]*co
 				return tbl.invalidTimestampError(ts)
 			}
 
-			// Production ignores a NULL input.
-			if add.GetInput().GetKind() == nil {
+			// Production ignores a NULL input and an empty bytes_value input.
+			// See https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#mergetocell.
+			if len(add.GetInput().GetBytesValue()) == 0 {
 				continue
 			}
 

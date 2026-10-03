@@ -4,6 +4,7 @@ package bttest
 
 import (
 	"context"
+	"encoding/binary"
 	"slices"
 	"testing"
 
@@ -88,6 +89,7 @@ func TestAggregateMerges(t *testing.T) {
 }
 
 // Bigtable merges only cells at the same timestamp.
+// See https://cloud.google.com/bigtable/docs/create-update-counters#update-counters.
 func TestAggregateWriteAtNewTimestampStartsCell(t *testing.T) {
 	s, tbl := newAggregateTable(t, minAggregate())
 	mutate(t, s, tbl, addToCellAt(aggregateTS, 123))
@@ -104,6 +106,7 @@ func TestAggregateWriteAtNewTimestampStartsCell(t *testing.T) {
 }
 
 // Production reads a missing input, or an input with no kind, as NULL. It adds a NULL AddToCell input as 0.
+// See https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#value.
 func TestAddToCellWithNullInputAddsZero(t *testing.T) {
 	for name, input := range nullInputs() {
 		t.Run(name, func(t *testing.T) {
@@ -118,8 +121,12 @@ func TestAddToCellWithNullInputAddsZero(t *testing.T) {
 	}
 }
 
+// Production ignores a NULL input and an empty bytes_value input.
+// See https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#mergetocell.
 func TestMergeToCellWithNullInputHasNoEffect(t *testing.T) {
-	for name, input := range nullInputs() {
+	inputs := nullInputs()
+	inputs["an empty bytes input"] = &btpb.Value{Kind: &btpb.Value_BytesValue{}}
+	for name, input := range inputs {
 		t.Run(name, func(t *testing.T) {
 			s, tbl := newAggregateTable(t, minAggregate())
 			null := mergeToCellWithInput(input)
@@ -142,6 +149,7 @@ func nullInputs() map[string]*btpb.Value {
 }
 
 // Production allows every delete on an aggregate family.
+// See https://cloud.google.com/bigtable/docs/writes#increments.
 func TestAggregateFamilyAcceptsDeletes(t *testing.T) {
 	column := []byte(aggregateColumn)
 	tests := []struct {
@@ -178,6 +186,7 @@ func TestAggregateFamilyAcceptsDeletes(t *testing.T) {
 }
 
 // Production rejects a mutation that does not fit its family's type and writes nothing.
+// See https://cloud.google.com/bigtable/docs/data-types#aggregates.
 func TestMutateRowRejectsFamilyTypeMismatch(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -188,6 +197,9 @@ func TestMutateRowRejectsFamilyTypeMismatch(t *testing.T) {
 		{"MergeToCell on a plain family", []*btpb.Mutation{mergeToCellIn(plainFamily, 456)}},
 		{"AddToCell, then SetCell on an aggregate family", []*btpb.Mutation{addToCell(456), setCellIn(aggregateFamily, 456)}},
 		{"SetCell on a plain family, then on an aggregate family", []*btpb.Mutation{setCellIn(plainFamily, 456), setCellIn(aggregateFamily, 456)}},
+		{"MergeToCell with a 3-byte input", []*btpb.Mutation{mergeToCellWithBytes(threeBytes())}},
+		{"MergeToCell with a 9-byte input", []*btpb.Mutation{mergeToCellWithBytes(nineBytes())}},
+		{"SetCell on a plain family, then MergeToCell with a 3-byte input", []*btpb.Mutation{setCellIn(plainFamily, 456), mergeToCellWithBytes(threeBytes())}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -207,6 +219,7 @@ func TestMutateRowRejectsFamilyTypeMismatch(t *testing.T) {
 
 // Production fails every entry of a MutateRows batch, each with its own row, when any entry has a family type
 // mismatch. The RPC returns OK and writes nothing.
+// See https://cloud.google.com/bigtable/docs/data-types#aggregates.
 func TestMutateRowsFailsBatchOnFamilyTypeMismatch(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -222,6 +235,10 @@ func TestMutateRowsFailsBatchOnFamilyTypeMismatch(t *testing.T) {
 		}},
 		{"AddToCell on a plain family, then a valid entry", []*btpb.MutateRowsRequest_Entry{
 			{RowKey: []byte("bad"), Mutations: []*btpb.Mutation{addToCellIn(plainFamily, 456)}},
+			{RowKey: []byte("good"), Mutations: []*btpb.Mutation{setCellIn(plainFamily, 456)}},
+		}},
+		{"MergeToCell with a 3-byte input, then a valid entry", []*btpb.MutateRowsRequest_Entry{
+			{RowKey: []byte("bad"), Mutations: []*btpb.Mutation{mergeToCellWithBytes(threeBytes())}},
 			{RowKey: []byte("good"), Mutations: []*btpb.Mutation{setCellIn(plainFamily, 456)}},
 		}},
 	}
@@ -248,6 +265,7 @@ func TestMutateRowsFailsBatchOnFamilyTypeMismatch(t *testing.T) {
 
 // Production checks family types only in the CheckAndMutateRow branch it applies. With no predicate, a row
 // with cells takes the true branch.
+// See https://cloud.google.com/bigtable/docs/data-types#aggregates.
 func TestCheckAndMutateRowChecksFamilyTypesInAppliedBranch(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -265,6 +283,19 @@ func TestCheckAndMutateRowChecksFamilyTypesInAppliedBranch(t *testing.T) {
 			req: &btpb.CheckAndMutateRowRequest{
 				TrueMutations:  []*btpb.Mutation{addToCell(123)},
 				FalseMutations: []*btpb.Mutation{setCellIn(aggregateFamily, 789)},
+			},
+			wantAgg: []aggregateCell{{aggregateTS, 123}},
+		},
+		{
+			name:    "MergeToCell with a 3-byte input in the applied branch",
+			req:     &btpb.CheckAndMutateRowRequest{TrueMutations: []*btpb.Mutation{setCellIn(plainFamily, 789), mergeToCellWithBytes(threeBytes())}},
+			wantErr: true,
+		},
+		{
+			name: "MergeToCell with a 3-byte input in the branch it skips",
+			req: &btpb.CheckAndMutateRowRequest{
+				TrueMutations:  []*btpb.Mutation{addToCell(123)},
+				FalseMutations: []*btpb.Mutation{mergeToCellWithBytes(threeBytes())},
 			},
 			wantAgg: []aggregateCell{{aggregateTS, 123}},
 		},
@@ -291,7 +322,34 @@ func TestCheckAndMutateRowChecksFamilyTypesInAppliedBranch(t *testing.T) {
 	}
 }
 
+// Production rejects a MergeToCell input that is not 8 bytes long into a MIN or MAX cell that holds a value, and
+// leaves the cell unchanged. A Sum value is an int64 too, so the emulator applies the same rule to Sum.
+// See https://cloud.google.com/bigtable/docs/data-types#aggregates.
+func TestMergeToCellRejectsWrongLengthInput(t *testing.T) {
+	aggregators := map[string]*btapb.Type_Aggregate{"MIN": minAggregate(), "MAX": maxAggregate(), "Sum": sumAggregate()}
+	inputs := map[string][]byte{"a 3-byte input": threeBytes(), "a 9-byte input": nineBytes()}
+	for aggregatorName, aggregator := range aggregators {
+		for inputName, input := range inputs {
+			t.Run(aggregatorName+" with "+inputName, func(t *testing.T) {
+				s, tbl := newAggregateTable(t, aggregator)
+				mutate(t, s, tbl, mergeToCell(456))
+				_, err := s.MutateRow(context.Background(), &btpb.MutateRowRequest{
+					TableName: tbl,
+					RowKey:    []byte("row"),
+					Mutations: []*btpb.Mutation{mergeToCellWithBytes(input)},
+				})
+				wantStatus(t, err, codes.InvalidArgument, familyTypeMismatchMessage(tbl, "row"))
+				want := []aggregateCell{{aggregateTS, 456}}
+				if got := readCells(t, s, tbl, nil); !slices.Equal(got, want) {
+					t.Errorf("got cells %v, want %v", got, want)
+				}
+			})
+		}
+	}
+}
+
 // Production rejects a ReadModifyWriteRow rule on an aggregate family and leaves the row unchanged.
+// See https://cloud.google.com/bigtable/docs/writes#increments.
 func TestReadModifyWriteRowRejectsAggregateFamily(t *testing.T) {
 	increment := func(family string) *btpb.ReadModifyWriteRule {
 		return &btpb.ReadModifyWriteRule{FamilyName: family, ColumnQualifier: []byte(aggregateColumn), Rule: &btpb.ReadModifyWriteRule_IncrementAmount{IncrementAmount: 1}}
@@ -327,10 +385,11 @@ func TestReadModifyWriteRowRejectsAggregateFamily(t *testing.T) {
 }
 
 // Production checks each mutation's input kind for the whole request before it writes anything.
+// See https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#addtocell.
 func TestMutateRowRejectsWrongInputKind(t *testing.T) {
 	addBytes := addToCellWithInput(bytesInput(456))
 	mergeInt := mergeToCellWithInput(&btpb.Value{Kind: &btpb.Value_IntValue{IntValue: 456}})
-	mergeRaw := mergeToCellWithInput(&btpb.Value{Kind: &btpb.Value_RawValue{RawValue: encodeInt64(456)}})
+	mergeRaw := mergeToCellWithInput(&btpb.Value{Kind: &btpb.Value_RawValue{RawValue: binary.BigEndian.AppendUint64(nil, 456)}})
 	tests := []struct {
 		name      string
 		mutations []*btpb.Mutation
@@ -374,6 +433,7 @@ func TestMutateRowRejectsWrongInputKind(t *testing.T) {
 }
 
 // Production fails the whole MutateRows RPC on a wrong input kind, before it writes any entry.
+// See https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#addtocell.
 func TestMutateRowsRejectsWrongInputKind(t *testing.T) {
 	s, tbl := newAggregateTable(t, minAggregate())
 	addBytes := addToCellWithInput(bytesInput(456))
@@ -388,6 +448,7 @@ func TestMutateRowsRejectsWrongInputKind(t *testing.T) {
 }
 
 // Production checks input kinds in both CheckAndMutateRow branches, including the one it skips.
+// See https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#addtocell.
 func TestCheckAndMutateRowRejectsWrongInputKindInEitherBranch(t *testing.T) {
 	addBytes := addToCellWithInput(bytesInput(456))
 	tests := []struct {
@@ -450,6 +511,13 @@ func maxAggregate() *btapb.Type_Aggregate {
 	}
 }
 
+func sumAggregate() *btapb.Type_Aggregate {
+	return &btapb.Type_Aggregate{
+		InputType:  &btapb.Type{Kind: &btapb.Type_Int64Type{}},
+		Aggregator: &btapb.Type_Aggregate_Sum_{Sum: &btapb.Type_Aggregate_Sum{}},
+	}
+}
+
 func mergeToCell(v int64) *btpb.Mutation {
 	return &btpb.Mutation{Mutation: &btpb.Mutation_MergeToCell_{MergeToCell: &btpb.Mutation_MergeToCell{
 		FamilyName:      aggregateFamily,
@@ -496,8 +564,20 @@ func mergeToCellWithInput(input *btpb.Value) *btpb.Mutation {
 	return m
 }
 
+func mergeToCellWithBytes(b []byte) *btpb.Mutation {
+	return mergeToCellWithInput(&btpb.Value{Kind: &btpb.Value_BytesValue{BytesValue: b}})
+}
+
+func threeBytes() []byte {
+	return binary.BigEndian.AppendUint64(nil, 456)[5:]
+}
+
+func nineBytes() []byte {
+	return binary.BigEndian.AppendUint64([]byte{0}, 456)
+}
+
 func bytesInput(v int64) *btpb.Value {
-	return &btpb.Value{Kind: &btpb.Value_BytesValue{BytesValue: encodeInt64(v)}}
+	return &btpb.Value{Kind: &btpb.Value_BytesValue{BytesValue: binary.BigEndian.AppendUint64(nil, uint64(v))}}
 }
 
 func setCellIn(family string, v int64) *btpb.Mutation {
@@ -505,7 +585,7 @@ func setCellIn(family string, v int64) *btpb.Mutation {
 		FamilyName:      family,
 		ColumnQualifier: []byte(aggregateColumn),
 		TimestampMicros: aggregateTS,
-		Value:           encodeInt64(v),
+		Value:           binary.BigEndian.AppendUint64(nil, uint64(v)),
 	}}}
 }
 
@@ -547,7 +627,7 @@ func readCells(t *testing.T, s *server, tbl string, filter *btpb.RowFilter) []ag
 	var cells []aggregateCell
 	for _, r := range mock.responses {
 		for _, chunk := range r.Chunks {
-			cells = append(cells, aggregateCell{chunk.TimestampMicros, decodeInt64(chunk.Value)})
+			cells = append(cells, aggregateCell{chunk.TimestampMicros, int64(binary.BigEndian.Uint64(chunk.Value))})
 		}
 	}
 	return cells

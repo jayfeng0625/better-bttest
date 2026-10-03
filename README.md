@@ -1,7 +1,7 @@
 # better-bttest
 
-A fork of the Cloud Bigtable emulator (`bttest` and `cbtemulator`) from [googleapis/google-cloud-go](https://github.com/googleapis/google-cloud-go).
-It adds the production behaviour that the upstream emulator lacks.
+better-bttest is a fork of the Cloud Bigtable emulator (`bttest` and `cbtemulator`) from [googleapis/google-cloud-go](https://github.com/googleapis/google-cloud-go).
+It behaves like production Bigtable where the stock emulator does not, as [Differences from upstream](#differences-from-upstream) lists.
 
 ## Run
 
@@ -9,67 +9,23 @@ It adds the production behaviour that the upstream emulator lacks.
 docker compose up --build -d
 ```
 
-This builds the emulator and serves it on `localhost:8086`, in a container named `bigtable`.
+The command builds the emulator and serves it on `localhost:8086`, in a container named `bigtable`.
 Point a client at it with `BIGTABLE_EMULATOR_HOST=localhost:8086`.
-`docker compose down` stops it.
+Stop it with `docker compose down`.
 
-The image declares a healthcheck, so the container reports healthy once the emulator serves.
-A service that needs the emulator can wait for it:
+To run the emulator without Docker, see `go doc ./cmd/emulator`.
+`go doc ./bttest` shows how a Go test runs the emulator in its own process.
+The repository is private, so `go get github.com/jayfeng0625/better-bttest` needs `GOPRIVATE=github.com/jayfeng0625/*` and git access to GitHub.
 
-```yaml
-depends_on:
-  bigtable:
-    condition: service_healthy
-```
+## Images
 
-The healthcheck runs `/emulator -probe localhost:8086`, which lists tables at that address and exits non-zero when the call fails.
-
-To use it in place of Google's emulator in a container named `bigtable` on port 8086, stop that container first.
-Scripts that look for the `bigtable` container then reach this one.
-
-Without Docker, run `go run ./cmd/emulator -host 0.0.0.0 -port 8086`.
-
-### Create tables from compose
-
-The Dockerfile's `init` target builds a Debian image with bash and [`cbt`](https://pkg.go.dev/cloud.google.com/go/cbt), about 210 MB unpacked.
-A compose service can build it and run a table script against the emulator:
-
-```yaml
-services:
-  bigtable:
-    build: <path to this checkout>
-  bigtable-init:
-    build:
-      context: <path to this checkout>
-      target: init
-    depends_on:
-      bigtable:
-        condition: service_healthy
-    environment:
-      BIGTABLE_EMULATOR_HOST: bigtable:8086
-    volumes:
-      - ./create-tables.sh:/create-tables.sh:ro
-    command: ["bash", "/create-tables.sh"]
-```
-
-`cbt` reads `BIGTABLE_EMULATOR_HOST` and needs no credentials.
-Families take cbt's `name:gcrule[:intmin]` form; quote them, since `||` is a shell operator:
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-cbt -project demo -instance demo createtable events \
-    'families=recent:maxage=1s||maxversions=1,lowest:never:intmin'
-```
-
-### Pull a published image
-
-Each push to `main` publishes both images to GHCR, tagged with the full commit SHA:
+Each push to `main` publishes two images to GHCR, tagged with the full commit SHA:
 
 - `ghcr.io/jayfeng0625/better-bttest`: the emulator.
-- `ghcr.io/jayfeng0625/better-bttest-init`: bash and `cbt`, from the `init` target.
+- `ghcr.io/jayfeng0625/better-bttest-init`: the init image, with bash and [`cbt`](https://pkg.go.dev/cloud.google.com/go/cbt).
 
-Each tag is one index holding linux/amd64 and linux/arm64, so one digest serves both platforms.
+Each tag is one image index with a linux/amd64 and a linux/arm64 image, so one digest works on both platforms.
+From a checkout, `docker build .` builds the emulator image, and `docker build --target init .` builds the init image.
 The images are private while the repository is, so log in first with a token that has `read:packages`:
 
 ```sh
@@ -82,7 +38,8 @@ Print a commit's index digest:
 docker buildx imagetools inspect ghcr.io/jayfeng0625/better-bttest:<commit SHA> --format '{{.Manifest.Digest}}'
 ```
 
-A compose file then pins each image by digest in place of `build:`:
+The compose file below pins each image by digest.
+The emulator image reports healthy once the emulator serves, so the init image waits for it and then runs a table script:
 
 ```yaml
 services:
@@ -90,15 +47,59 @@ services:
     image: ghcr.io/jayfeng0625/better-bttest@sha256:<digest>
   bigtable-init:
     image: ghcr.io/jayfeng0625/better-bttest-init@sha256:<digest>
+    depends_on:
+      bigtable:
+        condition: service_healthy
+    environment:
+      BIGTABLE_EMULATOR_HOST: bigtable:8086
+    volumes:
+      - ./create-tables.sh:/create-tables.sh:ro
+    command: ["bash", "/create-tables.sh"]
 ```
 
-### Use it in Go tests
+`cbt` reads `BIGTABLE_EMULATOR_HOST` and needs no credentials.
+Each family takes cbt's `name:gcrule[:intmin]` form.
+Quote the families, because `||` is a shell operator:
 
-A Go test can run the emulator in its own process, with no Docker.
-Call `bttest.NewServer("localhost:0")` and dial its `Addr` with the Go client, as `bttest/example_test.go` does.
-Each server holds its own tables, so tests that start their own server share no state.
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+cbt -project demo -instance demo createtable events \
+    'families=recent:maxage=1s||maxversions=1,lowest:never:intmin'
+```
 
-The repository is private, so `go get github.com/jayfeng0625/better-bttest` needs `GOPRIVATE=github.com/jayfeng0625/*` and git access to GitHub.
+## Differences from upstream
+
+The fork supports these production Bigtable features, which the stock emulator does not.
+Each entry links the nearest section of the Cloud Bigtable documentation.
+Where that section does not state the behaviour, a [parity case](#parity-with-production) shows it on a real table.
+
+- **[Intersection GC rules](https://cloud.google.com/bigtable/docs/garbage-collection#combinations).**
+  GC removes a cell only when every rule in the intersection would remove it.
+  The stock emulator logs that it does not support the rule, and keeps every cell.
+- **[MIN and MAX aggregates](https://cloud.google.com/bigtable/docs/writes#increments).**
+  A MIN family merges its inputs into their minimum, and a MAX family merges them into their maximum.
+  The stock emulator merges only Sum, so a MIN or MAX cell keeps the last input.
+- **[Family types](https://cloud.google.com/bigtable/docs/data-types#aggregates).**
+  A write that does not fit its family's type fails with production's error.
+  The stock emulator accepts a `SetCell` or a `ReadModifyWriteRow` on an aggregate family.
+- **[Aggregate inputs](https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#mergetocell).**
+  A `MergeToCell` input is a `bytes_value` that holds an int64 as 8 big-endian bytes.
+  A missing input is NULL, so an `AddToCell` adds 0 and a `MergeToCell` changes nothing.
+  The stock emulator takes a `MergeToCell` input only as a `raw_value`, and crashes on a missing input.
+
+Two more changes have no production counterpart:
+
+- The image's healthcheck runs `emulator -probe`, which `go doc ./cmd/emulator` describes.
+- The emulator shuts down cleanly on SIGTERM, as it does on an interrupt.
+
+## Not supported yet
+
+The fork does not support these yet:
+
+- SQL queries. `PrepareQuery` and `ExecuteQuery` return `Unimplemented`.
+- Materialized views.
+- HyperLogLog (HLL) aggregate families.
 
 ## Upstream
 
@@ -110,26 +111,21 @@ The `cloud.google.com/go/bigtable` version in `go.mod` is the release it is on.
 | `bigtable/bttest`       | `bttest`       |
 | `bigtable/cmd/emulator` | `cmd/emulator` |
 
-The `upstream` branch holds upstream's files unmodified, one commit per imported release.
-`main` merges it, so git has the right base for a 3-way merge.
-
-To move to the latest release, or to a named one:
+The `upstream` branch holds each upstream file unmodified, with one commit per imported release.
+`main` merges the `upstream` branch, so git has the right base for a 3-way merge.
+To merge the latest release, or a named one:
 
 ```sh
 scripts/sync-upstream.sh
 scripts/sync-upstream.sh bigtable/v1.59.0
 ```
 
-The script imports the release onto `upstream` and merges it into a sync branch.
-It moves `go.mod` to the same release, then builds and tests.
-On success it fast-forwards `main`; on a conflict or a failure it stops on the sync branch.
-It pushes nothing: run `git push origin main upstream` after it.
-
-The files under `bttest` and `cmd/emulator` are modified from upstream. The git history records each change.
+The script's header comment says what it changes and where it stops.
+After the script finishes, push both branches with `git push origin main upstream`.
 
 ## Parity with production
 
-`scripts/parity/run.sh` runs the same cases against a real Bigtable table, the emulator image built from this checkout, and Google's stock emulator.
+`scripts/parity/run.sh` runs each parity case against a real Bigtable table, the emulator image built from this checkout, and Google's stock emulator.
 It prints a diff for each case where an emulator differs from the real table, then a table of every case.
 It needs Docker, and Application Default Credentials that can write to the table, so CI does not run it.
 The table needs an int64 MIN aggregate family, an int64 MAX aggregate family, and a family with no value type, each with GC rule `never`:
@@ -146,4 +142,4 @@ It deletes the rows it wrote, even after a failure or an interrupt.
 
 ## License
 
-Apache License 2.0, as upstream. See `LICENSE`.
+The fork uses the Apache License 2.0, as upstream does. See `LICENSE`.
