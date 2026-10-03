@@ -24,8 +24,13 @@ if [ -n "$unlicensed" ]; then
     exit 1
 fi
 
-if ! go mod tidy -diff; then
-    echo "Run go mod tidy." >&2
+# go mod tidy -diff exits 1 on a module download failure too, and then it
+# prints no diff.
+if ! tidy_diff=$(go mod tidy -diff); then
+    if [ -n "$tidy_diff" ]; then
+        echo "$tidy_diff"
+        echo "Run go mod tidy." >&2
+    fi
     exit 1
 fi
 
