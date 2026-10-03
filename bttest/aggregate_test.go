@@ -568,12 +568,10 @@ func mergeToCellWithBytes(b []byte) *btpb.Mutation {
 	return mergeToCellWithInput(&btpb.Value{Kind: &btpb.Value_BytesValue{BytesValue: b}})
 }
 
-// threeBytes returns 456 cut to its last 3 bytes.
 func threeBytes() []byte {
 	return binary.BigEndian.AppendUint64(nil, 456)[5:]
 }
 
-// nineBytes returns 456 after a zero byte.
 func nineBytes() []byte {
 	return binary.BigEndian.AppendUint64([]byte{0}, 456)
 }
