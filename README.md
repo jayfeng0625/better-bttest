@@ -10,38 +10,42 @@ docker compose up --build -d
 ```
 
 This builds the emulator and serves it on `localhost:8086`, in a container named `bigtable`.
-Point a client at it with `BIGTABLE_EMULATOR_HOST=localhost:8086`.
-`docker compose down` stops it.
+Point a client at it with `BIGTABLE_EMULATOR_HOST=localhost:8086`, and stop it with `docker compose down`.
 
-The image declares a healthcheck, so the container reports healthy once the emulator serves.
-A service that needs the emulator can wait for it:
+`go doc ./cmd/emulator` lists the emulator's flags, for a run without Docker.
+`go doc ./bttest` shows how a Go test runs the emulator in its own process.
+The repository is private, so `go get github.com/jayfeng0625/better-bttest` needs `GOPRIVATE=github.com/jayfeng0625/*` and git access to GitHub.
 
-```yaml
-depends_on:
-  bigtable:
-    condition: service_healthy
+## Images
+
+Each push to `main` publishes two images to GHCR, tagged with the full commit SHA:
+
+- `ghcr.io/jayfeng0625/better-bttest`: the emulator.
+- `ghcr.io/jayfeng0625/better-bttest-init`: the init image, with bash and [`cbt`](https://pkg.go.dev/cloud.google.com/go/cbt).
+
+Each tag is one index holding linux/amd64 and linux/arm64, so one digest serves both platforms.
+From a checkout, `docker build .` builds the emulator image, and `docker build --target init .` the init image.
+The images are private while the repository is, so log in first with a token that has `read:packages`:
+
+```sh
+gh auth token | docker login ghcr.io -u <GitHub user> --password-stdin
 ```
 
-The healthcheck runs `/emulator -probe localhost:8086`, which lists tables at that address and exits non-zero when the call fails.
+Print a commit's index digest:
 
-To use it in place of Google's emulator in a container named `bigtable` on port 8086, stop that container first.
-Scripts that look for the `bigtable` container then reach this one.
+```sh
+docker buildx imagetools inspect ghcr.io/jayfeng0625/better-bttest:<commit SHA> --format '{{.Manifest.Digest}}'
+```
 
-Without Docker, run `go run ./cmd/emulator -host 0.0.0.0 -port 8086`.
-
-### Create tables from compose
-
-The Dockerfile's `init` target builds a Debian image with bash and [`cbt`](https://pkg.go.dev/cloud.google.com/go/cbt), about 210 MB unpacked.
-A compose service can build it and run a table script against the emulator:
+A compose file pins each image by digest.
+The emulator image reports healthy once the emulator serves, so the init image can wait for it and run a table script:
 
 ```yaml
 services:
   bigtable:
-    build: <path to this checkout>
+    image: ghcr.io/jayfeng0625/better-bttest@sha256:<digest>
   bigtable-init:
-    build:
-      context: <path to this checkout>
-      target: init
+    image: ghcr.io/jayfeng0625/better-bttest-init@sha256:<digest>
     depends_on:
       bigtable:
         condition: service_healthy
@@ -62,44 +66,6 @@ cbt -project demo -instance demo createtable events \
     'families=recent:maxage=1s||maxversions=1,lowest:never:intmin'
 ```
 
-### Pull a published image
-
-Each push to `main` publishes both images to GHCR, tagged with the full commit SHA:
-
-- `ghcr.io/jayfeng0625/better-bttest`: the emulator.
-- `ghcr.io/jayfeng0625/better-bttest-init`: bash and `cbt`, from the `init` target.
-
-Each tag is one index holding linux/amd64 and linux/arm64, so one digest serves both platforms.
-The images are private while the repository is, so log in first with a token that has `read:packages`:
-
-```sh
-gh auth token | docker login ghcr.io -u <GitHub user> --password-stdin
-```
-
-Print a commit's index digest:
-
-```sh
-docker buildx imagetools inspect ghcr.io/jayfeng0625/better-bttest:<commit SHA> --format '{{.Manifest.Digest}}'
-```
-
-A compose file then pins each image by digest in place of `build:`:
-
-```yaml
-services:
-  bigtable:
-    image: ghcr.io/jayfeng0625/better-bttest@sha256:<digest>
-  bigtable-init:
-    image: ghcr.io/jayfeng0625/better-bttest-init@sha256:<digest>
-```
-
-### Use it in Go tests
-
-A Go test can run the emulator in its own process, with no Docker.
-Call `bttest.NewServer("localhost:0")` and dial its `Addr` with the Go client, as `bttest/example_test.go` does.
-Each server holds its own tables, so tests that start their own server share no state.
-
-The repository is private, so `go get github.com/jayfeng0625/better-bttest` needs `GOPRIVATE=github.com/jayfeng0625/*` and git access to GitHub.
-
 ## Upstream
 
 The fork tracks google-cloud-go's bigtable releases.
@@ -110,26 +76,22 @@ The `cloud.google.com/go/bigtable` version in `go.mod` is the release it is on.
 | `bigtable/bttest`       | `bttest`       |
 | `bigtable/cmd/emulator` | `cmd/emulator` |
 
-The `upstream` branch holds upstream's files unmodified, one commit per imported release.
-`main` merges it, so git has the right base for a 3-way merge.
-
-To move to the latest release, or to a named one:
+The `upstream` branch holds each upstream file unmodified, one commit per imported release, and `main` merges it, so git has the right base for a 3-way merge.
+To merge the latest release, or a named one:
 
 ```sh
 scripts/sync-upstream.sh
 scripts/sync-upstream.sh bigtable/v1.59.0
 ```
 
-The script imports the release onto `upstream` and merges it into a sync branch.
-It moves `go.mod` to the same release, then builds and tests.
-On success it fast-forwards `main`; on a conflict or a failure it stops on the sync branch.
-It pushes nothing: run `git push origin main upstream` after it.
+The script's header comment says what it changes and where it stops.
+Push both branches after it: `git push origin main upstream`.
 
 The files under `bttest` and `cmd/emulator` are modified from upstream. The git history records each change.
 
 ## Parity with production
 
-`scripts/parity/run.sh` runs the same cases against a real Bigtable table, the emulator image built from this checkout, and Google's stock emulator.
+`scripts/parity/run.sh` runs each parity case against a real Bigtable table, the emulator image built from this checkout, and Google's stock emulator.
 It prints a diff for each case where an emulator differs from the real table, then a table of every case.
 It needs Docker, and Application Default Credentials that can write to the table, so CI does not run it.
 The table needs an int64 MIN aggregate family, an int64 MAX aggregate family, and a family with no value type, each with GC rule `never`:
