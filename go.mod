@@ -6,6 +6,7 @@ require (
 	cloud.google.com/go/bigtable v1.58.0
 	cloud.google.com/go/iam v1.11.0
 	cloud.google.com/go/longrunning v1.2.0
+	github.com/goccy/go-googlesql v0.4.0
 	github.com/google/btree v1.1.3
 	github.com/google/go-cmp v0.7.0
 	google.golang.org/api v0.287.1
@@ -33,6 +34,7 @@ require (
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/goccy/googlesqlwasm2go v0.2.0 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.17 // indirect
