@@ -389,7 +389,7 @@ func TestReadModifyWriteRowRejectsAggregateFamily(t *testing.T) {
 func TestMutateRowRejectsWrongInputKind(t *testing.T) {
 	addBytes := addToCellWithInput(bytesInput(456))
 	mergeInt := mergeToCellWithInput(&btpb.Value{Kind: &btpb.Value_IntValue{IntValue: 456}})
-	mergeRaw := mergeToCellWithInput(&btpb.Value{Kind: &btpb.Value_RawValue{RawValue: encodeInt64(456)}})
+	mergeRaw := mergeToCellWithInput(&btpb.Value{Kind: &btpb.Value_RawValue{RawValue: binary.BigEndian.AppendUint64(nil, 456)}})
 	tests := []struct {
 		name      string
 		mutations []*btpb.Mutation
@@ -579,7 +579,7 @@ func nineBytes() []byte {
 }
 
 func bytesInput(v int64) *btpb.Value {
-	return &btpb.Value{Kind: &btpb.Value_BytesValue{BytesValue: encodeInt64(v)}}
+	return &btpb.Value{Kind: &btpb.Value_BytesValue{BytesValue: binary.BigEndian.AppendUint64(nil, uint64(v))}}
 }
 
 func setCellIn(family string, v int64) *btpb.Mutation {
@@ -587,7 +587,7 @@ func setCellIn(family string, v int64) *btpb.Mutation {
 		FamilyName:      family,
 		ColumnQualifier: []byte(aggregateColumn),
 		TimestampMicros: aggregateTS,
-		Value:           encodeInt64(v),
+		Value:           binary.BigEndian.AppendUint64(nil, uint64(v)),
 	}}}
 }
 
@@ -629,7 +629,7 @@ func readCells(t *testing.T, s *server, tbl string, filter *btpb.RowFilter) []ag
 	var cells []aggregateCell
 	for _, r := range mock.responses {
 		for _, chunk := range r.Chunks {
-			cells = append(cells, aggregateCell{chunk.TimestampMicros, decodeInt64(chunk.Value)})
+			cells = append(cells, aggregateCell{chunk.TimestampMicros, int64(binary.BigEndian.Uint64(chunk.Value))})
 		}
 	}
 	return cells
