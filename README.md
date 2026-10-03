@@ -14,8 +14,8 @@ Point a client at it with `BIGTABLE_EMULATOR_HOST=localhost:8086`.
 Stop it with `docker compose down`.
 
 To run the emulator without Docker, see the [`emulator` command docs](https://pkg.go.dev/github.com/jayfeng0625/better-bttest/cmd/emulator).
-To run the emulator in a Go test's own process, add the module with `go get github.com/jayfeng0625/better-bttest`.
-The [`bttest` package docs](https://pkg.go.dev/github.com/jayfeng0625/better-bttest/bttest) show how.
+A Go test can also run the emulator in the test's own process, as the [`bttest` package docs](https://pkg.go.dev/github.com/jayfeng0625/better-bttest/bttest) show.
+Add the module with `go get github.com/jayfeng0625/better-bttest`.
 
 ## Images
 
@@ -34,7 +34,8 @@ docker buildx imagetools inspect ghcr.io/jayfeng0625/better-bttest:<commit SHA> 
 ```
 
 The compose file below pins each image by digest.
-The emulator image reports healthy once the emulator serves, so the init image waits for it and then runs a table script:
+The emulator image has a healthcheck that passes once the emulator serves.
+`condition: service_healthy` makes the init container wait for that healthcheck, and then the init container runs a table script:
 
 ```yaml
 services:
@@ -77,16 +78,16 @@ Where that section does not state the behaviour, a [parity case](CONTRIBUTING.md
   The stock emulator merges only Sum, so a MIN or MAX cell keeps the last input.
 - **[Family types](https://cloud.google.com/bigtable/docs/data-types#aggregates).**
   A write that does not fit its family's type fails with production's error.
-  The stock emulator accepts a `SetCell` or a `ReadModifyWriteRow` on an aggregate family.
+  The stock emulator accepts a `SetCell`, an increment, or an append on an aggregate family.
 - **[Aggregate inputs](https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#mergetocell).**
-  A `MergeToCell` input is a `bytes_value` that holds an int64 as 8 big-endian bytes.
+  A `MergeToCell` input is a `bytes_value` that holds an int64 as [8 big-endian bytes](https://cloud.google.com/bigtable/docs/data-types#aggregates).
   A missing input is NULL, so an `AddToCell` adds 0 and a `MergeToCell` changes nothing.
   The stock emulator takes a `MergeToCell` input only as a `raw_value`, and crashes on a missing input.
 
 Two more changes have no production counterpart:
 
 - The image's healthcheck runs `emulator -probe`, which the [`emulator` command docs](https://pkg.go.dev/github.com/jayfeng0625/better-bttest/cmd/emulator) describe.
-- The emulator shuts down cleanly on SIGTERM, as it does on an interrupt.
+- On SIGTERM, the emulator prints its shutdown line, closes the server, and exits, as it does on an interrupt.
 
 ## Not supported yet
 
