@@ -322,8 +322,8 @@ func TestCheckAndMutateRowChecksFamilyTypesInAppliedBranch(t *testing.T) {
 	}
 }
 
-// Production rejects a MergeToCell input that is not 8 bytes long into a MIN or MAX cell that holds a value, and
-// leaves the cell unchanged. A Sum value is an int64 too, so the emulator applies the same rule to Sum.
+// Production rejects a MergeToCell input that is not 8 bytes long into a Sum, MIN, or MAX cell that holds a value,
+// and leaves the cell unchanged.
 // See https://cloud.google.com/bigtable/docs/data-types#aggregates.
 func TestMergeToCellRejectsWrongLengthInput(t *testing.T) {
 	aggregators := map[string]*btapb.Type_Aggregate{"MIN": minAggregate(), "MAX": maxAggregate(), "Sum": sumAggregate()}
