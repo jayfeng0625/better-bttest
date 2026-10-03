@@ -7,7 +7,7 @@
 # The upstream branch holds upstream's bttest and emulator files unmodified, one
 # commit per imported release. The script imports the release there, merges it
 # into a sync branch off main, and moves cloud.google.com/go/bigtable in go.mod
-# to the same release. When the build and tests pass, it fast-forwards main and
+# to the same release. When scripts/check.sh passes, it fast-forwards main and
 # deletes the sync branch. On a conflict or a failure, it stops on the sync
 # branch. It pushes nothing.
 set -euo pipefail
@@ -98,10 +98,10 @@ fi
 go get "$MODULE@$version"
 go mod tidy
 
-echo "Building and testing."
-if ! { go build ./... && go vet ./... && go test -count=1 ./...; }; then
+echo "Running the check."
+if ! scripts/check.sh; then
     echo >&2
-    echo "The build or tests failed on $branch, with the merge uncommitted. Fix them, and commit." >&2
+    echo "The check failed on $branch, with the merge uncommitted. Fix it, and commit." >&2
     echo "Then land it: git switch main && git merge --ff-only $branch" >&2
     exit 1
 fi
