@@ -1272,7 +1272,7 @@ func applyMutations(tbl *table, r *row, muts []*btpb.Mutation, fs map[string]*co
 			col := string(add.GetColumnQualifier().GetRawValue())
 
 			// Production adds a NULL input as 0.
-			// See https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#addtocell.
+			// See https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#value.
 			newCell := cell{ts: ts, value: encodeInt64(add.GetInput().GetIntValue())}
 			f := r.getOrCreateFamily(fam, fs[fam].order)
 			f.cells[col] = appendOrReplaceCell(f.cellsByColumn(col), newCell, cf)
