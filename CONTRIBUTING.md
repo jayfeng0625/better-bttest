@@ -12,7 +12,7 @@ CI runs it on the newest Go 1.26 patch, with `GOTOOLCHAIN=local`.
 ## Change an upstream file
 
 An upstream file is a file that `scripts/sync-upstream.sh` imports from google-cloud-go, such as `bttest/inmem.go`.
-Keep each upstream file close to upstream's, so that [the upstream sync](README.md#upstream) merges cleanly:
+Keep each upstream file close to upstream's, so that [the upstream sync](README.md#upstream) merges without a conflict:
 
 - Put new code in new files. Change an upstream file only where the new code hooks in.
 - To replace an upstream function, delete it from the upstream file.
@@ -59,5 +59,6 @@ Before it exits, it deletes the rows it wrote, even after a failure or an interr
 Its exit codes mean:
 
 - 0 when every case matches on this checkout's emulator.
-- 1 when a case differs on this checkout's emulator. A stock emulator difference shows only in the report.
+- 1 when a case differs on this checkout's emulator, or the script cannot delete its rows.
+  A stock emulator difference shows only in the report.
 - 2 when a `PARITY_*` variable is unset, or the login or the table is not usable.
