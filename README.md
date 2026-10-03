@@ -13,9 +13,9 @@ The command builds the emulator and serves it on `localhost:8086`, in a containe
 Point a client at it with `BIGTABLE_EMULATOR_HOST=localhost:8086`.
 Stop it with `docker compose down`.
 
-To run the emulator without Docker, see `go doc ./cmd/emulator`.
-`go doc ./bttest` shows how a Go test runs the emulator in its own process.
-The repository is private, so `go get github.com/jayfeng0625/better-bttest` needs `GOPRIVATE=github.com/jayfeng0625/*` and git access to GitHub.
+To run the emulator without Docker, see the [`emulator` command docs](https://pkg.go.dev/github.com/jayfeng0625/better-bttest/cmd/emulator).
+To run the emulator in a Go test's own process, add the module with `go get github.com/jayfeng0625/better-bttest`.
+The [`bttest` package docs](https://pkg.go.dev/github.com/jayfeng0625/better-bttest/bttest) show how.
 
 ## Images
 
@@ -26,11 +26,6 @@ Each push to `main` publishes two images to GHCR, tagged with the full commit SH
 
 Each tag is one image index with a linux/amd64 and a linux/arm64 image, so one digest works on both platforms.
 From a checkout, `docker build .` builds the emulator image, and `docker build --target init .` builds the init image.
-The images are private while the repository is, so log in first with a token that has `read:packages`:
-
-```sh
-gh auth token | docker login ghcr.io -u <GitHub user> --password-stdin
-```
 
 Print a commit's index digest:
 
@@ -90,7 +85,7 @@ Where that section does not state the behaviour, a [parity case](CONTRIBUTING.md
 
 Two more changes have no production counterpart:
 
-- The image's healthcheck runs `emulator -probe`, which `go doc ./cmd/emulator` describes.
+- The image's healthcheck runs `emulator -probe`, which the [`emulator` command docs](https://pkg.go.dev/github.com/jayfeng0625/better-bttest/cmd/emulator) describe.
 - The emulator shuts down cleanly on SIGTERM, as it does on an interrupt.
 
 ## Not supported yet
