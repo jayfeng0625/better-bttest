@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run the parity cases against a real Bigtable table, the emulator image built from this checkout, and Google's stock
-# emulator, and diff each emulator's results against the real table's. CONTRIBUTING.md gives the usage and the exit
-# codes.
+# emulator, and diff each emulator's results against the real table's.
+# CONTRIBUTING.md gives the usage and the exit codes.
 set -euo pipefail
 
 for var in PARITY_PROJECT PARITY_INSTANCE PARITY_TABLE PARITY_MIN_FAMILY PARITY_MAX_FAMILY PARITY_SUM_FAMILY \
@@ -55,8 +55,9 @@ start_emulator() {
         cbt_emulator ls >/dev/null 2>&1 && break
         sleep 0.2
     done
-    cbt_emulator createtable "$PARITY_TABLE" \
-        "families=${PARITY_MIN_FAMILY}:never:intmin,${PARITY_MAX_FAMILY}:never:intmax,${PARITY_SUM_FAMILY}:never:intsum,${PARITY_PLAIN_FAMILY}:never"
+    local families="${PARITY_MIN_FAMILY}:never:intmin,${PARITY_MAX_FAMILY}:never:intmax"
+    families+=",${PARITY_SUM_FAMILY}:never:intsum,${PARITY_PLAIN_FAMILY}:never"
+    cbt_emulator createtable "$PARITY_TABLE" "families=$families"
 }
 
 # Run the cases for each aggregate family on a fresh emulator, so a crash in one family's cases leaves the next

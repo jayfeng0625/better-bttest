@@ -13,14 +13,14 @@ try {
 const families = metadata.columnFamilies
 
 const problems = []
-for (const [family, aggregator] of [
-    [MIN, 'min'],
-    [MAX, 'max'],
-    [SUM, 'sum'],
+for (const [family, aggregator, name] of [
+    [MIN, 'min', 'MIN'],
+    [MAX, 'max', 'MAX'],
+    [SUM, 'sum', 'Sum'],
 ]) {
     const aggregate = families[family]?.valueType?.aggregateType
     if (!aggregate?.inputType?.int64Type || aggregate.aggregator !== aggregator) {
-        problems.push(`${family} must be an int64 ${aggregator.toUpperCase()} aggregate family, got ${JSON.stringify(families[family] ?? null)}`)
+        problems.push(`${family} must be an int64 ${name} aggregate family, got ${JSON.stringify(families[family] ?? null)}`)
     }
 }
 if (!families[PLAIN] || families[PLAIN].valueType) {
