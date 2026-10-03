@@ -66,3 +66,4 @@ Its exit codes mean:
 
 When a step such as `npm ci` or `docker build` fails, the script exits with that step's code.
 On an interrupt or SIGTERM, it exits with 130.
+Whenever the script cannot delete its rows, it exits with 1.
