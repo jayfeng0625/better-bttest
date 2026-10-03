@@ -8,6 +8,13 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels its older run. A push to main gets a
+# group of its own, because each commit on main publishes its own images, and
+# a group holds at most one pending run.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
 jobs:
   # Tests the newest 1.26 patch, the one the golang:1.26 image in the
   # Dockerfile tracks. setup-go takes the runner's cached patch without
@@ -15,6 +22,7 @@ jobs:
   # go would fetch the newer toolchain and test it.
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       GOTOOLCHAIN: local
     steps:
@@ -32,6 +40,7 @@ jobs:
     needs: check
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
