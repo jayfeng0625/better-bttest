@@ -71,8 +71,8 @@ cbt -project demo -instance demo createtable events \
 ## Differences from upstream
 
 The fork changes these behaviours to match production Bigtable.
-Each entry links the nearest section of the Cloud Bigtable documentation.
-Where that section does not state the behaviour, the entry names a parity case that shows it on a real table.
+Each entry names the test that shows the behaviour and links the nearest section of the Cloud Bigtable documentation.
+Where that section does not state the behaviour, the entry also names a [parity case](#parity-with-production) that shows it on a real table.
 
 - **Intersection rules.**
   GC removes a cell only when every rule in an intersection rule would remove it.
@@ -84,9 +84,10 @@ Where that section does not state the behaviour, the entry names a parity case t
   Docs: [Aggregates](https://cloud.google.com/bigtable/docs/data-types#aggregates).
   Test: `TestAggregateMerges`.
 - **Family type checks.**
-  These writes fail with `InvalidArgument` and production's `Column family type mismatch` message: a `SetCell` or a `ReadModifyWriteRow` rule on an aggregate family, and an `AddToCell` or a `MergeToCell` on any other family.
-  A `MergeToCell` input that is not 8 bytes long fails the same way.
-  One such entry fails every entry of a `MutateRows` batch.
+  A `SetCell` or a `ReadModifyWriteRow` rule on an aggregate family fails with `InvalidArgument` and production's `Column family type mismatch` message.
+  An `AddToCell` or a `MergeToCell` on any other family fails the same way, and so does a `MergeToCell` input that is not 8 bytes long.
+  An entry with such a write fails every entry of a `MutateRows` batch.
+  `CheckAndMutateRow` checks only the branch it applies.
   Docs: [Aggregates](https://cloud.google.com/bigtable/docs/data-types#aggregates).
   Test: `TestMutateRowRejectsFamilyTypeMismatch`.
   Parity cases: `MutateRows SetCell on aggregate, then a valid entry` and `MergeToCell with a 3-byte input on 456`.
@@ -94,17 +95,20 @@ Where that section does not state the behaviour, the entry names a parity case t
   `AddToCell` takes an `int_value` input.
   `MergeToCell` takes a `bytes_value` input that holds an int64 as 8 big-endian bytes.
   Any other kind fails with `InvalidArgument`, and the message starts with production's field path, such as `Error in field 'Mutation list' : Error in element #0`.
+  `CheckAndMutateRow` checks both branches.
   Docs: [MergeToCell](https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#mergetocell).
+  Test: `TestMutateRowRejectsWrongInputKind`.
   Parity cases: `MutateRow MergeToCell with an int input` and `MutateRows a valid entry, then AddToCell with a bytes input`.
 - **NULL input.**
   An `AddToCell` with no input adds 0, and a `MergeToCell` with no input or an empty `bytes_value` changes nothing.
   Docs: [MergeToCell](https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#mergetocell).
+  Tests: `TestAddToCellWithNullInputAddsZero` and `TestMergeToCellWithNullInputHasNoEffect`.
   Parity cases: `AddToCell with no input on 456` and `MergeToCell with a 0-byte input on 456`.
 
 Two more changes have no production counterpart:
 
 - **`-probe`.**
-  The flag runs a probe against an emulator and exits with the result.
+  `emulator -probe <address:port>` exits 0 if the emulator at that address lists its tables, or 1 if it does not.
   The image's healthcheck uses it.
   Test: `TestProbeExitsZeroWhenTheEmulatorServes`.
 - **SIGTERM.**
