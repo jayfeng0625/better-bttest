@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Run the checks that CI runs: formatting, license headers, module tidiness,
-# vet, staticcheck, and the tests under the race detector.
+# the test value encoding, vet, staticcheck, and the tests under the race
+# detector.
 # Usage: scripts/check.sh
 set -euo pipefail
 
@@ -31,6 +32,15 @@ if ! tidy_diff=$(go mod tidy -diff); then
         echo "$tidy_diff"
         echo "Run go mod tidy." >&2
     fi
+    exit 1
+fi
+
+# Tests build and read int64 values with encoding/binary, so a bug in the
+# code's own codec cannot pass on both sides of an assertion.
+codec_in_tests=$(git grep -n -e 'encodeInt64(' -e 'decodeInt64(' -- 'bttest/*_test.go' || true)
+if [ -n "$codec_in_tests" ]; then
+    echo "Build and read these test values with encoding/binary:" >&2
+    echo "$codec_in_tests" >&2
     exit 1
 fi
 
