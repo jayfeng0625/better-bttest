@@ -1,7 +1,8 @@
 // Run every parity case against one target and write the results as JSON, with the run id replaced by <run>.
 // The file is rewritten after each case, so it keeps the finished cases if the target dies.
 // Usage: node cases.mjs <out.json> <project> <instance> <table> <aggregate family> <plain family>
-// The aggregate family must be an int64 MIN, MAX, or Sum aggregate. Each case name starts with the aggregate family's name.
+// The aggregate family must be an int64 MIN, MAX, or Sum aggregate.
+// Each case name starts with the aggregate family's name.
 import { writeFileSync } from 'node:fs'
 import { caseKey, connect } from './client.mjs'
 
