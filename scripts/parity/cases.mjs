@@ -144,16 +144,16 @@ await run('row write and latest-cell read', () =>
         [
             'replace row',
             [
-                setCell(PLAIN, { column: 'formatVersion', value: be(1) }),
+                setCell(PLAIN, { column: 'version', value: be(1) }),
                 addToCell(AGG),
-                setCell(PLAIN, { column: 'lastUpdatedAt', value: be(123), ts: 123000 }),
-                setCell(PLAIN, { column: 'ttl', value: be(789), ts: 123000 }),
+                setCell(PLAIN, { column: 'updatedAt', value: be(123), ts: 123000 }),
+                setCell(PLAIN, { column: 'expiresAt', value: be(789), ts: 123000 }),
                 setCell(PLAIN, { column: 'marker', value: be(1), ts: 789000 }),
-                setCell(PLAIN, { column: 'brands', value: utf8('["default"]'), ts: 123000 }),
-                setCell(PLAIN, { column: 'firstSeenAt', value: be(222), ts: 222000 }),
+                setCell(PLAIN, { column: 'labels', value: utf8('["default"]'), ts: 123000 }),
+                setCell(PLAIN, { column: 'createdAt', value: be(222), ts: 222000 }),
             ],
         ],
-        ['replace row again', [setCell(PLAIN, { column: 'lastUpdatedAt', value: be(456), ts: 456000 }), addToCell(AGG, { input: { intValue: 678 } })]],
+        ['replace row again', [setCell(PLAIN, { column: 'updatedAt', value: be(456), ts: 456000 }), addToCell(AGG, { input: { intValue: 678 } })]],
     ]),
 )
 await run('Node table.insert on the aggregate family', async () => {
