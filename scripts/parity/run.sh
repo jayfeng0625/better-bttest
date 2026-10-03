@@ -3,6 +3,7 @@
 # emulator, and diff each emulator's results against the real table's.
 # CONTRIBUTING.md gives the usage and the exit codes.
 set -euo pipefail
+trap "exit 130" INT TERM
 
 for var in PARITY_PROJECT PARITY_INSTANCE PARITY_TABLE PARITY_MIN_FAMILY PARITY_MAX_FAMILY PARITY_SUM_FAMILY \
     PARITY_PLAIN_FAMILY; do
@@ -40,7 +41,6 @@ cleanup() {
     exit "$status"
 }
 trap cleanup EXIT
-trap "exit 130" INT TERM
 
 cbt_emulator() { BIGTABLE_EMULATOR_HOST=$host cbt -project "$PARITY_PROJECT" -instance "$PARITY_INSTANCE" "$@"; }
 
