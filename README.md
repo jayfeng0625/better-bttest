@@ -33,6 +33,14 @@ Print a commit's index digest:
 docker buildx imagetools inspect ghcr.io/jayfeng0625/better-bttest:<commit SHA> --format '{{.Manifest.Digest}}'
 ```
 
+Each publish attests the build provenance of both indexes with a Sigstore-signed [artifact attestation](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations).
+GitHub stores the attestations.
+Check where and how an image was built with [`gh attestation verify`](https://cli.github.com/manual/gh_attestation_verify):
+
+```sh
+gh attestation verify oci://ghcr.io/jayfeng0625/better-bttest@sha256:<digest> --owner jayfeng0625
+```
+
 The compose file below pins each image by digest.
 The emulator image has a healthcheck that passes once the emulator serves.
 `condition: service_healthy` makes the init container wait for that healthcheck, and then the init container runs a table script:
