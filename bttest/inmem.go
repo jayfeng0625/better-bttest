@@ -229,6 +229,7 @@ func (s *server) CreateTable(ctx context.Context, req *btapb.CreateTableRequest)
 		ColumnFamilies:     req.GetTable().GetColumnFamilies(),
 		Granularity:        t.granularity,
 		DeletionProtection: req.GetTable().GetDeletionProtection(),
+		RowKeySchema:       req.GetTable().GetRowKeySchema(),
 	}, nil
 }
 
@@ -266,6 +267,7 @@ func (s *server) GetTable(ctx context.Context, req *btapb.GetTableRequest) (*bta
 		ColumnFamilies:     toColumnFamilies(tblIns.columnFamilies()),
 		Granularity:        tblIns.granularity,
 		DeletionProtection: tblIns.isProtected,
+		RowKeySchema:       tblIns.getRowKeySchema(),
 	}, nil
 }
 
@@ -303,7 +305,12 @@ func (s *server) UpdateTable(ctx context.Context, req *btapb.UpdateTableRequest)
 	tbl.mu.Lock()
 	defer tbl.mu.Unlock()
 
-	tbl.isProtected = req.GetTable().GetDeletionProtection()
+	if err := tbl.updateRowKeySchema(req); err != nil {
+		return nil, err
+	}
+	if slices.Contains(updateMask.GetPaths(), "deletion_protection") {
+		tbl.isProtected = req.GetTable().GetDeletionProtection()
+	}
 
 	res := &longrunning.Operation_Response{}
 	lro := &longrunning.Operation{
@@ -1603,6 +1610,8 @@ type table struct {
 	partitions  []*btpb.RowRange                 // partitions used in change stream
 	isProtected bool                             // whether this table has deletion protection
 	granularity btapb.Table_TimestampGranularity // timestamp granularity accepted by this table
+
+	rowKeySchema *btapb.Type_Struct // structure of the row keys. Writes do not check it.
 }
 
 const btreeDegree = 16
@@ -1668,6 +1677,8 @@ func newTable(ctr *btapb.CreateTableRequest) *table {
 		partitions:  rowRanges,
 		isProtected: ctr.GetTable().GetDeletionProtection(),
 		granularity: normalizeGranularity(ctr.GetTable().GetGranularity()),
+
+		rowKeySchema: ctr.GetTable().GetRowKeySchema(),
 	}
 }
 
