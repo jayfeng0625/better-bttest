@@ -1290,9 +1290,9 @@ func applyMutations(tbl *table, r *row, muts []*btpb.Mutation, fs map[string]*co
 				return tbl.invalidTimestampError(ts)
 			}
 
-			// Production ignores a NULL input.
+			// Production ignores a NULL input and an empty bytes_value input.
 			// See https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#mergetocell.
-			if add.GetInput().GetKind() == nil {
+			if len(add.GetInput().GetBytesValue()) == 0 {
 				continue
 			}
 

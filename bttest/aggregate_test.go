@@ -4,6 +4,7 @@ package bttest
 
 import (
 	"context"
+	"encoding/binary"
 	"slices"
 	"testing"
 
@@ -120,8 +121,12 @@ func TestAddToCellWithNullInputAddsZero(t *testing.T) {
 	}
 }
 
+// Production ignores a NULL input and an empty bytes_value input.
+// See https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#mergetocell.
 func TestMergeToCellWithNullInputHasNoEffect(t *testing.T) {
-	for name, input := range nullInputs() {
+	inputs := nullInputs()
+	inputs["an empty bytes input"] = &btpb.Value{Kind: &btpb.Value_BytesValue{}}
+	for name, input := range inputs {
 		t.Run(name, func(t *testing.T) {
 			s, tbl := newAggregateTable(t, minAggregate())
 			null := mergeToCellWithInput(input)
@@ -192,6 +197,9 @@ func TestMutateRowRejectsFamilyTypeMismatch(t *testing.T) {
 		{"MergeToCell on a plain family", []*btpb.Mutation{mergeToCellIn(plainFamily, 456)}},
 		{"AddToCell, then SetCell on an aggregate family", []*btpb.Mutation{addToCell(456), setCellIn(aggregateFamily, 456)}},
 		{"SetCell on a plain family, then on an aggregate family", []*btpb.Mutation{setCellIn(plainFamily, 456), setCellIn(aggregateFamily, 456)}},
+		{"MergeToCell with a 3-byte input", []*btpb.Mutation{mergeToCellWithBytes(threeBytes())}},
+		{"MergeToCell with a 9-byte input", []*btpb.Mutation{mergeToCellWithBytes(nineBytes())}},
+		{"SetCell on a plain family, then MergeToCell with a 3-byte input", []*btpb.Mutation{setCellIn(plainFamily, 456), mergeToCellWithBytes(threeBytes())}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -227,6 +235,10 @@ func TestMutateRowsFailsBatchOnFamilyTypeMismatch(t *testing.T) {
 		}},
 		{"AddToCell on a plain family, then a valid entry", []*btpb.MutateRowsRequest_Entry{
 			{RowKey: []byte("bad"), Mutations: []*btpb.Mutation{addToCellIn(plainFamily, 456)}},
+			{RowKey: []byte("good"), Mutations: []*btpb.Mutation{setCellIn(plainFamily, 456)}},
+		}},
+		{"MergeToCell with a 3-byte input, then a valid entry", []*btpb.MutateRowsRequest_Entry{
+			{RowKey: []byte("bad"), Mutations: []*btpb.Mutation{mergeToCellWithBytes(threeBytes())}},
 			{RowKey: []byte("good"), Mutations: []*btpb.Mutation{setCellIn(plainFamily, 456)}},
 		}},
 	}
@@ -274,6 +286,19 @@ func TestCheckAndMutateRowChecksFamilyTypesInAppliedBranch(t *testing.T) {
 			},
 			wantAgg: []aggregateCell{{aggregateTS, 123}},
 		},
+		{
+			name:    "MergeToCell with a 3-byte input in the applied branch",
+			req:     &btpb.CheckAndMutateRowRequest{TrueMutations: []*btpb.Mutation{setCellIn(plainFamily, 789), mergeToCellWithBytes(threeBytes())}},
+			wantErr: true,
+		},
+		{
+			name: "MergeToCell with a 3-byte input in the branch it skips",
+			req: &btpb.CheckAndMutateRowRequest{
+				TrueMutations:  []*btpb.Mutation{addToCell(123)},
+				FalseMutations: []*btpb.Mutation{mergeToCellWithBytes(threeBytes())},
+			},
+			wantAgg: []aggregateCell{{aggregateTS, 123}},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -294,6 +319,32 @@ func TestCheckAndMutateRowChecksFamilyTypesInAppliedBranch(t *testing.T) {
 				t.Errorf("%s: got cells %v, want %v", plainFamily, got, wantPlain)
 			}
 		})
+	}
+}
+
+// Production rejects a MergeToCell input that is not 8 bytes long into a MIN or MAX cell that holds a value, and
+// leaves the cell unchanged. A Sum value is an int64 too, so the emulator applies the same rule to Sum.
+// See https://cloud.google.com/bigtable/docs/data-types#aggregates.
+func TestMergeToCellRejectsWrongLengthInput(t *testing.T) {
+	aggregators := map[string]*btapb.Type_Aggregate{"MIN": minAggregate(), "MAX": maxAggregate(), "Sum": sumAggregate()}
+	inputs := map[string][]byte{"a 3-byte input": threeBytes(), "a 9-byte input": nineBytes()}
+	for aggregatorName, aggregator := range aggregators {
+		for inputName, input := range inputs {
+			t.Run(aggregatorName+" with "+inputName, func(t *testing.T) {
+				s, tbl := newAggregateTable(t, aggregator)
+				mutate(t, s, tbl, mergeToCell(456))
+				_, err := s.MutateRow(context.Background(), &btpb.MutateRowRequest{
+					TableName: tbl,
+					RowKey:    []byte("row"),
+					Mutations: []*btpb.Mutation{mergeToCellWithBytes(input)},
+				})
+				wantStatus(t, err, codes.InvalidArgument, familyTypeMismatchMessage(tbl, "row"))
+				want := []aggregateCell{{aggregateTS, 456}}
+				if got := readCells(t, s, tbl, nil); !slices.Equal(got, want) {
+					t.Errorf("got cells %v, want %v", got, want)
+				}
+			})
+		}
 	}
 }
 
@@ -460,6 +511,13 @@ func maxAggregate() *btapb.Type_Aggregate {
 	}
 }
 
+func sumAggregate() *btapb.Type_Aggregate {
+	return &btapb.Type_Aggregate{
+		InputType:  &btapb.Type{Kind: &btapb.Type_Int64Type{}},
+		Aggregator: &btapb.Type_Aggregate_Sum_{Sum: &btapb.Type_Aggregate_Sum{}},
+	}
+}
+
 func mergeToCell(v int64) *btpb.Mutation {
 	return &btpb.Mutation{Mutation: &btpb.Mutation_MergeToCell_{MergeToCell: &btpb.Mutation_MergeToCell{
 		FamilyName:      aggregateFamily,
@@ -504,6 +562,20 @@ func mergeToCellWithInput(input *btpb.Value) *btpb.Mutation {
 	m := mergeToCell(0)
 	m.GetMergeToCell().Input = input
 	return m
+}
+
+func mergeToCellWithBytes(b []byte) *btpb.Mutation {
+	return mergeToCellWithInput(&btpb.Value{Kind: &btpb.Value_BytesValue{BytesValue: b}})
+}
+
+// threeBytes returns 456 cut to its last 3 bytes.
+func threeBytes() []byte {
+	return binary.BigEndian.AppendUint64(nil, 456)[5:]
+}
+
+// nineBytes returns 456 after a zero byte.
+func nineBytes() []byte {
+	return binary.BigEndian.AppendUint64([]byte{0}, 456)
 }
 
 func bytesInput(v int64) *btpb.Value {

@@ -3,6 +3,7 @@
 package bttest
 
 import (
+	btapb "cloud.google.com/go/bigtable/admin/apiv2/adminpb"
 	btpb "cloud.google.com/go/bigtable/apiv2/bigtablepb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -38,12 +39,13 @@ func checkInputKinds(prefix string, muts []*btpb.Mutation) error {
 }
 
 // fitFamilyTypes reports whether every mutation fits its family's type. SetCell needs a family with no
-// aggregate type, and AddToCell and MergeToCell need an aggregate family. An unknown family is left to
-// applyMutations.
+// aggregate type, and AddToCell and MergeToCell need an aggregate family. A MergeToCell input must fit the
+// family's values, as mergeInputFits checks. An unknown family is left to applyMutations.
 func fitFamilyTypes(muts []*btpb.Mutation, fs map[string]*columnFamily) bool {
 	for _, mut := range muts {
 		var family string
 		var aggregate bool
+		var input []byte
 		switch mut := mut.Mutation.(type) {
 		case *btpb.Mutation_SetCell_:
 			family = mut.SetCell.FamilyName
@@ -51,12 +53,24 @@ func fitFamilyTypes(muts []*btpb.Mutation, fs map[string]*columnFamily) bool {
 			family, aggregate = mut.AddToCell.FamilyName, true
 		case *btpb.Mutation_MergeToCell_:
 			family, aggregate = mut.MergeToCell.FamilyName, true
+			input = mut.MergeToCell.GetInput().GetBytesValue()
 		default:
 			continue
 		}
-		if cf, ok := fs[family]; ok && (cf.valueType.GetAggregateType() != nil) != aggregate {
+		cf, ok := fs[family]
+		if ok && ((cf.valueType.GetAggregateType() != nil) != aggregate || !mergeInputFits(input, cf)) {
 			return false
 		}
+	}
+	return true
+}
+
+// mergeInputFits reports whether a MergeToCell input fits a Sum, MIN or MAX family, whose values are int64s in 8
+// big-endian bytes. An empty input is NULL, and fits. Any input fits another family.
+func mergeInputFits(input []byte, cf *columnFamily) bool {
+	switch cf.valueType.GetAggregateType().GetAggregator().(type) {
+	case *btapb.Type_Aggregate_Sum_, *btapb.Type_Aggregate_Min_, *btapb.Type_Aggregate_Max_:
+		return len(input) == 0 || len(input) == 8
 	}
 	return true
 }

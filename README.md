@@ -85,10 +85,11 @@ Where that section does not state the behaviour, the entry names a parity case t
   Test: `TestAggregateMerges`.
 - **Family type checks.**
   These writes fail with `InvalidArgument` and production's `Column family type mismatch` message: a `SetCell` or a `ReadModifyWriteRow` rule on an aggregate family, and an `AddToCell` or a `MergeToCell` on any other family.
+  A `MergeToCell` input that is not 8 bytes long fails the same way.
   One such entry fails every entry of a `MutateRows` batch.
   Docs: [Aggregates](https://cloud.google.com/bigtable/docs/data-types#aggregates).
   Test: `TestMutateRowRejectsFamilyTypeMismatch`.
-  Parity case: `MutateRows SetCell on aggregate, then a valid entry`.
+  Parity cases: `MutateRows SetCell on aggregate, then a valid entry` and `MergeToCell with a 3-byte input on 456`.
 - **Input kinds.**
   `AddToCell` takes an `int_value` input.
   `MergeToCell` takes a `bytes_value` input that holds an int64 as 8 big-endian bytes.
@@ -96,9 +97,9 @@ Where that section does not state the behaviour, the entry names a parity case t
   Docs: [MergeToCell](https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#mergetocell).
   Parity cases: `MutateRow MergeToCell with an int input` and `MutateRows a valid entry, then AddToCell with a bytes input`.
 - **NULL input.**
-  An `AddToCell` with no input adds 0, and a `MergeToCell` with no input changes nothing.
+  An `AddToCell` with no input adds 0, and a `MergeToCell` with no input or an empty `bytes_value` changes nothing.
   Docs: [MergeToCell](https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#mergetocell).
-  Parity case: `AddToCell with no input on 456`.
+  Parity cases: `AddToCell with no input on 456` and `MergeToCell with a 0-byte input on 456`.
 
 Two more changes have no production counterpart:
 
