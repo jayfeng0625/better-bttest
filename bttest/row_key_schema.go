@@ -12,29 +12,28 @@ import (
 )
 
 // updateRowKeySchema applies the row_key_schema path of an UpdateTable
-// request under production's rules. The caller holds t.mu.
+// request. The caller holds t.mu.
 func (t *table) updateRowKeySchema(req *btapb.UpdateTableRequest) error {
 	if !slices.Contains(req.GetUpdateMask().GetPaths(), "row_key_schema") {
 		return nil
 	}
-	// A schema with no fields, such as JSON `rowKeySchema: {}`, clears it.
+	// A schema with no fields, such as JSON `rowKeySchema: {}`, clears the table's schema.
 	schema := req.GetTable().GetRowKeySchema()
 	if len(schema.GetFields()) == 0 {
 		schema = nil
 	}
-	if t.rowKeySchema != nil && schema != nil && !proto.Equal(t.rowKeySchema, schema) {
+	if t.keySchema != nil && schema != nil && !proto.Equal(t.keySchema, schema) {
 		return status.Error(codes.InvalidArgument, "Row key schema in-place modification is not allowed.")
 	}
-	if t.rowKeySchema != nil && schema == nil && !req.GetIgnoreWarnings() {
+	if t.keySchema != nil && schema == nil && !req.GetIgnoreWarnings() {
 		return status.Error(codes.InvalidArgument, "Row key schema cannot be cleared without setting ignore_warnings to true.")
 	}
-	t.rowKeySchema = schema
+	t.keySchema = schema
 	return nil
 }
 
-// getRowKeySchema returns the table's row key schema under t.mu.
-func (t *table) getRowKeySchema() *btapb.Type_Struct {
+func (t *table) rowKeySchema() *btapb.Type_Struct {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return t.rowKeySchema
+	return t.keySchema
 }

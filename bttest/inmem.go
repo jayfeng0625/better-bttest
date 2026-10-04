@@ -267,7 +267,7 @@ func (s *server) GetTable(ctx context.Context, req *btapb.GetTableRequest) (*bta
 		ColumnFamilies:     toColumnFamilies(tblIns.columnFamilies()),
 		Granularity:        tblIns.granularity,
 		DeletionProtection: tblIns.isProtected,
-		RowKeySchema:       tblIns.getRowKeySchema(),
+		RowKeySchema:       tblIns.rowKeySchema(),
 	}, nil
 }
 
@@ -1611,7 +1611,7 @@ type table struct {
 	isProtected bool                             // whether this table has deletion protection
 	granularity btapb.Table_TimestampGranularity // timestamp granularity accepted by this table
 
-	rowKeySchema *btapb.Type_Struct // structure of the row keys. Writes do not check it.
+	keySchema *btapb.Type_Struct // structure of the row keys. Writes do not check it.
 }
 
 const btreeDegree = 16
@@ -1678,7 +1678,7 @@ func newTable(ctr *btapb.CreateTableRequest) *table {
 		isProtected: ctr.GetTable().GetDeletionProtection(),
 		granularity: normalizeGranularity(ctr.GetTable().GetGranularity()),
 
-		rowKeySchema: ctr.GetTable().GetRowKeySchema(),
+		keySchema: ctr.GetTable().GetRowKeySchema(),
 	}
 }
 
