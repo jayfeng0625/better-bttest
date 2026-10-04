@@ -90,7 +90,8 @@ jobs:
           # per platform to the index, and nothing reads it.
           provenance: false
       # Only the build that pushed the index supplies the digest to sign. The
-      # registry tag can move.
+      # registry tag can move, so a skipped run does not sign the digest that
+      # the tag points to now.
       - if: steps.published.outputs.skip != 'true'
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
