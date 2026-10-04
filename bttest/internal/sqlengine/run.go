@@ -50,7 +50,6 @@ func (q *Query) Run(ctx context.Context, src Source, params map[string]Value, em
 	return q.root.run(x, func(row []Value) error { return emit(q.output(row)) })
 }
 
-// output returns a row's output columns, in output column order.
 func (q *Query) output(row []Value) []Value {
 	out := make([]Value, len(q.outIDs))
 	for i, id := range q.outIDs {

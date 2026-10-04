@@ -156,6 +156,16 @@ func TestViewCreateRejectsQueriesAsProductionDoes(t *testing.T) {
 	}
 }
 
+// Production's response to an aggregate without GROUP BY is unmeasured. The emulator applies the rule that a view
+// needs a GROUP BY or ORDER BY.
+func TestViewCreateRejectsAggregateWithoutGroupBy(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newViewFixture(ctx, t, totalsRows)
+
+	err := f.iadmin.CreateMaterializedView(ctx, "i", &bigtable.MaterializedViewInfo{MaterializedViewID: "v_bad", Query: "SELECT COUNT(*) AS n FROM `items-prod`"})
+	wantStatus(t, err, codes.InvalidArgument, "queries must contain a GROUP BY or ORDER BY clause")
+}
+
 func TestViewUpdateTogglesOnlyDeletionProtection(t *testing.T) {
 	ctx := sqlContext(t)
 	f := newViewFixture(ctx, t, totalsRows)

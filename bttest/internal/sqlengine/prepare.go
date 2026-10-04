@@ -169,8 +169,8 @@ type compiler struct {
 	views  map[string]*Query
 	q      *Query
 	// view marks a materialized view's query. The compiler then records the view's key parts.
-	view bool
-	keys viewKeys
+	view     bool
+	keyParts viewKeyParts
 }
 
 // scanNames name the scans the engine does not support, by node kind. aggregateError names an aggregate scan, and the
@@ -287,7 +287,6 @@ func (c *compiler) input(n gsql.ResolvedScanNode, err error) (scan, error) {
 	return c.scan(n)
 }
 
-// computed compiles computed columns, and returns each column's slot, kind, and expression.
 func (c *compiler) computed(cols []*gsql.ResolvedComputedColumn) ([]int32, []Kind, []expr, error) {
 	var ids []int32
 	var kinds []Kind
@@ -319,7 +318,7 @@ func (c *compiler) computed(cols []*gsql.ResolvedComputedColumn) ([]int32, []Kin
 // setViewKeys sets *dst to the key parts of a view's GROUP BY or ORDER BY. The outermost clause compiles last, so
 // its parts stay.
 func (c *compiler) setViewKeys(dst *[]keyPart, ids []int32, kinds []Kind) {
-	if !c.view {
+	if !c.view || len(ids) == 0 {
 		return
 	}
 	parts := make([]keyPart, len(ids))
@@ -400,9 +399,7 @@ func (c *compiler) aggregate(s *gsql.ResolvedAggregateScan) (scan, error) {
 	if a.groupIDs, kinds, a.groupExprs, err = c.computed(gb); err != nil {
 		return nil, err
 	}
-	if len(gb) > 0 {
-		c.setViewKeys(&c.keys.groupKeys, a.groupIDs, kinds)
-	}
+	c.setViewKeys(&c.keyParts.group, a.groupIDs, kinds)
 	al, err := s.AggregateList()
 	if err != nil {
 		return nil, internal(err)
@@ -534,7 +531,7 @@ func (c *compiler) orderBy(s *gsql.ResolvedOrderByScan) (scan, error) {
 		ids = append(ids, id)
 		kinds = append(kinds, t.Kind)
 	}
-	c.setViewKeys(&c.keys.orderKeys, ids, kinds)
+	c.setViewKeys(&c.keyParts.order, ids, kinds)
 	return o, nil
 }
 
@@ -574,7 +571,6 @@ type scanCol struct {
 	index int
 }
 
-// scanColumns returns the columns a table scan reads.
 func scanColumns(s *gsql.ResolvedTableScan) ([]scanCol, error) {
 	idx, err := s.ColumnIndexList()
 	if err != nil {

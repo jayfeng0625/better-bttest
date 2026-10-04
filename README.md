@@ -100,11 +100,12 @@ Where that section does not state the behaviour, a [parity case](CONTRIBUTING.md
 - **[Materialized views](https://cloud.google.com/bigtable/docs/continuous-materialized-views).**
   `CreateMaterializedView` plans the query, checks [production's view rules](https://cloud.google.com/bigtable/docs/continuous-materialized-view-queries), and returns a finished operation.
   `GetMaterializedView` returns the view, and `ListMaterializedViews` returns the instance's views in name order.
-  `DeleteMaterializedView` fails with `FailedPrecondition` while deletion protection is on.
-  `UpdateMaterializedView` changes deletion protection only, and rejects a changed query with `InvalidArgument`.
+  `DeleteMaterializedView` deletes the view, and fails with `FailedPrecondition` while deletion protection is on.
+  `UpdateMaterializedView` changes only deletion protection.
+  It fails with `InvalidArgument` when the update mask names `query` and the query differs from the stored one.
   A SQL read of a view evaluates its query and returns the rows in production's view key order. The read leaves out each source row or group whose evaluation fails, as production does.
   An invalid query fails with the analyzer's message, which differs from production's in two ways.
-  It has no `while resolving DDL statement` suffix.
+  The message has no `while resolving DDL statement` suffix.
   Its position refers to the query as written, such as `[at 1:8]`. Production's position refers to its reformatted query, such as `[at 4:3]`.
   The stock emulator crashes on these calls.
 

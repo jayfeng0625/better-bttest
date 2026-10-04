@@ -21,10 +21,10 @@ type keyPart struct {
 	raw  bool
 }
 
-// viewKeys is what the compiler records of a view's query: the key parts of its outermost GROUP BY and ORDER BY.
-type viewKeys struct {
-	groupKeys []keyPart
-	orderKeys []keyPart
+// viewKeyParts is what the compiler records of a view's query: the key parts of its outermost GROUP BY and ORDER BY.
+type viewKeyParts struct {
+	group []keyPart
+	order []keyPart
 }
 
 // unstable names the aggregates production rejects in a view as not stable.
@@ -45,9 +45,9 @@ func PrepareView(sql string, tables []Table) (*Query, error) {
 	if err != nil {
 		return nil, err
 	}
-	keys := c.keys.groupKeys
+	keys := c.keyParts.group
 	if keys == nil {
-		keys = c.keys.orderKeys
+		keys = c.keyParts.order
 	}
 	if keys == nil {
 		return nil, status.Error(codes.InvalidArgument, "queries must contain a GROUP BY or ORDER BY clause")
