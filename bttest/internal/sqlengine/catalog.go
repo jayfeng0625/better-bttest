@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package sqlengine runs Bigtable's GoogleSQL queries over one table. go-googlesql parses and types each query
-// against a catalog built from the table's families, and the engine compiles the resolved tree into Go operators
-// that read rows through a Source.
+// against a catalog built from the table's families. The engine compiles the resolved tree into Go operators that
+// read rows through a Source.
 package sqlengine
 
 import (
