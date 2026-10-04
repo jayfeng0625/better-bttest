@@ -29,13 +29,13 @@ func (t *table) updateRowKeySchema(req *btapb.UpdateTableRequest) error {
 	if err := validRowKeySchema(schema); err != nil {
 		return err
 	}
-	if t.keySchema != nil && schema != nil && !proto.Equal(t.keySchema, schema) {
+	if t.rowKeySchema != nil && schema != nil && !proto.Equal(t.rowKeySchema, schema) {
 		return status.Error(codes.InvalidArgument, "Row key schema in-place modification is not allowed.")
 	}
-	if t.keySchema != nil && schema == nil && !req.GetIgnoreWarnings() {
+	if t.rowKeySchema != nil && schema == nil && !req.GetIgnoreWarnings() {
 		return status.Error(codes.InvalidArgument, "Row key schema cannot be cleared without setting ignore_warnings to true.")
 	}
-	t.keySchema = schema
+	t.rowKeySchema = schema
 	return nil
 }
 
@@ -48,8 +48,8 @@ func validRowKeySchema(schema *btapb.Type_Struct) error {
 	return nil
 }
 
-func (t *table) rowKeySchema() *btapb.Type_Struct {
+func (t *table) getRowKeySchema() *btapb.Type_Struct {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return t.keySchema
+	return t.rowKeySchema
 }
