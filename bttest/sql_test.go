@@ -823,3 +823,14 @@ func TestSQLPreparedQueryReadsFamilyReaddedBeforeExecute(t *testing.T) {
 		})
 	}
 }
+
+func TestSQLOffsetSubscriptReadsZeroBasedElement(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+
+	got := f.query(ctx, t, "SELECT [_key, b'z'][OFFSET(1)] AS v FROM t WHERE _key = 'a'", nil, nil)
+
+	if diff := cmp.Diff([]string{"z"}, got.keys()); diff != "" {
+		t.Errorf("values (-want +got):\n%s", diff)
+	}
+}

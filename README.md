@@ -93,8 +93,8 @@ Where that section does not state the behaviour, a [parity case](CONTRIBUTING.md
   A construct outside the list below fails `PrepareQuery` with `InvalidArgument`.
   A query can take query parameters and use these constructs:
   - Query parts: a select list with aliases and `*`, a subquery in `FROM`, a comma join with `UNNEST`, `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY`, and `LIMIT`.
-  - Operators: comparisons, `AND`, `OR`, `NOT`, `IS NULL`, `IN`, `BETWEEN`, `LIKE`, `DIV`, `-` on `INT64`, searched `CASE`, the map subscript `fam['col']`, and the array subscript `[n]`.
-  - Functions: `STARTS_WITH`, `CAST` between `BYTES` and `STRING`, `TO_INT64`, `COALESCE`, `SPLIT` on `BYTES`, `JSON_QUERY_ARRAY`, and `ARRAY_CONCAT`.
+  - Operators: comparisons, `AND`, `OR`, `NOT`, `IS NULL`, `IN`, `BETWEEN`, `LIKE`, `DIV`, `-` on `INT64`, searched `CASE`, the map subscript `fam['col']`, and the array subscripts `[n]` and `[OFFSET(n)]`.
+  - Functions: `STARTS_WITH`, `CAST` between `BYTES` and `STRING`, `TO_INT64`, `COALESCE`, `SPLIT` on `BYTES`, `JSON_QUERY_ARRAY` with the path `$`, and `ARRAY_CONCAT`.
   - Aggregate functions: `COUNT(*)`, `SUM` over `INT64`, and `MAX`.
   - Values: array literals.
 
