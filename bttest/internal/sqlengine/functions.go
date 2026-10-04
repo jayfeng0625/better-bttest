@@ -52,10 +52,10 @@ func function(name string, xs []expr, ts []Type) expr {
 	case "$greater_or_equal":
 		return cmp(func(c int) bool { return c >= 0 })
 	case "$between":
-		return strict(func(a []Value) (Value, error) {
-			k := ts[0].Kind
-			return Value{Bool: compare(k, a[1], a[0]) <= 0 && compare(k, a[0], a[2]) <= 0}, nil
-		})
+		// GoogleSQL defines v BETWEEN lo AND hi as lo <= v AND v <= hi, so a NULL bound yields false when the other
+		// comparison is false.
+		le := func(a, b expr) expr { return function("$less_or_equal", []expr{a, b}, ts) }
+		return logical(true, []expr{le(xs[1], xs[0]), le(xs[0], xs[2])})
 	case "$and", "$or":
 		return logical(name == "$and", xs)
 	case "$not":

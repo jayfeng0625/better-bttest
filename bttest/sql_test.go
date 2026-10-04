@@ -261,6 +261,8 @@ func TestSQLFiltersSelectMatchingRows(t *testing.T) {
 		want        []string
 	}{
 		{"BETWEEN includes both bounds", "_key BETWEEN 'a' AND 'b'", []string{"a", "b"}},
+		// GoogleSQL defines BETWEEN as two comparisons under AND, so a false upper comparison decides a NULL lower bound.
+		{"NOT BETWEEN with a NULL bound matches above the other bound", "TO_INT64(size['bytes']) NOT BETWEEN total['n'] AND 150", []string{"a", "c"}},
 		{"LIKE underscore matches one byte", "_key LIKE '_'", []string{"a", "b", "c"}},
 		{"LIKE percent matches a prefix", "CAST(_key AS STRING) LIKE 'b%'", []string{"b"}},
 		{"STARTS_WITH matches a prefix", "STARTS_WITH(_key, 'c')", []string{"c"}},

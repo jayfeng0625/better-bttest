@@ -85,7 +85,7 @@ Where that section does not state the behaviour, a [parity case](CONTRIBUTING.md
   The stock emulator takes a `MergeToCell` input only as a `raw_value`, and crashes on a missing input.
 - **[SQL queries](https://cloud.google.com/bigtable/docs/googlesql-overview).**
   `PrepareQuery` and `ExecuteQuery` run a `SELECT` over one table. [GoogleSQL's analyzer](https://github.com/goccy/go-googlesql) types each query.
-  A query can use a select list with aliases and `*`, `WHERE`, `ORDER BY`, `LIMIT`, `fam['col']`, comparisons, `AND`, `OR`, `NOT`, `IS NULL`, `IN`, `BETWEEN`, `LIKE`, `STARTS_WITH`, `CAST` between `BYTES` and `STRING`, `TO_INT64`, and query parameters.
+  A query can use a select list with aliases and `*`, a subquery in `FROM`, `WHERE`, `ORDER BY`, `LIMIT`, `fam['col']`, comparisons, `AND`, `OR`, `NOT`, `IS NULL`, `IN`, `BETWEEN`, `LIKE`, `STARTS_WITH`, `CAST` between `BYTES` and `STRING`, `TO_INT64`, and query parameters.
   Any other construct fails `PrepareQuery` with `InvalidArgument`.
   A prepared query expires 40 s after `PrepareQuery`, or once a family it reads is dropped, with production's error.
   The stock emulator returns `Unimplemented`.
