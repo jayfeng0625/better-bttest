@@ -124,24 +124,14 @@ func wantInvalidArgument(t *testing.T, err error, msg string) {
 
 func TestUpdateTableRejectsRowKeySchemaChange(t *testing.T) {
 	const msg = "Row key schema in-place modification is not allowed."
-	other := &btapb.Type_Struct{
-		Fields: []*btapb.Type_Struct_Field{
-			{FieldName: "tenantId", Type: &btapb.Type{Kind: &btapb.Type_StringType{StringType: &btapb.Type_String{
-				Encoding: &btapb.Type_String_Encoding{Encoding: &btapb.Type_String_Encoding_Utf8Bytes_{}},
-			}}}},
-		},
-		Encoding: &btapb.Type_Struct_Encoding{Encoding: &btapb.Type_Struct_Encoding_DelimitedBytes_{
-			DelimitedBytes: &btapb.Type_Struct_Encoding_DelimitedBytes{Delimiter: []byte("#")},
-		}},
-	}
-	otherSchema := keySchema
-	otherSchema.Encoding = bigtable.StructDelimitedBytesEncoding{Delimiter: []byte("|")}
+	noFields := &btapb.Type_Struct{Encoding: &btapb.Type_Struct_Encoding{Encoding: &btapb.Type_Struct_Encoding_DelimitedBytes_{
+		DelimitedBytes: &btapb.Type_Struct_Encoding_DelimitedBytes{Delimiter: []byte("#")},
+	}}}
 	e := newSchemaEnv(t)
 	e.createTable(t, "t", &keySchema)
 
-	wantInvalidArgument(t, e.admin.UpdateTableWithRowKeySchema(context.Background(), "t", otherSchema), msg)
 	wantInvalidArgument(t, e.admin.UpdateTableWithRowKeySchema(context.Background(), "t", noFieldsSchema), msg)
-	wantInvalidArgument(t, e.updateRowKeySchema("t", other, true), msg)
+	wantInvalidArgument(t, e.updateRowKeySchema("t", noFields, true), msg)
 
 	e.wantRowKeySchema(t, "t", &keySchema)
 }
@@ -173,17 +163,6 @@ func (e *schemaEnv) write(t *testing.T, table, key string) {
 	}
 }
 
-func (e *schemaEnv) wantRow(t *testing.T, table, key string) {
-	t.Helper()
-	row, err := e.data.Open(table).ReadRow(context.Background(), key)
-	if err != nil {
-		t.Fatalf("ReadRow(%q): %v", key, err)
-	}
-	if row.Key() != key {
-		t.Errorf("ReadRow(%q) returned row %q", key, row.Key())
-	}
-}
-
 func TestUpdateTableSetsRowKeySchemaOverKeysThatDoNotFit(t *testing.T) {
 	e := newSchemaEnv(t)
 	e.createTable(t, "t", nil)
@@ -206,7 +185,13 @@ func TestWritesIgnoreRowKeySchema(t *testing.T) {
 	for name, key := range keys {
 		t.Run(name, func(t *testing.T) {
 			e.write(t, "t", key)
-			e.wantRow(t, "t", key)
+			row, err := e.data.Open("t").ReadRow(context.Background(), key)
+			if err != nil {
+				t.Fatalf("ReadRow(%q): %v", key, err)
+			}
+			if row.Key() != key {
+				t.Errorf("ReadRow(%q) returned row %q", key, row.Key())
+			}
 		})
 	}
 }

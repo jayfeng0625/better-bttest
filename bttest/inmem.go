@@ -308,11 +308,8 @@ func (s *server) UpdateTable(ctx context.Context, req *btapb.UpdateTableRequest)
 	tbl.mu.Lock()
 	defer tbl.mu.Unlock()
 
-	if err := tbl.updateRowKeySchema(req); err != nil {
+	if err := tbl.applyUpdate(req); err != nil {
 		return nil, err
-	}
-	if slices.Contains(updateMask.GetPaths(), "deletion_protection") {
-		tbl.isProtected = req.GetTable().GetDeletionProtection()
 	}
 
 	res := &longrunning.Operation_Response{}
