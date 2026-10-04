@@ -47,10 +47,12 @@ A parity case sends the same requests to a real table and to the emulator.
   A request with no value counts as NULL, so an `AddToCell` adds 0 and a `MergeToCell` changes nothing.
   Google's emulator crashes on a missing value.
 - **[SQL queries](https://cloud.google.com/bigtable/docs/googlesql-overview).**
-  `PrepareQuery` and `ExecuteQuery` run a `SELECT` over one table. The analyzer in [go-googlesql](https://github.com/goccy/go-googlesql) types each query.
+  `PrepareQuery` and `ExecuteQuery` run a `SELECT` on one table. The analyzer in [go-googlesql](https://github.com/goccy/go-googlesql) checks the types in each query.
   A prepared query expires 40 s after `PrepareQuery`, or once a family it reads is dropped.
   `ExecuteQuery` then fails as production does, with `FailedPrecondition` and a `PREPARED_QUERY_EXPIRED` violation.
-  The stock emulator returns `Unimplemented`.
+  Google's emulator returns `Unimplemented`.
+  A query parameter takes the type `BYTES`, `STRING`, or `INT64`.
+  Any other type fails `PrepareQuery` with `InvalidArgument`.
   A construct outside the list below fails `PrepareQuery` with `InvalidArgument`.
   A query can take query parameters and use these constructs:
   - Query parts: a select list with aliases and `*`, a subquery in `FROM`, `WHERE`, `ORDER BY`, and `LIMIT`.
