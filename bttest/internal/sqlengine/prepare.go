@@ -161,7 +161,6 @@ type compiler struct {
 // scanNames name the scans the engine does not support, by node kind. aggregateError names an aggregate scan, and the
 // error for any other unsupported scan names its node kind.
 var scanNames = map[string]string{
-	"ArrayScan":        "UNNEST",
 	"JoinScan":         "JOIN",
 	"SetOperationScan": "set operations",
 	"SingleRowScan":    "SELECT without FROM",
@@ -204,29 +203,16 @@ func (c *compiler) scan(n gsql.ResolvedScanNode) (scan, error) {
 		if err != nil {
 			return nil, internal(err)
 		}
-		for _, cc := range cols {
-			col, err := cc.Column()
-			if err != nil {
-				return nil, internal(err)
-			}
-			id, _, err := colInfo(col)
-			if err != nil {
-				return nil, err
-			}
-			e, err := cc.Expr()
-			if err != nil {
-				return nil, internal(err)
-			}
-			x, err := c.expr(e)
-			if err != nil {
-				return nil, err
-			}
-			p.ids = append(p.ids, id)
-			p.exprs = append(p.exprs, x)
+		if p.ids, p.exprs, err = c.computed(cols); err != nil {
+			return nil, err
 		}
 		return p, nil
 	case *gsql.ResolvedOrderByScan:
 		return c.orderBy(s)
+	case *gsql.ResolvedAggregateScan:
+		return c.aggregate(s)
+	case *gsql.ResolvedArrayScan:
+		return c.arrayScan(s)
 	case *gsql.ResolvedLimitOffsetScan:
 		input, err := c.input(s.InputScan())
 		if err != nil {
@@ -246,8 +232,6 @@ func (c *compiler) scan(n gsql.ResolvedScanNode) (scan, error) {
 			return nil, err
 		}
 		return &limitScan{input: input, limit: limit}, nil
-	case *gsql.ResolvedAggregateScan:
-		return nil, aggregateError(s)
 	}
 	kind, err := n.NodeKindString()
 	if err != nil {
@@ -259,9 +243,9 @@ func (c *compiler) scan(n gsql.ResolvedScanNode) (scan, error) {
 	return nil, unsupported(kind)
 }
 
-// aggregateError names the construct an aggregate scan comes from. The analyzer puts the output columns of SELECT
-// DISTINCT in the $distinct table.
-func aggregateError(s *gsql.ResolvedAggregateScan) error {
+// distinctError rejects the aggregate scan of SELECT DISTINCT. The analyzer puts the output columns of SELECT DISTINCT
+// in the $distinct table.
+func distinctError(s *gsql.ResolvedAggregateScan) error {
 	cols, err := s.ColumnList()
 	if err != nil {
 		return internal(err)
@@ -275,7 +259,7 @@ func aggregateError(s *gsql.ResolvedAggregateScan) error {
 			return unsupported("SELECT DISTINCT")
 		}
 	}
-	return unsupported("GROUP BY or aggregate functions")
+	return nil
 }
 
 func (c *compiler) input(n gsql.ResolvedScanNode, err error) (scan, error) {
@@ -283,6 +267,184 @@ func (c *compiler) input(n gsql.ResolvedScanNode, err error) (scan, error) {
 		return nil, internal(err)
 	}
 	return c.scan(n)
+}
+
+// computed compiles a list of computed columns into their column ids and expressions.
+func (c *compiler) computed(cols []*gsql.ResolvedComputedColumn) ([]int32, []expr, error) {
+	var ids []int32
+	var exprs []expr
+	for _, cc := range cols {
+		col, err := cc.Column()
+		if err != nil {
+			return nil, nil, internal(err)
+		}
+		id, _, err := colInfo(col)
+		if err != nil {
+			return nil, nil, err
+		}
+		e, err := cc.Expr()
+		if err != nil {
+			return nil, nil, internal(err)
+		}
+		x, err := c.expr(e)
+		if err != nil {
+			return nil, nil, err
+		}
+		ids = append(ids, id)
+		exprs = append(exprs, x)
+	}
+	return ids, exprs, nil
+}
+
+// arrayScan compiles a comma join or CROSS JOIN with UNNEST of one array.
+func (c *compiler) arrayScan(s *gsql.ResolvedArrayScan) (scan, error) {
+	in, err := s.InputScan()
+	if err != nil {
+		return nil, internal(err)
+	}
+	if in == nil {
+		return nil, unsupported("UNNEST without a table")
+	}
+	if outer, err := s.IsOuter(); err != nil {
+		return nil, internal(err)
+	} else if outer {
+		return nil, unsupported("LEFT JOIN")
+	}
+	if je, err := s.JoinExpr(); err != nil {
+		return nil, internal(err)
+	} else if je != nil {
+		return nil, unsupported("JOIN with ON")
+	}
+	if oc, err := s.ArrayOffsetColumn(); err != nil {
+		return nil, internal(err)
+	} else if oc != nil {
+		return nil, unsupported("WITH OFFSET")
+	}
+	exprs, err := s.ArrayExprList()
+	if err != nil {
+		return nil, internal(err)
+	}
+	cols, err := s.ElementColumnList()
+	if err != nil {
+		return nil, internal(err)
+	}
+	if len(exprs) != 1 || len(cols) != 1 {
+		return nil, unsupported("UNNEST of more than one array")
+	}
+	input, err := c.scan(in)
+	if err != nil {
+		return nil, err
+	}
+	a := &arrayScan{input: input}
+	if a.array, err = c.expr(exprs[0]); err != nil {
+		return nil, err
+	}
+	if a.elemID, _, err = colInfo(cols[0]); err != nil {
+		return nil, err
+	}
+	return a, nil
+}
+
+func (c *compiler) aggregate(s *gsql.ResolvedAggregateScan) (scan, error) {
+	if err := distinctError(s); err != nil {
+		return nil, err
+	}
+	if sets, err := s.GroupingSetList(); err != nil {
+		return nil, internal(err)
+	} else if len(sets) > 0 {
+		return nil, unsupported("GROUPING SETS, ROLLUP or CUBE")
+	}
+	input, err := c.input(s.InputScan())
+	if err != nil {
+		return nil, err
+	}
+	a := &aggregate{input: input}
+	gb, err := s.GroupByList()
+	if err != nil {
+		return nil, internal(err)
+	}
+	if a.groupIDs, a.groupExprs, err = c.computed(gb); err != nil {
+		return nil, err
+	}
+	al, err := s.AggregateList()
+	if err != nil {
+		return nil, internal(err)
+	}
+	for _, cb := range al {
+		cc, ok := cb.(*gsql.ResolvedComputedColumn)
+		if !ok {
+			return nil, unsupported("this aggregate")
+		}
+		ag, err := c.aggregateCall(cc)
+		if err != nil {
+			return nil, err
+		}
+		a.aggs = append(a.aggs, ag)
+	}
+	return a, nil
+}
+
+// aggregateCall compiles COUNT(*), SUM over INT64 or MAX.
+func (c *compiler) aggregateCall(cc *gsql.ResolvedComputedColumn) (aggSpec, error) {
+	col, err := cc.Column()
+	if err != nil {
+		return aggSpec{}, internal(err)
+	}
+	id, t, err := colInfo(col)
+	if err != nil {
+		return aggSpec{}, err
+	}
+	e, err := cc.Expr()
+	if err != nil {
+		return aggSpec{}, internal(err)
+	}
+	call, ok := e.(*gsql.ResolvedAggregateFunctionCall)
+	if !ok {
+		return aggSpec{}, unsupported("this aggregate")
+	}
+	fn, err := call.Function()
+	if err != nil {
+		return aggSpec{}, internal(err)
+	}
+	name, err := fn.Name()
+	if err != nil {
+		return aggSpec{}, internal(err)
+	}
+	sqlName, err := fn.SQLName()
+	if err != nil {
+		return aggSpec{}, internal(err)
+	}
+	if d, err := call.Distinct(); err != nil {
+		return aggSpec{}, internal(err)
+	} else if d {
+		return aggSpec{}, unsupported(sqlName + " with DISTINCT")
+	}
+	if hm, err := call.HavingModifier(); err != nil {
+		return aggSpec{}, internal(err)
+	} else if hm != nil {
+		return aggSpec{}, unsupported(sqlName + " with HAVING MAX or HAVING MIN")
+	}
+	args, err := call.ArgumentList()
+	if err != nil {
+		return aggSpec{}, internal(err)
+	}
+	ag := aggSpec{id: id, kind: t.Kind}
+	switch {
+	case name == "$count_star":
+		ag.fn = aggCountStar
+	case name == "sum" && t.Kind == KindInt64:
+		ag.fn = aggSum
+	case name == "max" && t.Kind != KindArray && t.Kind != KindMap:
+		ag.fn = aggMax
+	default:
+		return aggSpec{}, unsupported(sqlName)
+	}
+	if len(args) > 0 {
+		if ag.arg, err = c.expr(args[0]); err != nil {
+			return aggSpec{}, err
+		}
+	}
+	return ag, nil
 }
 
 func (c *compiler) orderBy(s *gsql.ResolvedOrderByScan) (scan, error) {
@@ -474,6 +636,9 @@ func (c *compiler) call(e *gsql.ResolvedFunctionCall) (expr, error) {
 		xs = append(xs, x)
 		ts = append(ts, t)
 	}
+	if name == "json_query_array" && (consts[1] == nil || string(consts[1].Bytes) != "$") {
+		return nil, unsupported("JSON_QUERY_ARRAY with a JSONPath other than $")
+	}
 	if f := function(name, xs, ts, consts); f != nil {
 		return f, nil
 	}
@@ -517,6 +682,17 @@ func literal(l *gsql.ResolvedLiteral) (Value, error) {
 		out.Int, err = v.Int64Value()
 	case gsql.TypeKindTypeBool:
 		out.Bool, err = v.BoolValue()
+	case gsql.TypeKindTypeArray:
+		els, err := v.Elements()
+		if err != nil {
+			return Value{}, internal(err)
+		}
+		out.Elems = make([]Value, len(els))
+		for i, el := range els {
+			if out.Elems[i], err = literal(el); err != nil {
+				return Value{}, err
+			}
+		}
 	default:
 		t, err := v.Type()
 		if err != nil {

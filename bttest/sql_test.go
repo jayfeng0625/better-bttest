@@ -217,7 +217,9 @@ func TestSQLPrepareRejectsUnsupportedSQL(t *testing.T) {
 		{"SELECT NOSUCHFN(_key) FROM t", "Function not found: NOSUCHFN [at 1:8]"},
 		// A GoogleSQL function the emulator does not evaluate.
 		{"SELECT LENGTH(_key) FROM t", "The emulator does not support LENGTH"},
-		{"SELECT _key FROM t GROUP BY _key", "The emulator does not support GROUP BY or aggregate functions"},
+		{"SELECT t._key FROM t, t AS u", "The emulator does not support JOIN"},
+		{"SELECT _key FROM t LEFT JOIN UNNEST([1]) AS x", "The emulator does not support LEFT JOIN"},
+		{"SELECT COUNT(_key) FROM t", "The emulator does not support COUNT"},
 		{"SELECT _key FROM t LIMIT 1 OFFSET 1", "The emulator does not support OFFSET"},
 		{"SELECT DISTINCT _key FROM t", "The emulator does not support SELECT DISTINCT"},
 		{"SELECT _key FROM t WHERE _key IN (SELECT _key FROM t)", "The emulator does not support IN subqueries"},
@@ -225,6 +227,7 @@ func TestSQLPrepareRejectsUnsupportedSQL(t *testing.T) {
 		// Production's message for a scalar subquery.
 		{"SELECT (SELECT SUM(x) FROM UNNEST([1, 2]) AS x) AS s FROM t", "Subqueries are not supported"},
 		{"SELECT STRUCT(1 AS a).a FROM t", "The emulator does not support STRUCT field access"},
+		{`SELECT JSON_QUERY_ARRAY('{"a":["x"]}', '$.a') AS a FROM t`, "The emulator does not support JSON_QUERY_ARRAY with a JSONPath other than $"},
 	} {
 		t.Run(tc.sql, func(t *testing.T) {
 			_, err := f.client.PrepareStatement(ctx, tc.sql, nil)

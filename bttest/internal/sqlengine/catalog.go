@@ -242,6 +242,20 @@ func engineType(t gsql.Googlesql_TypeNode) (Type, error) {
 			return Type{}, err
 		}
 		return Type{Kind: KindMap, Key: &kk, Elem: &vv}, nil
+	case gsql.TypeKindTypeArray:
+		at, err := t.AsArray()
+		if err != nil {
+			return Type{}, internal(err)
+		}
+		et, err := at.ElementType()
+		if err != nil {
+			return Type{}, internal(err)
+		}
+		el, err := engineType(et)
+		if err != nil {
+			return Type{}, err
+		}
+		return Type{Kind: KindArray, Elem: &el}, nil
 	}
 	name, err := t.DebugString(false)
 	if err != nil {
