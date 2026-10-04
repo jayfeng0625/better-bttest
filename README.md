@@ -88,6 +88,8 @@ Where that section does not state the behaviour, a [parity case](CONTRIBUTING.md
   A prepared query expires 40 s after `PrepareQuery`, or once a family it reads is dropped.
   `ExecuteQuery` then fails as production does, with `FailedPrecondition` and a `PREPARED_QUERY_EXPIRED` violation.
   The stock emulator returns `Unimplemented`.
+  A query parameter takes the type `BYTES`, `STRING`, or `INT64`.
+  Any other type fails `PrepareQuery` with `InvalidArgument`.
   A construct outside the list below fails `PrepareQuery` with `InvalidArgument`.
   A query can take query parameters and use these constructs:
   - Query parts: a select list with aliases and `*`, a subquery in `FROM`, `WHERE`, `ORDER BY`, and `LIMIT`.
