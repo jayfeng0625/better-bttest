@@ -97,7 +97,7 @@ func TestCreateTableKeepsRowKeySchema(t *testing.T) {
 
 // updateRowKeySchema sends UpdateTable with mask row_key_schema through the
 // generated admin client, which can set ignore_warnings for either a change or
-// a clear. A nil schema clears the table's schema.
+// a clear. A nil schema clears the row key schema.
 func (e *schemaEnv) updateRowKeySchema(name string, schema *btapb.Type_Struct, ignoreWarnings bool) error {
 	_, err := btapb.NewBigtableTableAdminClient(e.conn).UpdateTable(context.Background(), &btapb.UpdateTableRequest{
 		Table: &btapb.Table{
