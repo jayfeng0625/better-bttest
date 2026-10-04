@@ -53,6 +53,7 @@ type preparedQuery struct {
 	query      *sqlengine.Query
 	instance   string
 	paramTypes map[string]*btpb.Type
+	params     map[string]sqlengine.Type
 	prepared   time.Time
 	// familyDropped is set on the first execute after a family the query reads is dropped.
 	familyDropped bool
@@ -65,7 +66,6 @@ func newPreparedToken(prepared time.Time) []byte {
 	return append(token, rand.Text()...)
 }
 
-// preparedAt returns the prepare time a token holds.
 func preparedAt(token []byte) (time.Time, bool) {
 	rest, ok := bytes.CutPrefix(token, []byte(preparedTokenPrefix))
 	if !ok || len(rest) < 8 {
@@ -90,7 +90,7 @@ func (s *server) PrepareQuery(ctx context.Context, req *btpb.PrepareQueryRequest
 	for name, t := range req.ParamTypes {
 		pt, err := sqlengine.TypeFromProto(t)
 		if err != nil {
-			return nil, status.Error(codes.InvalidArgument, err.Error())
+			return nil, err
 		}
 		params[name] = pt
 	}
@@ -109,7 +109,7 @@ func (s *server) PrepareQuery(ctx context.Context, req *btpb.PrepareQueryRequest
 			delete(s.sql.queries, k)
 		}
 	}
-	s.sql.queries[string(token)] = &preparedQuery{query: q, instance: req.InstanceName, paramTypes: req.ParamTypes, prepared: now}
+	s.sql.queries[string(token)] = &preparedQuery{query: q, instance: req.InstanceName, paramTypes: req.ParamTypes, params: params, prepared: now}
 	s.sql.mu.Unlock()
 
 	cols := make([]*btpb.ColumnMetadata, len(q.Columns))
@@ -157,7 +157,7 @@ func (s *server) ExecuteQuery(req *btpb.ExecuteQueryRequest, stream btpb.Bigtabl
 	if err != nil {
 		return err
 	}
-	params, err := queryParams(pq.paramTypes, req.Params)
+	params, err := queryParams(pq, req.Params)
 	if err != nil {
 		return err
 	}
@@ -206,7 +206,7 @@ func (s *server) familyDropped(pq *preparedQuery) bool {
 	if dropped {
 		return true
 	}
-	tbl := s.sqlTable(pq.instance, pq.query.Table)
+	tbl := s.instanceTable(pq.instance, pq.query.Table)
 	if tbl == nil {
 		return false
 	}
@@ -222,8 +222,7 @@ func (s *server) familyDropped(pq *preparedQuery) bool {
 	return false
 }
 
-// sqlTable returns the instance's table with the given ID, or nil.
-func (s *server) sqlTable(instance, id string) *table {
+func (s *server) instanceTable(instance, id string) *table {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.tables[instance+"/tables/"+id]
@@ -241,9 +240,9 @@ func expiredError(msg string) error {
 
 // queryParams checks each declared parameter's value and type, with production's messages. It keys the values by
 // the lowercased name, the name the analyzer gives a parameter.
-func queryParams(types map[string]*btpb.Type, values map[string]*btpb.Value) (map[string]sqlengine.Value, error) {
+func queryParams(pq *preparedQuery, values map[string]*btpb.Value) (map[string]sqlengine.Value, error) {
 	out := map[string]sqlengine.Value{}
-	for name, t := range types {
+	for name, t := range pq.paramTypes {
 		v, ok := values[name]
 		if !ok {
 			return nil, status.Errorf(codes.InvalidArgument, "params does not contain key '%s'", name)
@@ -252,23 +251,11 @@ func queryParams(types map[string]*btpb.Type, values map[string]*btpb.Value) (ma
 			return nil, status.Errorf(codes.InvalidArgument, "params '%s' has no type", name)
 		}
 		if !proto.Equal(v.GetType(), t) {
-			return nil, status.Errorf(codes.InvalidArgument, "params '%s' has type %s but expected type %s", name, typeName(v.GetType()), typeName(t))
+			return nil, status.Errorf(codes.InvalidArgument, "params '%s' has type %s but expected type %s", name, sqlengine.TypeName(v.GetType()), sqlengine.TypeName(t))
 		}
-		pt, err := sqlengine.TypeFromProto(t)
-		if err != nil {
-			return nil, status.Error(codes.InvalidArgument, err.Error())
-		}
-		out[strings.ToLower(name)] = sqlengine.ValueFromProto(v, pt)
+		out[strings.ToLower(name)] = sqlengine.ValueFromProto(v, pq.params[name])
 	}
 	return out, nil
-}
-
-// typeName names a type by its oneof field, as production's messages do.
-func typeName(t *btpb.Type) string {
-	if f := t.ProtoReflect().WhichOneof(t.ProtoReflect().Descriptor().Oneofs().ByName("kind")); f != nil {
-		return string(f.Name())
-	}
-	return "unknown_type"
 }
 
 // sendResults frames a result as production does: one message with the batch, its CRC32C and reset, then one
@@ -293,15 +280,15 @@ func sendResults(stream btpb.Bigtable_ExecuteQueryServer, values []*btpb.Value) 
 }
 
 // tableSource serves SQL rows from a table's btree. It holds the table's read lock only to collect the rows, then
-// locks one row at a time to copy its newest cells, as ReadRows does. A query sees each row atomically, and no
-// snapshot across rows.
+// locks one row at a time to copy its newest cells, as ReadRows does. A query sees each row atomically. It does
+// not see a snapshot across rows.
 type tableSource struct {
 	s        *server
 	instance string
 }
 
 func (src *tableSource) Scan(ctx context.Context, name string, fn func(sqlengine.Row) error) error {
-	tbl := src.s.sqlTable(src.instance, name)
+	tbl := src.s.instanceTable(src.instance, name)
 	if tbl == nil {
 		return status.Errorf(codes.NotFound, "table %q not found", name)
 	}

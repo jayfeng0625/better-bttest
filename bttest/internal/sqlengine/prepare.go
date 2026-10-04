@@ -3,7 +3,6 @@
 package sqlengine
 
 import (
-	"fmt"
 	"slices"
 	"strings"
 
@@ -39,7 +38,7 @@ func Prepare(sql string, tables []Table, params map[string]Type) (*Query, error)
 	if err != nil {
 		return nil, internal(err)
 	}
-	out, err := e.analyze(sql, tables)
+	out, byName, err := e.analyze(sql, tables)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +83,7 @@ func Prepare(sql string, tables []Table, params map[string]Type) (*Query, error)
 	if err != nil {
 		return nil, internal(err)
 	}
-	c := &compiler{tables: tables, q: q}
+	c := &compiler{tables: byName, q: q}
 	if q.root, err = c.scan(root); err != nil {
 		return nil, err
 	}
@@ -94,23 +93,23 @@ func Prepare(sql string, tables []Table, params map[string]Type) (*Query, error)
 // analyze analyzes sql with only the tables it names in the catalog. go-googlesql's SimpleCatalog matches table
 // names case-insensitively, so a catalog with two tables whose names differ only in case fails every analysis.
 // analyze starts from a catalog with no tables. On each "Table not found" error it adds the table with exactly the
-// name the error gives, and analyzes again.
-func (e *env) analyze(sql string, tables []Table) (*gsql.AnalyzerOutput, error) {
-	added := map[string]bool{}
+// name the error gives, and analyzes again. It returns the tables it added, by name.
+func (e *env) analyze(sql string, tables []Table) (*gsql.AnalyzerOutput, map[string]*Table, error) {
+	added := map[string]*Table{}
 	for {
 		out, err := gsql.AnalyzeStatement(sql, e.opts, e.cat, e.tf)
 		if err == nil {
-			return out, nil
+			return out, added, nil
 		}
 		name, ok := missingTable(err.Error())
 		ti := slices.IndexFunc(tables, func(t Table) bool { return t.Name == name })
-		if !ok || ti < 0 || added[name] {
-			return nil, status.Error(codes.InvalidArgument, err.Error())
+		if !ok || ti < 0 || added[name] != nil {
+			return nil, nil, status.Error(codes.InvalidArgument, err.Error())
 		}
 		if err := e.addTable(tables[ti]); err != nil {
-			return nil, internal(err)
+			return nil, nil, internal(err)
 		}
-		added[name] = true
+		added[name] = &tables[ti]
 	}
 }
 
@@ -155,30 +154,25 @@ func exprType(n gsql.ResolvedExprNode) (Type, error) {
 }
 
 type compiler struct {
-	tables []Table
+	tables map[string]*Table
 	q      *Query
 }
 
-// scanNames name the scans the engine does not support, by node kind.
+// scanNames name the scans the engine does not support, by node kind. The analyzer rejects the other scans.
 var scanNames = map[string]string{
-	"AggregateScan":      "GROUP BY or aggregate functions",
-	"AnalyticScan":       "window functions",
-	"ArrayScan":          "UNNEST",
-	"JoinScan":           "JOIN",
-	"SetOperationScan":   "set operations",
-	"SingleRowScan":      "SELECT without FROM",
-	"WithScan":           "WITH",
-	"WithRefScan":        "WITH",
-	"SampleScan":         "TABLESAMPLE",
-	"TVFScan":            "table-valued functions",
-	"PivotScan":          "PIVOT",
-	"UnpivotScan":        "UNPIVOT",
-	"RecursiveScan":      "recursive queries",
-	"AssertScan":         "ASSERT",
-	"BarrierScan":        "this query shape",
-	"GroupRowsScan":      "GROUP_ROWS",
-	"ExecuteAsRoleScan":  "this query shape",
-	"MatchRecognizeScan": "MATCH_RECOGNIZE",
+	"ArrayScan":        "UNNEST",
+	"JoinScan":         "JOIN",
+	"SetOperationScan": "set operations",
+	"SingleRowScan":    "SELECT without FROM",
+	"WithScan":         "WITH",
+}
+
+// subqueryNames name the subqueries the analyzer accepts, by type.
+var subqueryNames = map[gsql.ResolvedSubqueryExprEnums_SubqueryType]string{
+	gsql.ResolvedSubqueryExprEnums_SubqueryTypeScalar: "scalar subqueries",
+	gsql.ResolvedSubqueryExprEnums_SubqueryTypeArray:  "ARRAY subqueries",
+	gsql.ResolvedSubqueryExprEnums_SubqueryTypeExists: "EXISTS subqueries",
+	gsql.ResolvedSubqueryExprEnums_SubqueryTypeIn:     "IN subqueries",
 }
 
 func (c *compiler) scan(n gsql.ResolvedScanNode) (scan, error) {
@@ -251,6 +245,8 @@ func (c *compiler) scan(n gsql.ResolvedScanNode) (scan, error) {
 			return nil, err
 		}
 		return &limitScan{input: input, limit: limit}, nil
+	case *gsql.ResolvedAggregateScan:
+		return nil, aggregateError(s)
 	}
 	kind, err := n.NodeKindString()
 	if err != nil {
@@ -260,6 +256,25 @@ func (c *compiler) scan(n gsql.ResolvedScanNode) (scan, error) {
 		return nil, unsupported(name)
 	}
 	return nil, unsupported(kind)
+}
+
+// aggregateError names the construct an aggregate scan comes from. The analyzer puts the output columns of SELECT
+// DISTINCT in the $distinct table.
+func aggregateError(s *gsql.ResolvedAggregateScan) error {
+	cols, err := s.ColumnList()
+	if err != nil {
+		return internal(err)
+	}
+	if len(cols) > 0 {
+		table, err := cols[0].TableName()
+		if err != nil {
+			return internal(err)
+		}
+		if table == "$distinct" {
+			return unsupported("SELECT DISTINCT")
+		}
+	}
+	return unsupported("GROUP BY or aggregate functions")
 }
 
 func (c *compiler) input(n gsql.ResolvedScanNode, err error) (scan, error) {
@@ -322,11 +337,7 @@ func (c *compiler) tableScan(s *gsql.ResolvedTableScan) (scan, error) {
 	if err != nil {
 		return nil, internal(err)
 	}
-	ti := slices.IndexFunc(c.tables, func(t Table) bool { return t.Name == name })
-	if ti < 0 {
-		return nil, internal(fmt.Errorf("table %q is not in the catalog", name))
-	}
-	tbl := &c.tables[ti]
+	tbl := c.tables[name]
 	c.q.Table = name
 	ts := &tableScan{table: name}
 	idx, err := s.ColumnIndexList()
@@ -355,15 +366,11 @@ func (c *compiler) tableScan(s *gsql.ResolvedTableScan) (scan, error) {
 func (c *compiler) expr(n gsql.ResolvedExprNode) (expr, error) {
 	switch e := n.(type) {
 	case *gsql.ResolvedLiteral:
-		v, err := e.Value()
-		if err != nil {
-			return nil, internal(err)
-		}
-		lv, err := literal(v)
+		lv, err := constant(e)
 		if err != nil {
 			return nil, err
 		}
-		return func(*execCtx, []Value) (Value, error) { return lv, nil }, nil
+		return func(*execCtx, []Value) (Value, error) { return *lv, nil }, nil
 	case *gsql.ResolvedColumnRef:
 		col, err := e.Column()
 		if err != nil {
@@ -384,6 +391,17 @@ func (c *compiler) expr(n gsql.ResolvedExprNode) (expr, error) {
 		return c.cast(e)
 	case *gsql.ResolvedFunctionCall:
 		return c.call(e)
+	case *gsql.ResolvedSubqueryExpr:
+		st, err := e.SubqueryType()
+		if err != nil {
+			return nil, internal(err)
+		}
+		if name, ok := subqueryNames[st]; ok {
+			return nil, unsupported(name)
+		}
+		return nil, unsupported("subqueries")
+	case *gsql.ResolvedGetStructField:
+		return nil, unsupported("STRUCT field access")
 	}
 	kind, err := n.NodeKindString()
 	if err != nil {
@@ -432,7 +450,8 @@ func (c *compiler) call(e *gsql.ResolvedFunctionCall) (expr, error) {
 	}
 	var xs []expr
 	var ts []Type
-	for _, a := range args {
+	consts := make([]*Value, len(args))
+	for i, a := range args {
 		x, err := c.expr(a)
 		if err != nil {
 			return nil, err
@@ -443,8 +462,13 @@ func (c *compiler) call(e *gsql.ResolvedFunctionCall) (expr, error) {
 		}
 		xs = append(xs, x)
 		ts = append(ts, t)
+		if l, ok := a.(*gsql.ResolvedLiteral); ok {
+			if consts[i], err = constant(l); err != nil {
+				return nil, err
+			}
+		}
 	}
-	if f := function(name, xs, ts); f != nil {
+	if f := function(name, xs, ts, consts); f != nil {
 		return f, nil
 	}
 	sqlName, err := fn.SQLName()
@@ -452,6 +476,18 @@ func (c *compiler) call(e *gsql.ResolvedFunctionCall) (expr, error) {
 		return nil, internal(err)
 	}
 	return nil, unsupported(sqlName)
+}
+
+func constant(l *gsql.ResolvedLiteral) (*Value, error) {
+	v, err := l.Value()
+	if err != nil {
+		return nil, internal(err)
+	}
+	lv, err := literal(v)
+	if err != nil {
+		return nil, err
+	}
+	return &lv, nil
 }
 
 func literal(v *gsql.Value) (Value, error) {
@@ -466,27 +502,31 @@ func literal(v *gsql.Value) (Value, error) {
 	if err != nil {
 		return Value{}, internal(err)
 	}
+	var out Value
+	var s string
 	switch k {
 	case gsql.TypeKindTypeBytes:
-		s, err := v.BytesValue()
-		return Value{Bytes: []byte(s)}, err
+		s, err = v.BytesValue()
+		out.Bytes = []byte(s)
 	case gsql.TypeKindTypeString:
-		s, err := v.StringValue()
-		return Value{Bytes: []byte(s)}, err
+		s, err = v.StringValue()
+		out.Bytes = []byte(s)
 	case gsql.TypeKindTypeInt64:
-		i, err := v.Int64Value()
-		return Value{Int: i}, err
+		out.Int, err = v.Int64Value()
 	case gsql.TypeKindTypeBool:
-		b, err := v.BoolValue()
-		return Value{Bool: b}, err
+		out.Bool, err = v.BoolValue()
+	default:
+		t, err := v.Type()
+		if err != nil {
+			return Value{}, internal(err)
+		}
+		if _, err := engineType(t); err != nil {
+			return Value{}, err
+		}
+		return Value{}, unsupported("this literal")
 	}
-	t, err := v.Type()
 	if err != nil {
 		return Value{}, internal(err)
 	}
-	_, err = engineType(t)
-	if err == nil {
-		err = unsupported("this literal")
-	}
-	return Value{}, err
+	return out, nil
 }

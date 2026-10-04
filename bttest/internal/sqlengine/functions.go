@@ -15,9 +15,10 @@ import (
 	"rsc.io/binaryregexp"
 )
 
-// function compiles a call to the function go-googlesql resolved as name, such as $equal or starts_with. It
-// returns nil for a function the engine does not support.
-func function(name string, xs []expr, ts []Type) expr {
+// function compiles a call to the function go-googlesql resolved as name, such as $equal or starts_with. consts
+// holds the value of each argument that is a literal, and nil for the others. It returns nil for a function the
+// engine does not support.
+func function(name string, xs []expr, ts []Type, consts []*Value) expr {
 	// A strict function returns NULL when any argument is NULL.
 	strict := func(f func(args []Value) (Value, error)) expr {
 		return func(x *execCtx, row []Value) (Value, error) {
@@ -54,7 +55,7 @@ func function(name string, xs []expr, ts []Type) expr {
 	case "$between":
 		// GoogleSQL defines v BETWEEN lo AND hi as lo <= v AND v <= hi, so a NULL bound yields false when the other
 		// comparison is false.
-		le := func(a, b expr) expr { return function("$less_or_equal", []expr{a, b}, ts) }
+		le := func(a, b expr) expr { return function("$less_or_equal", []expr{a, b}, ts, nil) }
 		return logical(true, []expr{le(xs[1], xs[0]), le(xs[0], xs[2])})
 	case "$and", "$or":
 		return logical(name == "$and", xs)
@@ -68,9 +69,18 @@ func function(name string, xs []expr, ts []Type) expr {
 	case "$in":
 		return in(xs, ts[0].Kind)
 	case "$like":
+		isString := ts[0].Kind == KindString
+		pattern := func(a []Value) (func([]byte) bool, error) { return like(a[1].Bytes, isString) }
+		if p := consts[1]; p != nil {
+			match, err := like(p.Bytes, isString)
+			pattern = func([]Value) (func([]byte) bool, error) { return match, err }
+		}
 		return strict(func(a []Value) (Value, error) {
-			ok, err := like(a[0].Bytes, a[1].Bytes, ts[0].Kind == KindString)
-			return Value{Bool: ok}, err
+			match, err := pattern(a)
+			if err != nil {
+				return Value{}, err
+			}
+			return Value{Bool: match(a[0].Bytes)}, nil
 		})
 	case "starts_with":
 		return strict(func(a []Value) (Value, error) { return Value{Bool: bytes.HasPrefix(a[0].Bytes, a[1].Bytes)}, nil })
@@ -145,46 +155,44 @@ func in(xs []expr, k Kind) expr {
 	}
 }
 
-// like matches s against a LIKE pattern, where % matches any sequence, _ matches one character of a STRING or
-// one byte of BYTES, and a backslash makes the next character literal.
-func like(s, pattern []byte, isString bool) (bool, error) {
+// like compiles a LIKE pattern into a matcher, where % matches any sequence, _ matches one character of a STRING
+// or one byte of BYTES, and a backslash makes the next character literal.
+func like(pattern []byte, isString bool) (func([]byte) bool, error) {
 	var re strings.Builder
 	re.WriteString(`(?s)\A`)
 	quote := binaryregexp.QuoteMeta
 	if isString {
 		quote = regexp.QuoteMeta
 	}
-	for len(pattern) > 0 {
+	next := func() string {
 		n := 1
 		if isString {
 			_, n = utf8.DecodeRune(pattern)
 		}
 		c := pattern[:n]
 		pattern = pattern[n:]
-		switch string(c) {
+		return string(c)
+	}
+	for len(pattern) > 0 {
+		switch c := next(); c {
 		case `%`:
 			re.WriteString(`.*`)
 		case `_`:
 			re.WriteString(`.`)
 		case `\`:
 			if len(pattern) == 0 {
-				return false, status.Error(codes.OutOfRange, "LIKE pattern ends with a backslash")
+				return nil, status.Error(codes.OutOfRange, "LIKE pattern ends with a backslash")
 			}
-			n = 1
-			if isString {
-				_, n = utf8.DecodeRune(pattern)
-			}
-			re.WriteString(quote(string(pattern[:n])))
-			pattern = pattern[n:]
+			re.WriteString(quote(next()))
 		default:
-			re.WriteString(quote(string(c)))
+			re.WriteString(quote(c))
 		}
 	}
 	re.WriteString(`\z`)
 	if isString {
-		return regexp.MustCompile(re.String()).Match(s), nil
+		return regexp.MustCompile(re.String()).Match, nil
 	}
-	return binaryregexp.MustCompile(re.String()).Match(s), nil
+	return binaryregexp.MustCompile(re.String()).Match, nil
 }
 
 // castExpr compiles CAST between BYTES and STRING, and to a value's own type.

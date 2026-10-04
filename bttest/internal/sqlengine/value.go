@@ -14,7 +14,6 @@ import (
 // Kind is a SQL type kind the engine supports.
 type Kind int
 
-// The kinds the engine supports.
 const (
 	KindBytes Kind = iota + 1
 	KindString
@@ -52,7 +51,15 @@ func TypeFromProto(t *btpb.Type) (Type, error) {
 	case *btpb.Type_Int64Type:
 		return Type{Kind: KindInt64}, nil
 	}
-	return Type{}, fmt.Errorf("the emulator does not support query parameters of type %v", t)
+	return Type{}, unsupported("query parameters of type " + TypeName(t))
+}
+
+// TypeName names a type by its oneof field, as production's messages do.
+func TypeName(t *btpb.Type) string {
+	if f := t.ProtoReflect().WhichOneof(t.ProtoReflect().Descriptor().Oneofs().ByName("kind")); f != nil {
+		return string(f.Name())
+	}
+	return "unknown_type"
 }
 
 // Proto converts the type into result metadata.
