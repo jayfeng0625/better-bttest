@@ -784,10 +784,13 @@ func TestSQLPreparedQueryReadsFamilyReaddedBeforeExecute(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := sqlContext(t)
 			f := newSQLFixture(ctx, t)
-			ps, err := f.client.PrepareStatement(ctx, "SELECT _key, size FROM t WHERE _key = 'b'", nil)
+			const sql = "SELECT _key, size FROM t WHERE _key = 'b'"
+			ps, err := f.client.PrepareStatement(ctx, sql, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
+			// The client re-prepares an expired query, so only a raw execute shows that the query did not expire.
+			token := f.prepareRaw(ctx, t, sql)
 			if err := f.admin.DeleteColumnFamily(ctx, "t", "size"); err != nil {
 				t.Fatal(err)
 			}
@@ -800,6 +803,9 @@ func TestSQLPreparedQueryReadsFamilyReaddedBeforeExecute(t *testing.T) {
 				t.Fatal(err)
 			}
 
+			if _, err := f.executeRaw(ctx, t, token); err != nil {
+				t.Fatalf("ExecuteQuery of the raw prepared query: %v", err)
+			}
 			got := execute(ctx, t, ps, nil)
 
 			want := sqlResult{
