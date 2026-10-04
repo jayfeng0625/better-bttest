@@ -35,7 +35,8 @@ A test that uses the code's own codec still passes when the code and the test sh
 ## Check behaviour against production
 
 `scripts/parity/run.sh` runs each parity case against a real Bigtable table, the emulator image built from this checkout, and Google's stock emulator.
-The script needs Docker, and Application Default Credentials that can write to the table, so CI does not run it.
+The table cases in `scripts/parity/table-cases.mjs` create their own tables in the real table's instance, named `better-bttest-parity-<run id>-t<n>`.
+The script needs Docker, and Application Default Credentials that can write to the table and create and delete tables in its instance, so CI does not run it.
 
 To check a claim about production's behaviour, follow these steps:
 
@@ -44,7 +45,7 @@ To check a claim about production's behaviour, follow these steps:
    - an int64 MAX aggregate family
    - an int64 Sum aggregate family
    - a family with no value type
-2. Add a case to `scripts/parity/cases.mjs`.
+2. Add a case to `scripts/parity/cases.mjs`, or to `scripts/parity/table-cases.mjs` for a table admin call.
 3. Run the script:
 
    ```sh
@@ -56,14 +57,14 @@ To check a claim about production's behaviour, follow these steps:
 
 The script prints a diff for each case where an emulator differs from the real table.
 Then it lists every case, with a match or a difference for each emulator.
-Before it exits, it deletes the rows it wrote, even after a failure or an interrupt.
+Before it exits, it deletes the rows it wrote and the tables it created, even after a failure or an interrupt.
 Its exit codes mean:
 
 - 0 when every case matches on this checkout's emulator.
-- 1 when a case differs on this checkout's emulator, or the script cannot delete its rows.
+- 1 when a case differs on this checkout's emulator, or the script cannot delete its rows or tables.
   A stock emulator difference shows only in the report.
 - 2 when a `PARITY_*` variable is unset, or the login or the table is not usable.
 
 When a step such as `npm ci` or `docker build` fails, the script exits with that step's code.
 On an interrupt or SIGTERM, it exits with 130.
-Whenever the script cannot delete its rows, it exits with 1.
+Whenever the script cannot delete its rows or tables, it exits with 1.

@@ -1,5 +1,7 @@
-// Check that the real table has the families the cases assume. Exits 2 if not.
+// Check that the real table has the families the cases assume, and that the login can run the table cases in its
+// instance. Exits 2 if not.
 // Usage: node target.mjs <project> <instance> <table> <MIN family> <MAX family> <Sum family> <plain family>
+import { Bigtable } from '@google-cloud/bigtable'
 import { connect } from './client.mjs'
 
 const [projectId, instanceId, tableId, MIN, MAX, SUM, PLAIN] = process.argv.slice(2)
@@ -31,6 +33,12 @@ for (const family of [MIN, MAX, SUM, PLAIN]) {
     if (families[family]?.gcRule?.rule) {
         problems.push(`${family} must have GC rule never, got ${JSON.stringify(families[family].gcRule)}`)
     }
+}
+const TABLE_CASE_PERMISSIONS = ['create', 'delete', 'get', 'list', 'update', 'mutateRows', 'readRows'].map((p) => `bigtable.tables.${p}`)
+const [granted] = await new Bigtable({ projectId }).instance(instanceId).testIamPermissions(TABLE_CASE_PERMISSIONS)
+const missing = TABLE_CASE_PERMISSIONS.filter((p) => !granted.includes(p))
+if (missing.length) {
+    problems.push(`The login lacks ${missing.join(', ')} on ${instanceId}, which the table cases need`)
 }
 if (problems.length) {
     console.error(problems.join('\n'))
