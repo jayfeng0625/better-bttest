@@ -12,8 +12,8 @@ import (
 )
 
 // jsonQueryArray is JSON_QUERY_ARRAY(json) as production answered it on 2026-10-03. It returns each element as
-// compact JSON text. jsonQueryArray keeps the quotes on a string and re-escapes it, keeps number text as written,
-// keeps object key order and duplicate keys, and writes a JSON null as the text null.
+// compact JSON text. A string keeps its quotes, and jsonQueryArray re-escapes the string. Number text stays as
+// written. An object keeps its key order and duplicate keys. A JSON null becomes the text null.
 // Invalid JSON and a value that is not an array give NULL.
 func jsonQueryArray(text []byte) Value {
 	d := json.NewDecoder(bytes.NewReader(text))

@@ -138,7 +138,7 @@ func function(name string, xs []expr, ts []Type, consts []*Value) expr {
 			return arr[i], nil
 		})
 	case "split":
-		// The engine supports SPLIT only on BYTES, the type the totals query splits.
+		// The engine supports SPLIT only on BYTES.
 		if ts[0].Kind != KindBytes {
 			return nil
 		}

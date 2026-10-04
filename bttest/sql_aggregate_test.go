@@ -143,6 +143,11 @@ func TestSQLRuntimeErrorFailsExecuteAsProductionDoes(t *testing.T) {
 			codes.OutOfRange, "SUM() aggregation overflow",
 		},
 		{
+			"SUM overflow on an intermediate sum",
+			"SELECT SUM(x) AS s FROM T, UNNEST([9223372036854775807, 1, -5]) AS x WHERE _key = 't6#p1#n#rowI'",
+			codes.OutOfRange, "SUM() aggregation overflow",
+		},
+		{
 			"TO_INT64 on 11 bytes",
 			"SELECT SPLIT(_key, '#')[0] AS t, TO_INT64(MAX(labels['labels'])) AS x, COUNT(*) AS n FROM T WHERE STARTS_WITH(_key, 't') GROUP BY t",
 			codes.InvalidArgument, "incorrect value size. expected: 8 bytes, actual: 11 bytes",
@@ -170,6 +175,14 @@ func TestSQLRuntimeErrorFailsExecuteAsProductionDoes(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("SUM whose running sum stays in range", func(t *testing.T) {
+		got := f.query(ctx, t, "SELECT SUM(x) AS s FROM T, UNNEST([9223372036854775807, -5, 1]) AS x WHERE _key = 't6#p1#n#rowI'", nil, nil)
+
+		if diff := cmp.Diff([][]any{{i64(9223372036854775803)}}, got.rows); diff != "" {
+			t.Errorf("rows (-want +got):\n%s", diff)
+		}
+	})
 }
 
 func TestSQLGroupByArrayFormsOneGroupPerDistinctArray(t *testing.T) {
@@ -216,6 +229,28 @@ func TestSQLGroupByArrayFormsOneGroupPerDistinctArray(t *testing.T) {
 				t.Errorf("groups (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestSQLGroupByArraysSeparatesEmptyArrayFromNullElement(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+	f.createItemsTable(ctx, t, "N", []itemRow{{key: "r1", size: u64(1)}, {key: "r2", size: u64(1)}})
+
+	// Row r1 groups by ([], NULL, [NULL]), and row r2 by ([NULL], [], NULL). A NULL element encodes as the same byte
+	// that ends an array, so only the element counts keep the two group keys apart.
+	got := f.query(ctx, t, `SELECT a, b, c, MAX(_key) AS k FROM (SELECT
+  CASE WHEN _key = 'r1' THEN [] ELSE [NULL] END AS a,
+  CASE WHEN _key = 'r1' THEN NULL ELSE [] END AS b,
+  CASE WHEN _key = 'r1' THEN [NULL] ELSE NULL END AS c,
+  _key FROM N) GROUP BY a, b, c ORDER BY k`, nil, nil)
+
+	want := [][]any{
+		{[]*int64{}, nil, []*int64{nil}, []byte("r1")},
+		{[]*int64{nil}, []*int64{}, nil, []byte("r2")},
+	}
+	if diff := cmp.Diff(want, got.rows); diff != "" {
+		t.Errorf("rows (-want +got):\n%s", diff)
 	}
 }
 
