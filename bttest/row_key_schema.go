@@ -17,8 +17,8 @@ import (
 //   - A table with no row key schema takes any valid schema.
 //   - A table with a row key schema rejects a different schema, even with
 //     ignore_warnings.
-//   - A request that leaves the schema unset clears the row key schema,
-//     and needs ignore_warnings to do so.
+//   - A table with a row key schema clears it on a request that leaves the
+//     schema unset, and only with ignore_warnings.
 //
 // The caller holds t.mu.
 func (t *table) updateRowKeySchema(req *btapb.UpdateTableRequest) error {
@@ -26,7 +26,7 @@ func (t *table) updateRowKeySchema(req *btapb.UpdateTableRequest) error {
 		return nil
 	}
 	schema := req.GetTable().GetRowKeySchema()
-	if err := validRowKeySchema(schema); err != nil {
+	if err := validateRowKeySchema(schema); err != nil {
 		return err
 	}
 	if t.rowKeySchema != nil && schema != nil && !proto.Equal(t.rowKeySchema, schema) {
@@ -39,9 +39,7 @@ func (t *table) updateRowKeySchema(req *btapb.UpdateTableRequest) error {
 	return nil
 }
 
-// validRowKeySchema checks a row key schema sent on CreateTable or
-// UpdateTable. A nil schema is valid.
-func validRowKeySchema(schema *btapb.Type_Struct) error {
+func validateRowKeySchema(schema *btapb.Type_Struct) error {
 	if schema != nil && schema.GetEncoding() == nil {
 		return status.Error(codes.InvalidArgument, "Missing encoding for STRUCT")
 	}

@@ -214,7 +214,7 @@ func (s *server) CreateTable(ctx context.Context, req *btapb.CreateTableRequest)
 	default:
 		return nil, status.Errorf(codes.InvalidArgument, "unknown timestamp granularity %v", g)
 	}
-	if err := validRowKeySchema(req.GetTable().GetRowKeySchema()); err != nil {
+	if err := validateRowKeySchema(req.GetTable().GetRowKeySchema()); err != nil {
 		return nil, err
 	}
 

@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"reflect"
-	"strings"
 	"testing"
 
 	"cloud.google.com/go/bigtable"
@@ -34,6 +33,8 @@ var keySchema = bigtable.StructType{
 	},
 	Encoding: bigtable.StructDelimitedBytesEncoding{Delimiter: []byte("#")},
 }
+
+var noFieldsSchema = bigtable.StructType{Encoding: bigtable.StructDelimitedBytesEncoding{Delimiter: []byte("#")}}
 
 type schemaEnv struct {
 	conn  *grpc.ClientConn
@@ -139,6 +140,7 @@ func TestUpdateTableRejectsRowKeySchemaChange(t *testing.T) {
 	e.createTable(t, "t", &keySchema)
 
 	wantInvalidArgument(t, e.admin.UpdateTableWithRowKeySchema(context.Background(), "t", otherSchema), msg)
+	wantInvalidArgument(t, e.admin.UpdateTableWithRowKeySchema(context.Background(), "t", noFieldsSchema), msg)
 	wantInvalidArgument(t, e.updateRowKeySchema("t", other, true), msg)
 
 	e.wantRowKeySchema(t, "t", &keySchema)
@@ -233,31 +235,16 @@ func TestUpdateRowKeySchemaKeepsDeletionProtection(t *testing.T) {
 	}
 }
 
-// wantMissingEncoding checks for the InvalidArgument that a row key schema
-// with no encoding gets. Production's message continues past this prefix with
-// text that differs between calls.
-func wantMissingEncoding(t *testing.T, err error) {
-	t.Helper()
-	const prefix = "Missing encoding for STRUCT"
-	var se interface{ GRPCStatus() *status.Status }
-	if !errors.As(err, &se) || se.GRPCStatus().Code() != codes.InvalidArgument || !strings.HasPrefix(se.GRPCStatus().Message(), prefix) {
-		t.Errorf("error = %v, want InvalidArgument starting %q", err, prefix)
-	}
-}
+const missingEncoding = "Missing encoding for STRUCT"
 
 func TestCreateTableRejectsRowKeySchemaWithoutEncoding(t *testing.T) {
 	ctx := context.Background()
 	e := newSchemaEnv(t)
 
-	_, err := btapb.NewBigtableTableAdminClient(e.conn).CreateTable(ctx, &btapb.CreateTableRequest{
-		Parent:  "projects/" + schemaProject + "/instances/" + schemaInstance,
-		TableId: "t",
-		Table:   &btapb.Table{RowKeySchema: &btapb.Type_Struct{}},
-	})
-	wantMissingEncoding(t, err)
+	conf := &bigtable.TableConf{TableID: "t", RowKeySchema: &bigtable.StructType{}}
+	wantInvalidArgument(t, e.admin.CreateTableFromConf(ctx, conf), missingEncoding)
 
-	_, err = e.admin.TableInfo(ctx, "t")
-	if status.Code(err) != codes.NotFound {
+	if _, err := e.admin.TableInfo(ctx, "t"); status.Code(err) != codes.NotFound {
 		t.Errorf("TableInfo error = %v, want NotFound", err)
 	}
 }
@@ -267,33 +254,24 @@ func TestUpdateTableRejectsRowKeySchemaWithoutEncoding(t *testing.T) {
 	e.createTable(t, "none", nil)
 	e.createTable(t, "rks", &keySchema)
 
-	for _, ignoreWarnings := range []bool{false, true} {
-		wantMissingEncoding(t, e.updateRowKeySchema("none", &btapb.Type_Struct{}, ignoreWarnings))
-		wantMissingEncoding(t, e.updateRowKeySchema("rks", &btapb.Type_Struct{}, ignoreWarnings))
+	for _, name := range []string{"none", "rks"} {
+		wantInvalidArgument(t, e.admin.UpdateTableWithRowKeySchema(context.Background(), name, bigtable.StructType{}), missingEncoding)
+		wantInvalidArgument(t, e.updateRowKeySchema(name, &btapb.Type_Struct{}, true), missingEncoding)
 	}
 	e.wantRowKeySchema(t, "none", nil)
 	e.wantRowKeySchema(t, "rks", &keySchema)
 }
 
-func TestUpdateTableKeepsRowKeySchemaWithNoFields(t *testing.T) {
-	noFields := &btapb.Type_Struct{
-		Encoding: &btapb.Type_Struct_Encoding{Encoding: &btapb.Type_Struct_Encoding_DelimitedBytes_{
-			DelimitedBytes: &btapb.Type_Struct_Encoding_DelimitedBytes{Delimiter: []byte("#")},
-		}},
-	}
+func TestRowKeySchemaWithNoFieldsIsKept(t *testing.T) {
 	e := newSchemaEnv(t)
-	e.createTable(t, "none", nil)
-	e.createTable(t, "rks", &keySchema)
+	e.createTable(t, "created", &noFieldsSchema)
+	e.createTable(t, "updated", nil)
 
-	for _, ignoreWarnings := range []bool{false, true} {
-		if err := e.updateRowKeySchema("none", noFields, ignoreWarnings); err != nil {
-			t.Fatalf("UpdateTable with no fields, ignore_warnings %v: %v", ignoreWarnings, err)
-		}
-		wantInvalidArgument(t, e.updateRowKeySchema("rks", noFields, ignoreWarnings),
-			"Row key schema in-place modification is not allowed.")
+	if err := e.admin.UpdateTableWithRowKeySchema(context.Background(), "updated", noFieldsSchema); err != nil {
+		t.Fatalf("UpdateTableWithRowKeySchema: %v", err)
 	}
-	e.wantRowKeySchema(t, "none", &bigtable.StructType{Encoding: bigtable.StructDelimitedBytesEncoding{Delimiter: []byte("#")}})
-	e.wantRowKeySchema(t, "rks", &keySchema)
+	e.wantRowKeySchema(t, "created", &noFieldsSchema)
+	e.wantRowKeySchema(t, "updated", &noFieldsSchema)
 }
 
 // Run under the race detector, this checks that GetTable reads the schema
