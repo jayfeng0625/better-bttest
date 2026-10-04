@@ -11,10 +11,13 @@ import (
 // applyUpdate applies the paths in the update mask of an UpdateTable request.
 // The caller holds t.mu.
 func (t *table) applyUpdate(req *btapb.UpdateTableRequest) error {
-	if err := t.updateRowKeySchema(req); err != nil {
-		return err
+	paths := req.GetUpdateMask().GetPaths()
+	if slices.Contains(paths, "row_key_schema") {
+		if err := t.updateRowKeySchema(req.GetTable().GetRowKeySchema(), req.GetIgnoreWarnings()); err != nil {
+			return err
+		}
 	}
-	if slices.Contains(req.GetUpdateMask().GetPaths(), "deletion_protection") {
+	if slices.Contains(paths, "deletion_protection") {
 		t.isProtected = req.GetTable().GetDeletionProtection()
 	}
 	return nil
