@@ -158,7 +158,8 @@ type compiler struct {
 	q      *Query
 }
 
-// scanNames name the scans the engine does not support, by node kind. The analyzer rejects the other scans.
+// scanNames name the scans the engine does not support, by node kind. aggregateError names an aggregate scan, and the
+// error for any other unsupported scan names its node kind.
 var scanNames = map[string]string{
 	"ArrayScan":        "UNNEST",
 	"JoinScan":         "JOIN",
@@ -167,9 +168,9 @@ var scanNames = map[string]string{
 	"WithScan":         "WITH",
 }
 
-// subqueryNames name the subqueries the analyzer accepts, by type.
+// subqueryNames name the subqueries the analyzer accepts, by type, other than a scalar subquery. A scalar subquery
+// fails with production's message.
 var subqueryNames = map[gsql.ResolvedSubqueryExprEnums_SubqueryType]string{
-	gsql.ResolvedSubqueryExprEnums_SubqueryTypeScalar: "scalar subqueries",
 	gsql.ResolvedSubqueryExprEnums_SubqueryTypeArray:  "ARRAY subqueries",
 	gsql.ResolvedSubqueryExprEnums_SubqueryTypeExists: "EXISTS subqueries",
 	gsql.ResolvedSubqueryExprEnums_SubqueryTypeIn:     "IN subqueries",
@@ -366,11 +367,11 @@ func (c *compiler) tableScan(s *gsql.ResolvedTableScan) (scan, error) {
 func (c *compiler) expr(n gsql.ResolvedExprNode) (expr, error) {
 	switch e := n.(type) {
 	case *gsql.ResolvedLiteral:
-		lv, err := constant(e)
+		v, err := literal(e)
 		if err != nil {
 			return nil, err
 		}
-		return func(*execCtx, []Value) (Value, error) { return *lv, nil }, nil
+		return constExpr(v), nil
 	case *gsql.ResolvedColumnRef:
 		col, err := e.Column()
 		if err != nil {
@@ -395,6 +396,9 @@ func (c *compiler) expr(n gsql.ResolvedExprNode) (expr, error) {
 		st, err := e.SubqueryType()
 		if err != nil {
 			return nil, internal(err)
+		}
+		if st == gsql.ResolvedSubqueryExprEnums_SubqueryTypeScalar {
+			return nil, status.Error(codes.InvalidArgument, "Subqueries are not supported")
 		}
 		if name, ok := subqueryNames[st]; ok {
 			return nil, unsupported(name)
@@ -452,8 +456,15 @@ func (c *compiler) call(e *gsql.ResolvedFunctionCall) (expr, error) {
 	var ts []Type
 	consts := make([]*Value, len(args))
 	for i, a := range args {
-		x, err := c.expr(a)
-		if err != nil {
+		var x expr
+		if l, ok := a.(*gsql.ResolvedLiteral); ok {
+			v, err := literal(l)
+			if err != nil {
+				return nil, err
+			}
+			consts[i] = &v
+			x = constExpr(v)
+		} else if x, err = c.expr(a); err != nil {
 			return nil, err
 		}
 		t, err := exprType(a)
@@ -462,11 +473,6 @@ func (c *compiler) call(e *gsql.ResolvedFunctionCall) (expr, error) {
 		}
 		xs = append(xs, x)
 		ts = append(ts, t)
-		if l, ok := a.(*gsql.ResolvedLiteral); ok {
-			if consts[i], err = constant(l); err != nil {
-				return nil, err
-			}
-		}
 	}
 	if f := function(name, xs, ts, consts); f != nil {
 		return f, nil
@@ -478,19 +484,15 @@ func (c *compiler) call(e *gsql.ResolvedFunctionCall) (expr, error) {
 	return nil, unsupported(sqlName)
 }
 
-func constant(l *gsql.ResolvedLiteral) (*Value, error) {
-	v, err := l.Value()
-	if err != nil {
-		return nil, internal(err)
-	}
-	lv, err := literal(v)
-	if err != nil {
-		return nil, err
-	}
-	return &lv, nil
+func constExpr(v Value) expr {
+	return func(*execCtx, []Value) (Value, error) { return v, nil }
 }
 
-func literal(v *gsql.Value) (Value, error) {
+func literal(l *gsql.ResolvedLiteral) (Value, error) {
+	v, err := l.Value()
+	if err != nil {
+		return Value{}, internal(err)
+	}
 	isNull, err := v.IsNull()
 	if err != nil {
 		return Value{}, internal(err)
