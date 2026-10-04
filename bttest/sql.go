@@ -33,7 +33,8 @@ const (
 	expiredMessage = "The prepared query has expired. Please re-issue the ExecuteQuery with a valid prepared query."
 )
 
-// resumeToken ends every ExecuteQuery result. A result is never split, so no client resumes from it.
+// resumeToken ends every ExecuteQuery result. ExecuteQuery sends no token before the end of a result, so no client
+// resumes from it.
 var resumeToken = []byte("better-bttest-resume-token")
 
 var castagnoli = crc32.MakeTable(crc32.Castagnoli)
@@ -161,17 +162,18 @@ func (s *server) ExecuteQuery(req *btpb.ExecuteQueryRequest, stream btpb.Bigtabl
 	if err != nil {
 		return err
 	}
-	var values []*btpb.Value
+	w := &resultWriter{stream: stream}
 	src := &tableSource{s: s, instance: pq.instance}
 	if err := pq.query.Run(stream.Context(), src, params, func(row []sqlengine.Value) error {
+		values := make([]*btpb.Value, len(row))
 		for i, v := range row {
-			values = append(values, v.Proto(pq.query.Columns[i].Type))
+			values[i] = v.Proto(pq.query.Columns[i].Type)
 		}
-		return nil
+		return w.row(values)
 	}); err != nil {
 		return err
 	}
-	return sendResults(stream, values)
+	return w.close()
 }
 
 // preparedQuery finds a prepared query and fails as production does once it has expired: 40 s after prepare, or
@@ -222,6 +224,7 @@ func (s *server) familyDropped(pq *preparedQuery) bool {
 	return false
 }
 
+// instanceTable returns the instance's table with the given ID, or nil.
 func (s *server) instanceTable(instance, id string) *table {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -258,25 +261,53 @@ func queryParams(pq *preparedQuery, values map[string]*btpb.Value) (map[string]s
 	return out, nil
 }
 
-// sendResults frames a result as production does: one message with the batch, its CRC32C and reset, then one
-// message with only the resume token. With no rows, the first message holds an empty batch and no checksum.
-func sendResults(stream btpb.Bigtable_ExecuteQueryServer, values []*btpb.Value) error {
-	rows := &btpb.ProtoRowsBatch{}
-	batch := &btpb.PartialResultSet{Reset_: true, PartialRows: &btpb.PartialResultSet_ProtoRowsBatch{ProtoRowsBatch: rows}}
-	if len(values) > 0 {
-		b, err := proto.Marshal(&btpb.ProtoRows{Values: values})
-		if err != nil {
-			return status.Errorf(codes.Internal, "encode rows: %v", err)
-		}
-		rows.BatchData = b
-		sum := crc32.Checksum(b, castagnoli)
+// batchBytes is the batch_data size at which production closes a batch. The row that brings a batch to this size
+// or more is the batch's last row.
+const batchBytes = 2 << 20
+
+// resultWriter frames a result as production does. Each batch is one message with its CRC32C, and only the first
+// message has reset set. A message with only the resume token ends the stream. With no rows, the first message holds
+// an empty batch and no checksum.
+type resultWriter struct {
+	stream btpb.Bigtable_ExecuteQueryServer
+	data   []byte
+	sent   bool
+}
+
+// row adds a row to the open batch, and sends the batch once it holds batchBytes or more.
+func (w *resultWriter) row(values []*btpb.Value) error {
+	// The encodings of two ProtoRows messages, concatenated, decode as one ProtoRows that holds the values of both.
+	data, err := proto.MarshalOptions{}.MarshalAppend(w.data, &btpb.ProtoRows{Values: values})
+	if err != nil {
+		return status.Errorf(codes.Internal, "encode rows: %v", err)
+	}
+	w.data = data
+	if len(w.data) >= batchBytes {
+		return w.send()
+	}
+	return nil
+}
+
+func (w *resultWriter) send() error {
+	batch := &btpb.PartialResultSet{Reset_: !w.sent, PartialRows: &btpb.PartialResultSet_ProtoRowsBatch{ProtoRowsBatch: &btpb.ProtoRowsBatch{BatchData: w.data}}}
+	if len(w.data) > 0 {
+		sum := crc32.Checksum(w.data, castagnoli)
 		batch.BatchChecksum = &sum
 	}
-	if err := stream.Send(&btpb.ExecuteQueryResponse{Response: &btpb.ExecuteQueryResponse_Results{Results: batch}}); err != nil {
-		return err
+	w.sent = true
+	w.data = nil
+	return w.stream.Send(&btpb.ExecuteQueryResponse{Response: &btpb.ExecuteQueryResponse_Results{Results: batch}})
+}
+
+// close sends the open batch, if it holds a row or no message has gone out, and then the resume token.
+func (w *resultWriter) close() error {
+	if len(w.data) > 0 || !w.sent {
+		if err := w.send(); err != nil {
+			return err
+		}
 	}
 	token := &btpb.PartialResultSet{ResumeToken: resumeToken}
-	return stream.Send(&btpb.ExecuteQueryResponse{Response: &btpb.ExecuteQueryResponse_Results{Results: token}})
+	return w.stream.Send(&btpb.ExecuteQueryResponse{Response: &btpb.ExecuteQueryResponse_Results{Results: token}})
 }
 
 // tableSource serves SQL rows from a table's btree. It holds the table's read lock only to collect the rows, then
