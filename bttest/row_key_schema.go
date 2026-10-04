@@ -17,8 +17,8 @@ func (t *table) updateRowKeySchema(req *btapb.UpdateTableRequest) error {
 	if !slices.Contains(req.GetUpdateMask().GetPaths(), "row_key_schema") {
 		return nil
 	}
-	// A schema with no fields, such as JSON `rowKeySchema: {}`, clears the row
-	// key schema.
+	// A schema with no fields, such as JSON `rowKeySchema: {}`, clears
+	// the row key schema.
 	schema := req.GetTable().GetRowKeySchema()
 	if len(schema.GetFields()) == 0 {
 		schema = nil
