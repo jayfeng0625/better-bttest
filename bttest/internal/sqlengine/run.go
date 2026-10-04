@@ -29,6 +29,9 @@ type execCtx struct {
 	src    Source
 	params map[string]Value
 	nSlots int
+	// failed receives each source row's and each group's evaluation failure, and returns the error that ends the
+	// query, or nil to go on without that row or group. A plain query fails at the first.
+	failed func(error) error
 }
 
 // expr evaluates an expression over a row of slots, indexed by resolved column id.
@@ -43,7 +46,7 @@ var errStop = errors.New("stop")
 
 // Run executes the query and calls emit with each output row, in output column order.
 func (q *Query) Run(ctx context.Context, src Source, params map[string]Value, emit func([]Value) error) error {
-	x := &execCtx{ctx: ctx, src: src, params: params, nSlots: q.nSlots}
+	x := &execCtx{ctx: ctx, src: src, params: params, nSlots: q.nSlots, failed: func(err error) error { return err }}
 	return q.root.run(x, func(row []Value) error {
 		out := make([]Value, len(q.outIDs))
 		for i, id := range q.outIDs {
@@ -88,8 +91,17 @@ func (s *tableScan) run(x *execCtx, emit func([]Value) error) error {
 			}
 			row[c.id] = newMap(entries)
 		}
-		return emit(row)
+		return x.check(emit(row))
 	})
+}
+
+// check passes an evaluation failure to x.failed, and returns any other error as is.
+func (x *execCtx) check(err error) error {
+	switch status.Code(err) {
+	case codes.InvalidArgument, codes.OutOfRange:
+		return x.failed(err)
+	}
+	return err
 }
 
 type filter struct {
@@ -219,4 +231,161 @@ func (l *limitScan) run(x *execCtx, emit func([]Value) error) error {
 		return nil
 	}
 	return err
+}
+
+// arrayScan joins each input row with each element of an array. A NULL or empty array gives no rows.
+type arrayScan struct {
+	input  scan
+	array  expr
+	elemID int32
+}
+
+func (a *arrayScan) run(x *execCtx, emit func([]Value) error) error {
+	return a.input.run(x, func(row []Value) error {
+		arr, err := a.array(x, row)
+		if err != nil {
+			return err
+		}
+		for _, el := range arr.Elems {
+			// Each output row gets its own slots, since a later scan may keep it.
+			out := slices.Clone(row)
+			out[a.elemID] = el
+			if err := emit(out); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+type aggFunc int
+
+const (
+	aggCountStar aggFunc = iota
+	aggSum
+	aggMax
+)
+
+// aggSpec is one aggregate: its function, its argument when it has one, and the output column.
+type aggSpec struct {
+	id   int32
+	kind Kind
+	fn   aggFunc
+	arg  expr
+}
+
+// aggregate groups its input by the group expressions and computes each aggregate per group. It emits the groups
+// in the order each first appears. With no GROUP BY it emits one group, even for no input.
+type aggregate struct {
+	input      scan
+	groupIDs   []int32
+	groupExprs []expr
+	aggs       []aggSpec
+}
+
+type group struct {
+	row []Value
+	err error // the first failure while accumulating, such as SUM overflow
+}
+
+func (a *aggregate) run(x *execCtx, emit func([]Value) error) error {
+	groups := map[string]*group{}
+	var order []*group
+	newGroup := func(keys []Value) *group {
+		g := &group{row: make([]Value, x.nSlots)}
+		for i, id := range a.groupIDs {
+			g.row[id] = keys[i]
+		}
+		for _, ag := range a.aggs {
+			if ag.fn == aggCountStar {
+				g.row[ag.id] = Value{}
+			} else {
+				g.row[ag.id] = null
+			}
+		}
+		order = append(order, g)
+		return g
+	}
+	if len(a.groupExprs) == 0 {
+		groups[""] = newGroup(nil)
+	}
+	keys := make([]Value, len(a.groupExprs))
+	args := make([]Value, len(a.aggs))
+	err := a.input.run(x, func(row []Value) error {
+		// Evaluate everything the row adds before changing any group, so a failing row leaves no trace.
+		var key []byte
+		for i, g := range a.groupExprs {
+			v, err := g(x, row)
+			if err != nil {
+				return err
+			}
+			keys[i] = v
+			key = appendGroupKey(key, v)
+		}
+		for i, ag := range a.aggs {
+			if ag.arg == nil {
+				continue
+			}
+			v, err := ag.arg(x, row)
+			if err != nil {
+				return err
+			}
+			args[i] = v
+		}
+		g, ok := groups[string(key)]
+		if !ok {
+			g = newGroup(keys)
+			groups[string(key)] = g
+		}
+		if g.err != nil {
+			return nil
+		}
+		for i, ag := range a.aggs {
+			if g.err = ag.add(&g.row[ag.id], args[i]); g.err != nil {
+				return nil
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for _, g := range order {
+		err := g.err
+		if err == nil {
+			err = emit(g.row)
+		}
+		if err := x.check(err); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// add folds one input value into an aggregate's running value.
+func (ag aggSpec) add(acc *Value, v Value) error {
+	if ag.fn == aggCountStar {
+		acc.Int++
+		return nil
+	}
+	if v.Null {
+		return nil
+	}
+	if acc.Null {
+		*acc = v
+		return nil
+	}
+	switch ag.fn {
+	case aggSum:
+		s := acc.Int + v.Int
+		if (v.Int > 0 && s < acc.Int) || (v.Int < 0 && s > acc.Int) {
+			return status.Error(codes.OutOfRange, "SUM() aggregation overflow")
+		}
+		acc.Int = s
+	case aggMax:
+		if compare(ag.kind, v, *acc) > 0 {
+			*acc = v
+		}
+	}
+	return nil
 }
