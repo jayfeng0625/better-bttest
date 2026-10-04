@@ -11,9 +11,9 @@ import (
 	"unicode/utf8"
 )
 
-// jsonQueryArray is JSON_QUERY_ARRAY(json) as production answered it on 2026-10-03. Each element comes back
-// as compact JSON text: strings keep their quotes and are re-escaped, number text is kept as written, object key
-// order and duplicate keys are kept, and a JSON null is the text null.
+// jsonQueryArray is JSON_QUERY_ARRAY(json) as production answered it on 2026-10-03. It returns each element as
+// compact JSON text. jsonQueryArray keeps the quotes on a string and re-escapes it, keeps number text as written,
+// keeps object key order and duplicate keys, and writes a JSON null as the text null.
 // Invalid JSON and a value that is not an array give NULL.
 func jsonQueryArray(text []byte) Value {
 	d := json.NewDecoder(bytes.NewReader(text))
@@ -38,7 +38,6 @@ func jsonQueryArray(text []byte) Value {
 	return out
 }
 
-// appendJSONValue reads the next value from d and writes it as compact JSON text.
 func appendJSONValue(b []byte, d *json.Decoder) ([]byte, error) {
 	t, err := d.Token()
 	if err != nil {
@@ -76,7 +75,7 @@ func appendJSONValue(b []byte, d *json.Decoder) ([]byte, error) {
 	return append(b, byte(end.(json.Delim))), nil
 }
 
-// appendJSONString escapes a quote, a backslash and control characters, and writes everything else raw. Production
+// appendJSONString escapes a quote, a backslash, and control characters, and writes everything else raw. Production
 // escapes a quote, decodes \u0041 and \/, and writes UTF-8 raw. The control-character escapes are an assumption.
 func appendJSONString(b []byte, s string) []byte {
 	b = append(b, '"')

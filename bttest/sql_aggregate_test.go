@@ -5,6 +5,8 @@ package bttest
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
+	"slices"
 	"testing"
 
 	"cloud.google.com/go/bigtable"
@@ -25,7 +27,7 @@ type itemRow struct {
 func u64(v uint64) *uint64 { return &v }
 func str(v string) *string { return &v }
 
-// createItemsTable creates a table with families size, labels and mark, and writes the rows. A size is 8
+// createItemsTable creates a table with families size, labels, and mark, and writes the rows. A size is 8
 // big-endian bytes, as the Node client writes a number.
 func (f *sqlFixture) createItemsTable(ctx context.Context, t *testing.T, name string, rows []itemRow) {
 	t.Helper()
@@ -168,4 +170,65 @@ func TestSQLRuntimeErrorFailsExecuteAsProductionDoes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSQLGroupByArrayFormsOneGroupPerDistinctArray(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+	f.createItemsTable(ctx, t, "J", []itemRow{
+		{key: "rowA", labels: str(`["default","b2"]`)},
+		{key: "rowB", labels: str(`["default"]`)},
+		{key: "rowC", size: u64(1)},
+		{key: "rowD", labels: str(`[]`)},
+		{key: "rowE", labels: str(`["default"]`)},
+		{key: "rowF", labels: str(`["a\"b"]`)},
+	})
+	f.createItemsTable(ctx, t, "S", []itemRow{
+		{key: "rowA", labels: str("x,y")},
+		{key: "rowB", labels: str("x")},
+		{key: "rowC", labels: str("x,y")},
+		{key: "rowD", labels: str("y,x")},
+	})
+
+	for _, tc := range []struct {
+		name, sql string
+		want      []string
+	}{
+		{
+			"JSON_QUERY_ARRAY",
+			"SELECT JSON_QUERY_ARRAY(CAST(labels['labels'] AS STRING)) AS a, COUNT(*) AS n FROM J GROUP BY a",
+			[]string{`["\"a\\\"b\""] 1`, `["\"default\"" "\"b2\""] 1`, `["\"default\""] 2`, `[] 1`, `null 1`},
+		},
+		{
+			"SPLIT",
+			"SELECT SPLIT(labels['labels'], b',') AS a, COUNT(*) AS n FROM S GROUP BY a",
+			[]string{`["x" "y"] 2`, `["x"] 1`, `["y" "x"] 1`},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := f.query(ctx, t, tc.sql, nil, nil)
+			var groups []string
+			for _, row := range got.rows {
+				groups = append(groups, fmt.Sprintf("%s %d", groupString(row[0]), *row[1].(*int64)))
+			}
+			slices.Sort(groups)
+			if diff := cmp.Diff(tc.want, groups); diff != "" {
+				t.Errorf("groups (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func groupString(v any) string {
+	switch a := v.(type) {
+	case nil:
+		return "null"
+	case []*string:
+		var elems []string
+		for _, e := range a {
+			elems = append(elems, *e)
+		}
+		return fmt.Sprintf("%q", elems)
+	}
+	return fmt.Sprintf("%q", v)
 }
