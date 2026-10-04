@@ -19,10 +19,12 @@ type Family struct {
 	Int64 bool
 }
 
-// Table is one table as SQL sees it. SELECT * lists the families in the order given.
+// Table is one table or materialized view as SQL sees it. SELECT * lists a table's families in the order given.
 type Table struct {
 	Name     string
 	Families []Family
+	// ViewQuery is a materialized view's query. A view has no families.
+	ViewQuery string
 }
 
 var (
@@ -43,10 +45,12 @@ var features = []gsql.LanguageFeature{
 // env is one analyzer setup. go-googlesql's AnalyzerOptions must not be shared across concurrent analyses, so
 // each Prepare builds its own.
 type env struct {
-	cat  *gsql.SimpleCatalog
-	opts *gsql.AnalyzerOptions
-	tf   *gsql.TypeFactory
-	lang *gsql.LanguageOptions
+	// views are the prepared queries of the views added to the catalog, by name.
+	views map[string]*Query
+	cat   *gsql.SimpleCatalog
+	opts  *gsql.AnalyzerOptions
+	tf    *gsql.TypeFactory
+	lang  *gsql.LanguageOptions
 }
 
 // newEnv builds an analyzer setup with no tables. Prepare adds each table the query names.
@@ -78,7 +82,7 @@ func newEnv(params map[string]Type) (*env, error) {
 	if err := cat.AddBuiltinFunctionsAndTypes(&gsql.BuiltinFunctionOptions{LanguageOptions: lang}); err != nil {
 		return nil, err
 	}
-	e := &env{cat: cat, tf: tf, lang: lang}
+	e := &env{views: map[string]*Query{}, cat: cat, tf: tf, lang: lang}
 	if err := e.addToInt64(); err != nil {
 		return nil, err
 	}
@@ -112,29 +116,32 @@ func newEnv(params map[string]Type) (*env, error) {
 // addTable adds a table with a _key column and one map column per family. The analyzer matches column names
 // case-insensitively, and Bigtable allows families that differ only in case, so the table allows duplicate names.
 func (e *env) addTable(t Table) error {
-	st, err := gsql.NewSimpleTable(t.Name, 0)
+	cols := []Column{{Name: "_key", Type: Type{Kind: KindBytes}}}
+	for _, f := range t.Families {
+		cols = append(cols, Column{Name: f.Name, Type: familyType(f)})
+	}
+	return e.addSimpleTable(t.Name, cols)
+}
+
+// addSimpleTable adds a table of the columns to the catalog. The table allows duplicate column names.
+func (e *env) addSimpleTable(name string, cols []Column) error {
+	st, err := gsql.NewSimpleTable(name, 0)
 	if err != nil {
 		return err
 	}
 	if err := st.SetAllowDuplicateColumnNames(true); err != nil {
 		return err
 	}
-	add := func(name string, ct Type) error {
-		gt, err := e.gsqlType(ct)
+	for _, c := range cols {
+		gt, err := e.gsqlType(c.Type)
 		if err != nil {
 			return err
 		}
-		col, err := gsql.NewSimpleColumn(t.Name, name, gt, false, false)
+		col, err := gsql.NewSimpleColumn(name, c.Name, gt, false, false)
 		if err != nil {
 			return err
 		}
-		return st.AddColumn2(col, false)
-	}
-	if err := add("_key", Type{Kind: KindBytes}); err != nil {
-		return err
-	}
-	for _, f := range t.Families {
-		if err := add(f.Name, familyType(f)); err != nil {
+		if err := st.AddColumn2(col, false); err != nil {
 			return err
 		}
 	}
@@ -191,6 +198,12 @@ func (e *env) gsqlType(t Type) (gsql.Googlesql_TypeNode, error) {
 		return e.tf.GetInt64()
 	case KindBool:
 		return e.tf.GetBool()
+	case KindArray:
+		el, err := e.gsqlType(*t.Elem)
+		if err != nil {
+			return nil, err
+		}
+		return e.tf.MakeArrayType2(el)
 	case KindMap:
 		k, err := e.gsqlType(*t.Key)
 		if err != nil {

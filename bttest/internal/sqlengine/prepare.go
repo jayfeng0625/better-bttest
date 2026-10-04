@@ -29,11 +29,18 @@ type Query struct {
 	root   scan
 	outIDs []int32
 	nSlots int
+	// keys are a materialized view's key parts, in key order. Only PrepareView sets them.
+	keys []keyPart
 }
 
 // Prepare analyzes sql against the tables and compiles it. It returns InvalidArgument with the analyzer's one-line
 // message, as production does, and InvalidArgument naming a construct the engine does not support.
 func Prepare(sql string, tables []Table, params map[string]Type) (*Query, error) {
+	return prepare(sql, tables, params, &compiler{})
+}
+
+// prepare analyzes and compiles sql with the compiler c, which records what the view rules check.
+func prepare(sql string, tables []Table, params map[string]Type, c *compiler) (*Query, error) {
 	e, err := newEnv(params)
 	if err != nil {
 		return nil, internal(err)
@@ -83,7 +90,7 @@ func Prepare(sql string, tables []Table, params map[string]Type) (*Query, error)
 	if err != nil {
 		return nil, internal(err)
 	}
-	c := &compiler{tables: byName, q: q}
+	c.tables, c.views, c.q = byName, e.views, q
 	if q.root, err = c.scan(root); err != nil {
 		return nil, err
 	}
@@ -106,7 +113,11 @@ func (e *env) analyze(sql string, tables []Table) (*gsql.AnalyzerOutput, map[str
 		if !ok || ti < 0 || added[name] != nil {
 			return nil, nil, status.Error(codes.InvalidArgument, err.Error())
 		}
-		if err := e.addTable(tables[ti]); err != nil {
+		if tables[ti].ViewQuery != "" {
+			if err := e.addView(tables[ti], tables); err != nil {
+				return nil, nil, err
+			}
+		} else if err := e.addTable(tables[ti]); err != nil {
 			return nil, nil, internal(err)
 		}
 		added[name] = &tables[ti]
@@ -155,7 +166,11 @@ func exprType(n gsql.ResolvedExprNode) (Type, error) {
 
 type compiler struct {
 	tables map[string]*Table
+	views  map[string]*Query
 	q      *Query
+	// view marks a materialized view's query. The compiler then records what the view rules check.
+	view  bool
+	rules viewRules
 }
 
 // scanNames name the scans the engine does not support, by node kind. aggregateError names an aggregate scan, and the
@@ -214,6 +229,9 @@ func (c *compiler) scan(n gsql.ResolvedScanNode) (scan, error) {
 	case *gsql.ResolvedArrayScan:
 		return c.arrayScan(s)
 	case *gsql.ResolvedLimitOffsetScan:
+		if c.view {
+			return nil, status.Error(codes.InvalidArgument, "Limit and offset are not supported in materialized views.")
+		}
 		input, err := c.input(s.InputScan())
 		if err != nil {
 			return nil, err
@@ -365,6 +383,21 @@ func (c *compiler) aggregate(s *gsql.ResolvedAggregateScan) (scan, error) {
 	if a.groupIDs, a.groupExprs, err = c.computed(gb); err != nil {
 		return nil, err
 	}
+	if c.view && len(gb) > 0 {
+		// The outermost GROUP BY compiles last, so its keys stay.
+		c.rules.groupKeys = nil
+		for _, cc := range gb {
+			col, err := cc.Column()
+			if err != nil {
+				return nil, internal(err)
+			}
+			id, t, err := colInfo(col)
+			if err != nil {
+				return nil, err
+			}
+			c.rules.groupKeys = append(c.rules.groupKeys, keyPart{id: id, kind: t.Kind})
+		}
+	}
 	al, err := s.AggregateList()
 	if err != nil {
 		return nil, internal(err)
@@ -426,6 +459,9 @@ func (c *compiler) aggregateCall(cc *gsql.ResolvedComputedColumn) (aggSpec, erro
 	if err != nil {
 		return aggSpec{}, internal(err)
 	}
+	if c.view && unstable[name] {
+		return aggSpec{}, status.Errorf(codes.InvalidArgument, "Only stable functions are supported in materialized views (GoogleSQL:%s is not stable)", name)
+	}
 	ag := aggSpec{id: id, kind: t.Kind}
 	switch {
 	case name == "$count_star":
@@ -472,6 +508,9 @@ func (c *compiler) orderBy(s *gsql.ResolvedOrderByScan) (scan, error) {
 		if err != nil {
 			return nil, internal(err)
 		}
+		if desc && c.view {
+			return nil, status.Error(codes.InvalidArgument, "Only ascending order in ORDER BY by is supported in materialized views.")
+		}
 		no, err := it.NullOrder()
 		if err != nil {
 			return nil, internal(err)
@@ -486,6 +525,13 @@ func (c *compiler) orderBy(s *gsql.ResolvedOrderByScan) (scan, error) {
 		}
 		o.keys = append(o.keys, sortKey{id: id, kind: t.Kind, desc: desc, nullsFirst: nullsFirst})
 	}
+	if c.view {
+		// The outermost ORDER BY compiles last, so its keys stay.
+		c.rules.orderKeys = nil
+		for _, k := range o.keys {
+			c.rules.orderKeys = append(c.rules.orderKeys, keyPart{id: k.id, kind: k.kind})
+		}
+	}
 	return o, nil
 }
 
@@ -497,6 +543,9 @@ func (c *compiler) tableScan(s *gsql.ResolvedTableScan) (scan, error) {
 	name, err := tn.Name()
 	if err != nil {
 		return nil, internal(err)
+	}
+	if v := c.views[name]; v != nil {
+		return c.viewScan(s, v)
 	}
 	tbl := c.tables[name]
 	c.q.Table = name

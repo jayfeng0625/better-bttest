@@ -97,6 +97,11 @@ Where that section does not state the behaviour, a [parity case](CONTRIBUTING.md
   - Functions: `STARTS_WITH`, `CAST` between `BYTES` and `STRING`, `TO_INT64`, `COALESCE`, `SPLIT` on `BYTES`, `JSON_QUERY_ARRAY` with the path `$`, and `ARRAY_CONCAT`.
   - Aggregate functions: `COUNT(*)`, `SUM` over `INT64`, and `MAX`.
   - Values: array literals.
+- **[Materialized views](https://cloud.google.com/bigtable/docs/continuous-materialized-views).**
+  `CreateMaterializedView` plans the query, checks [production's view rules](https://cloud.google.com/bigtable/docs/continuous-materialized-view-queries), and returns a finished operation. Get, List, Delete, and a deletion protection update work too.
+  A SQL read of a view evaluates its query and returns the rows in production's view key order. The read leaves out each source row or group whose evaluation fails, as production does.
+  An invalid query fails with the analyzer's message, without production's `while resolving DDL statement` suffix.
+  The stock emulator crashes on these calls.
 
 Two more changes have no production counterpart:
 
@@ -109,7 +114,7 @@ The fork does not support these yet:
 
 - SQL beyond the constructs listed above, such as `LEFT JOIN`, `COUNT(expr)`, and `OFFSET`.
 - A runtime SQL error's second line, `(while evaluating <expression>)`.
-- Materialized views.
+- `ReadRows` on a materialized view.
 - HyperLogLog (HLL) aggregate families.
 
 ## Upstream
