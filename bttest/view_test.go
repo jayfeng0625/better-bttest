@@ -4,6 +4,7 @@ package bttest
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"slices"
 	"testing"
@@ -21,15 +22,6 @@ type viewFixture struct {
 	iadmin *bigtable.InstanceAdminClient
 }
 
-// totalsRows are the rows the totals query test seeds.
-var totalsRows = []itemRow{
-	{key: "t1#p1#n#rowA", size: u64(100), labels: str(`["default","b2"]`), flag: true},
-	{key: "t1#p1#n#rowB", size: u64(50), labels: str(`["default"]`)},
-	{key: "t1#p1#b#rowC", size: u64(70), flag: true},
-	{key: "t2#p1#n#rowD", size: u64(10), labels: str(`[]`), flagDeleted: true},
-}
-
-// expiredViewQuery is the downstream expired view query.
 const expiredViewQuery = "SELECT _key AS rowKey FROM `items-prod` WHERE mark['flag'] IS NULL ORDER BY rowKey"
 
 func newViewFixture(ctx context.Context, t *testing.T, rows []itemRow) *viewFixture {
@@ -87,15 +79,6 @@ func TestViewAdminRoundTrips(t *testing.T) {
 		t.Errorf("MaterializedViews after delete (-want +got):\n%s", diff)
 	}
 }
-
-// totalsColumns and totalsTypes are the totals view's output schema.
-var (
-	totalsColumns = []string{"tenantId", "labelId", "partitionId", "rowType", "itemCount", "tenantPartitionType_bytes", "tenantPartitionType_itemCount"}
-	totalsTypes   = []bigtable.SQLType{
-		bigtable.BytesSQLType{}, bigtable.StringSQLType{}, bigtable.BytesSQLType{}, bigtable.BytesSQLType{},
-		bigtable.Int64SQLType{}, bigtable.Int64SQLType{}, bigtable.Int64SQLType{},
-	}
-)
 
 // totalsViewRows are the totals of totalsRows in the view's key order: the GROUP BY columns in clause order,
 // compared as encoded bytes, so "b2" < "default" < $ within t1.
@@ -226,20 +209,6 @@ func TestViewReadTakesLimitAndParameters(t *testing.T) {
 	}
 }
 
-// executeErr prepares and runs sql, and returns the execute error.
-func (f *viewFixture) executeErr(ctx context.Context, t *testing.T, sql string) error {
-	t.Helper()
-	ps, err := f.client.PrepareStatement(ctx, sql, nil)
-	if err != nil {
-		t.Fatalf("PrepareStatement(%q): %v", sql, err)
-	}
-	bs, err := ps.Bind(nil)
-	if err != nil {
-		t.Fatalf("Bind: %v", err)
-	}
-	return bs.Execute(ctx, func(bigtable.ResultRow) bool { return true })
-}
-
 func TestViewLeavesOutSourceRowWhoseEvaluationFails(t *testing.T) {
 	ctx := sqlContext(t)
 	// t3#bad has two key parts, so SPLIT(_key, '#')[2] is out of range.
@@ -247,14 +216,12 @@ func TestViewLeavesOutSourceRowWhoseEvaluationFails(t *testing.T) {
 	f.createView(ctx, t, "v_totals", totalsQuery)
 
 	got := f.query(ctx, t, "SELECT * FROM v_totals", nil, nil)
-	err := f.executeErr(ctx, t, totalsQuery)
+	_, err := f.executeErr(ctx, t, totalsQuery)
 
 	if diff := cmp.Diff(totalsViewRows(), got.rows); diff != "" {
 		t.Errorf("totals view rows (-want +got):\n%s", diff)
 	}
-	if status.Code(err) != codes.OutOfRange {
-		t.Errorf("plain totals query error = %v, want OutOfRange", err)
-	}
+	wantStatus(t, err, codes.OutOfRange, "Array index 2 is out of bounds")
 }
 
 func TestViewLeavesOutGroupWhoseAggregateFails(t *testing.T) {
@@ -264,7 +231,7 @@ func TestViewLeavesOutGroupWhoseAggregateFails(t *testing.T) {
 	f.createView(ctx, t, "v_sum", sumQuery)
 
 	got := f.query(ctx, t, "SELECT * FROM v_sum", nil, nil)
-	err := f.executeErr(ctx, t, sumQuery)
+	_, err := f.executeErr(ctx, t, sumQuery)
 
 	b := func(s string) []byte { return []byte(s) }
 	want := [][]any{
@@ -276,6 +243,24 @@ func TestViewLeavesOutGroupWhoseAggregateFails(t *testing.T) {
 		t.Errorf("SUM view rows (-want +got):\n%s", diff)
 	}
 	wantStatus(t, err, codes.OutOfRange, "SUM() aggregation overflow")
+}
+
+func TestViewLeavesOutRowWhoseAggregateArgumentFails(t *testing.T) {
+	ctx := sqlContext(t)
+	// TO_INT64 fails on a 3-byte labels cell after the row's group key evaluates. The row then adds no group and no count.
+	f := newViewFixture(ctx, t, []itemRow{
+		{key: "t1#a", labels: str(string(binary.BigEndian.AppendUint64(nil, 5)))},
+		{key: "t1#b", labels: str("abc")},
+		{key: "t2#c", labels: str("abc")},
+	})
+	f.createView(ctx, t, "v_sum", "SELECT SPLIT(_key, '#')[0] AS t, COUNT(*) AS n, SUM(TO_INT64(labels['labels'])) AS s FROM `items-prod` GROUP BY t")
+
+	got := f.query(ctx, t, "SELECT * FROM v_sum", nil, nil)
+
+	want := [][]any{{[]byte("t1"), i64(1), i64(5)}}
+	if diff := cmp.Diff(want, got.rows); diff != "" {
+		t.Errorf("view rows (-want +got):\n%s", diff)
+	}
 }
 
 func TestViewExposesKeyOnlyAsAnOutputColumn(t *testing.T) {
@@ -295,6 +280,20 @@ func TestViewExposesKeyOnlyAsAnOutputColumn(t *testing.T) {
 	}
 	if diff := cmp.Diff(want, got, cmp.AllowUnexported(sqlResult{})); diff != "" {
 		t.Errorf("_key view (-want +got):\n%s", diff)
+	}
+}
+
+func TestViewKeyOutputColumnSortsAsTheRawKey(t *testing.T) {
+	ctx := sqlContext(t)
+	// Production stores a _key output column raw. The view key of k\x00\x00 then starts 6b 00 00, which sorts before
+	// k's 6b 00 01. Encoded, it would start 6b 00 ff and sort after.
+	f := newViewFixture(ctx, t, []itemRow{{key: "k", size: u64(1)}, {key: "k\x00\x00", size: u64(2)}})
+	f.createView(ctx, t, "v_bykey", "SELECT _key, TO_INT64(size['bytes']) AS sz FROM `items-prod` GROUP BY _key, sz")
+
+	got := f.query(ctx, t, "SELECT _key FROM v_bykey", nil, nil)
+
+	if diff := cmp.Diff([]string{"k\x00\x00", "k"}, got.keys()); diff != "" {
+		t.Errorf("view keys (-want +got):\n%s", diff)
 	}
 }
 

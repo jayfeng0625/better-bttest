@@ -39,7 +39,7 @@ func Prepare(sql string, tables []Table, params map[string]Type) (*Query, error)
 	return prepare(sql, tables, params, &compiler{})
 }
 
-// prepare analyzes and compiles sql with the compiler c, which records what the view rules check.
+// prepare analyzes and compiles sql with the compiler c, which records a view's key parts.
 func prepare(sql string, tables []Table, params map[string]Type, c *compiler) (*Query, error) {
 	e, err := newEnv(params)
 	if err != nil {
@@ -168,9 +168,9 @@ type compiler struct {
 	tables map[string]*Table
 	views  map[string]*Query
 	q      *Query
-	// view marks a materialized view's query. The compiler then records what the view rules check.
-	view  bool
-	rules viewRules
+	// view marks a materialized view's query. The compiler then records the view's key parts.
+	view bool
+	keys viewKeys
 }
 
 // scanNames name the scans the engine does not support, by node kind. aggregateError names an aggregate scan, and the
@@ -218,7 +218,7 @@ func (c *compiler) scan(n gsql.ResolvedScanNode) (scan, error) {
 		if err != nil {
 			return nil, internal(err)
 		}
-		if p.ids, p.exprs, err = c.computed(cols); err != nil {
+		if p.ids, _, p.exprs, err = c.computed(cols); err != nil {
 			return nil, err
 		}
 		return p, nil
@@ -287,30 +287,46 @@ func (c *compiler) input(n gsql.ResolvedScanNode, err error) (scan, error) {
 	return c.scan(n)
 }
 
-func (c *compiler) computed(cols []*gsql.ResolvedComputedColumn) ([]int32, []expr, error) {
+// computed compiles computed columns, and returns each column's slot, kind, and expression.
+func (c *compiler) computed(cols []*gsql.ResolvedComputedColumn) ([]int32, []Kind, []expr, error) {
 	var ids []int32
+	var kinds []Kind
 	var exprs []expr
 	for _, cc := range cols {
 		col, err := cc.Column()
 		if err != nil {
-			return nil, nil, internal(err)
+			return nil, nil, nil, internal(err)
 		}
-		id, _, err := colInfo(col)
+		id, t, err := colInfo(col)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		e, err := cc.Expr()
 		if err != nil {
-			return nil, nil, internal(err)
+			return nil, nil, nil, internal(err)
 		}
 		x, err := c.expr(e)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		ids = append(ids, id)
+		kinds = append(kinds, t.Kind)
 		exprs = append(exprs, x)
 	}
-	return ids, exprs, nil
+	return ids, kinds, exprs, nil
+}
+
+// setViewKeys sets *dst to the key parts of a view's GROUP BY or ORDER BY. The outermost clause compiles last, so
+// its parts stay.
+func (c *compiler) setViewKeys(dst *[]keyPart, ids []int32, kinds []Kind) {
+	if !c.view {
+		return
+	}
+	parts := make([]keyPart, len(ids))
+	for i, id := range ids {
+		parts[i] = keyPart{id: id, kind: kinds[i]}
+	}
+	*dst = parts
 }
 
 // arrayScan compiles a comma join or CROSS JOIN with UNNEST of one array.
@@ -380,23 +396,12 @@ func (c *compiler) aggregate(s *gsql.ResolvedAggregateScan) (scan, error) {
 	if err != nil {
 		return nil, internal(err)
 	}
-	if a.groupIDs, a.groupExprs, err = c.computed(gb); err != nil {
+	var kinds []Kind
+	if a.groupIDs, kinds, a.groupExprs, err = c.computed(gb); err != nil {
 		return nil, err
 	}
-	if c.view && len(gb) > 0 {
-		// The outermost GROUP BY compiles last, so its keys stay.
-		c.rules.groupKeys = nil
-		for _, cc := range gb {
-			col, err := cc.Column()
-			if err != nil {
-				return nil, internal(err)
-			}
-			id, t, err := colInfo(col)
-			if err != nil {
-				return nil, err
-			}
-			c.rules.groupKeys = append(c.rules.groupKeys, keyPart{id: id, kind: t.Kind})
-		}
+	if len(gb) > 0 {
+		c.setViewKeys(&c.keys.groupKeys, a.groupIDs, kinds)
 	}
 	al, err := s.AggregateList()
 	if err != nil {
@@ -491,6 +496,8 @@ func (c *compiler) orderBy(s *gsql.ResolvedOrderByScan) (scan, error) {
 	if err != nil {
 		return nil, internal(err)
 	}
+	var ids []int32
+	var kinds []Kind
 	for _, it := range items {
 		ref, err := it.ColumnRef()
 		if err != nil {
@@ -524,14 +531,10 @@ func (c *compiler) orderBy(s *gsql.ResolvedOrderByScan) (scan, error) {
 			nullsFirst = false
 		}
 		o.keys = append(o.keys, sortKey{id: id, kind: t.Kind, desc: desc, nullsFirst: nullsFirst})
+		ids = append(ids, id)
+		kinds = append(kinds, t.Kind)
 	}
-	if c.view {
-		// The outermost ORDER BY compiles last, so its keys stay.
-		c.rules.orderKeys = nil
-		for _, k := range o.keys {
-			c.rules.orderKeys = append(c.rules.orderKeys, keyPart{id: k.id, kind: k.kind})
-		}
-	}
+	c.setViewKeys(&c.keys.orderKeys, ids, kinds)
 	return o, nil
 }
 
@@ -550,27 +553,45 @@ func (c *compiler) tableScan(s *gsql.ResolvedTableScan) (scan, error) {
 	tbl := c.tables[name]
 	c.q.Table = name
 	ts := &tableScan{table: name}
-	idx, err := s.ColumnIndexList()
+	cols, err := scanColumns(s)
 	if err != nil {
-		return nil, internal(err)
+		return nil, err
 	}
-	for i, index := range idx {
-		col, err := s.ColumnList2(int32(i))
-		if err != nil {
-			return nil, internal(err)
-		}
-		id, _, err := colInfo(col)
-		if err != nil {
-			return nil, err
-		}
-		tc := tableCol{id: id}
-		if index > 0 {
-			tc.family = &tbl.Families[index-1]
+	for _, sc := range cols {
+		tc := tableCol{id: sc.id}
+		if sc.index > 0 {
+			tc.family = &tbl.Families[sc.index-1]
 			c.q.Families = append(c.q.Families, tc.family.Name)
 		}
 		ts.cols = append(ts.cols, tc)
 	}
 	return ts, nil
+}
+
+// scanCol is one column a table scan reads: the slot it fills and the column's index in the table.
+type scanCol struct {
+	id    int32
+	index int
+}
+
+// scanColumns returns the columns a table scan reads.
+func scanColumns(s *gsql.ResolvedTableScan) ([]scanCol, error) {
+	idx, err := s.ColumnIndexList()
+	if err != nil {
+		return nil, internal(err)
+	}
+	cols := make([]scanCol, len(idx))
+	for i, index := range idx {
+		col, err := s.ColumnList2(int32(i))
+		if err != nil {
+			return nil, internal(err)
+		}
+		if cols[i].id, _, err = colInfo(col); err != nil {
+			return nil, err
+		}
+		cols[i].index = int(index)
+	}
+	return cols, nil
 }
 
 func (c *compiler) expr(n gsql.ResolvedExprNode) (expr, error) {

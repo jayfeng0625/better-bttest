@@ -119,7 +119,7 @@ type server struct {
 	instances map[string]*btapb.Instance // keyed by fully qualified name
 	gcc       chan int                   // set when gcloop starts, closed when server shuts down
 	sql       sqlQueries                 // prepared SQL queries
-	views     materializedViews          // materialized views
+	views     materializedViews
 
 	// Any unimplemented methods will cause a panic.
 	btapb.BigtableTableAdminServer

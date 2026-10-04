@@ -21,8 +21,8 @@ type keyPart struct {
 	raw  bool
 }
 
-// viewRules is what the compiler records of a view's query: the key parts of its outermost GROUP BY and ORDER BY.
-type viewRules struct {
+// viewKeys is what the compiler records of a view's query: the key parts of its outermost GROUP BY and ORDER BY.
+type viewKeys struct {
 	groupKeys []keyPart
 	orderKeys []keyPart
 }
@@ -45,9 +45,9 @@ func PrepareView(sql string, tables []Table) (*Query, error) {
 	if err != nil {
 		return nil, err
 	}
-	keys := c.rules.groupKeys
+	keys := c.keys.groupKeys
 	if keys == nil {
-		keys = c.rules.orderKeys
+		keys = c.keys.orderKeys
 	}
 	if keys == nil {
 		return nil, status.Error(codes.InvalidArgument, "queries must contain a GROUP BY or ORDER BY clause")
@@ -85,34 +85,17 @@ func (e *env) addView(t Table, tables []Table) error {
 func (c *compiler) viewScan(s *gsql.ResolvedTableScan, v *Query) (scan, error) {
 	c.q.Table = v.Table
 	c.q.Families = append(c.q.Families, v.Families...)
-	vs := &viewScan{view: v}
-	idx, err := s.ColumnIndexList()
+	cols, err := scanColumns(s)
 	if err != nil {
-		return nil, internal(err)
+		return nil, err
 	}
-	for i, index := range idx {
-		col, err := s.ColumnList2(int32(i))
-		if err != nil {
-			return nil, internal(err)
-		}
-		id, _, err := colInfo(col)
-		if err != nil {
-			return nil, err
-		}
-		vs.cols = append(vs.cols, viewCol{id: id, index: int(index)})
-	}
-	return vs, nil
+	return &viewScan{view: v, cols: cols}, nil
 }
 
-// viewCol is one view column a scan reads: the slot it fills and the view's output column index.
-type viewCol struct {
-	id    int32
-	index int
-}
-
+// viewScan reads a view. Each column's index is the view's output column index.
 type viewScan struct {
 	view *Query
-	cols []viewCol
+	cols []scanCol
 }
 
 // run evaluates the view's query as production maintains the view: it leaves out each source row and each group
@@ -126,11 +109,7 @@ func (s *viewScan) run(x *execCtx, emit func([]Value) error) error {
 	}
 	var rows []keyedRow
 	if err := q.root.run(vx, func(row []Value) error {
-		out := make([]Value, len(q.outIDs))
-		for i, id := range q.outIDs {
-			out[i] = row[id]
-		}
-		rows = append(rows, keyedRow{key: encodeKey(row, q.keys), row: out})
+		rows = append(rows, keyedRow{key: encodeKey(row, q.keys), row: q.output(row)})
 		return nil
 	}); err != nil {
 		return err

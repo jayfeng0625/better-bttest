@@ -79,25 +79,34 @@ FROM (SELECT
 UNNEST(expand.labels) AS labelId
 GROUP BY tenantId, labelId, partitionId, rowType`
 
+// totalsRows are the rows the totals query tests seed.
+var totalsRows = []itemRow{
+	{key: "t1#p1#n#rowA", size: u64(100), labels: str(`["default","b2"]`), flag: true},
+	{key: "t1#p1#n#rowB", size: u64(50), labels: str(`["default"]`)},
+	{key: "t1#p1#b#rowC", size: u64(70), flag: true},
+	{key: "t2#p1#n#rowD", size: u64(10), labels: str(`[]`), flagDeleted: true},
+}
+
+// totalsColumns and totalsTypes are the totals query's output schema.
+var (
+	totalsColumns = []string{"tenantId", "labelId", "partitionId", "rowType", "itemCount", "tenantPartitionType_bytes", "tenantPartitionType_itemCount"}
+	totalsTypes   = []bigtable.SQLType{
+		bigtable.BytesSQLType{}, bigtable.StringSQLType{}, bigtable.BytesSQLType{}, bigtable.BytesSQLType{},
+		bigtable.Int64SQLType{}, bigtable.Int64SQLType{}, bigtable.Int64SQLType{},
+	}
+)
+
 func TestSQLTotalsQueryCountsRowsPerLabel(t *testing.T) {
 	ctx := sqlContext(t)
 	f := newSQLFixture(ctx, t)
-	f.createItemsTable(ctx, t, "items-prod", []itemRow{
-		{key: "t1#p1#n#rowA", size: u64(100), labels: str(`["default","b2"]`), flag: true},
-		{key: "t1#p1#n#rowB", size: u64(50), labels: str(`["default"]`)},
-		{key: "t1#p1#b#rowC", size: u64(70), flag: true},
-		{key: "t2#p1#n#rowD", size: u64(10), labels: str(`[]`), flagDeleted: true},
-	})
+	f.createItemsTable(ctx, t, "items-prod", totalsRows)
 
 	got := f.query(ctx, t, totalsQuery+"\nORDER BY tenantId, partitionId, rowType, labelId", nil, nil)
 
 	b := func(s string) []byte { return []byte(s) }
 	want := sqlResult{
-		cols: []string{"tenantId", "labelId", "partitionId", "rowType", "itemCount", "tenantPartitionType_bytes", "tenantPartitionType_itemCount"},
-		types: []bigtable.SQLType{
-			bigtable.BytesSQLType{}, bigtable.StringSQLType{}, bigtable.BytesSQLType{}, bigtable.BytesSQLType{},
-			bigtable.Int64SQLType{}, bigtable.Int64SQLType{}, bigtable.Int64SQLType{},
-		},
+		cols:  totalsColumns,
+		types: totalsTypes,
 		rows: [][]any{
 			{b("t1"), str("$"), b("p1"), b("b"), i64(1), i64(70), i64(1)},
 			{b("t1"), str(`"b2"`), b("p1"), b("n"), i64(1), i64(0), i64(0)},
@@ -120,6 +129,22 @@ var runtimeErrorRows = []itemRow{
 	{key: "t5#p1#n#rowH", size: u64(1)},
 	{key: "t6#p1#n#rowI", size: u64(7)},
 	{key: "t7#p1#n#rowJ", labels: str("abcdefgh")},
+}
+
+// executeErr prepares and runs sql, and returns the number of rows it received and the execute error.
+func (f *sqlFixture) executeErr(ctx context.Context, t *testing.T, sql string) (int, error) {
+	t.Helper()
+	ps, err := f.client.PrepareStatement(ctx, sql, nil)
+	if err != nil {
+		t.Fatalf("PrepareStatement(%q): %v", sql, err)
+	}
+	bs, err := ps.Bind(nil)
+	if err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
+	rows := 0
+	err = bs.Execute(ctx, func(bigtable.ResultRow) bool { rows++; return true })
+	return rows, err
 }
 
 func TestSQLRuntimeErrorFailsExecuteAsProductionDoes(t *testing.T) {
@@ -159,16 +184,7 @@ func TestSQLRuntimeErrorFailsExecuteAsProductionDoes(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ps, err := f.client.PrepareStatement(ctx, tc.sql, nil)
-			if err != nil {
-				t.Fatalf("PrepareStatement: %v", err)
-			}
-			bs, err := ps.Bind(nil)
-			if err != nil {
-				t.Fatalf("Bind: %v", err)
-			}
-			rows := 0
-			err = bs.Execute(ctx, func(bigtable.ResultRow) bool { rows++; return true })
+			rows, err := f.executeErr(ctx, t, tc.sql)
 			wantStatus(t, err, tc.code, tc.msg)
 			if rows != 0 {
 				t.Errorf("got %d rows before the error, want none", rows)

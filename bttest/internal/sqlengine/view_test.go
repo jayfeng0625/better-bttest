@@ -10,7 +10,8 @@ import (
 )
 
 // TestEncodeKeyMatchesProductionKeys checks every view key that production returned through ReadRows on
-// 2026-10-03, written as hex with spaces between the parts.
+// 2026-10-03, written as hex with spaces between the parts. It calls encodeKey directly because a client of the
+// emulator cannot read a view's key bytes.
 func TestEncodeKeyMatchesProductionKeys(t *testing.T) {
 	b := func(s string) Value { return Value{Bytes: []byte(s)} }
 	i := func(v int64) Value { return Value{Int: v} }

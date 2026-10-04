@@ -124,7 +124,7 @@ func (s *server) PrepareQuery(ctx context.Context, req *btpb.PrepareQueryRequest
 	}, nil
 }
 
-// sqlTables lists the instance's tables as SQL sees them, families in byte order, with Sum, Min and Max families
+// sqlTables lists the instance's tables as SQL sees them: families in byte order, with Sum, Min and Max families
 // typed INT64. Then it lists the instance's materialized views.
 func (s *server) sqlTables(instance string) []sqlengine.Table {
 	prefix := instance + "/tables/"
