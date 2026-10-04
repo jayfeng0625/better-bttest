@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Run the parity cases against a real Bigtable table, the emulator image built from this checkout, and Google's stock
-# emulator, and diff each emulator's results against the real table's.
+# emulator, and diff each emulator's results against the real table's. The table cases create tables in the real
+# table's instance, and delete them.
 # CONTRIBUTING.md gives the usage and the exit codes.
 set -euo pipefail
 trap "exit 130" INT TERM
@@ -60,33 +61,42 @@ start_emulator() {
     cbt_emulator createtable "$PARITY_TABLE" "families=$families"
 }
 
-# Run the cases for each aggregate family on a fresh emulator, so a crash in one family's cases leaves the next
-# family's cases to run. A client retries a dead emulator for minutes, so stop the cases when it exits. The comparison
-# then shows the cases that did not finish.
+# Run one cases script on a fresh emulator from the image and command in emulator. A client retries a dead emulator
+# for minutes, so stop the cases when it exits. The comparison then shows the cases that did not finish.
+# Usage: cases_on_fresh_emulator <name> <label> <script> [<arg>...]
+cases_on_fresh_emulator() {
+    start_emulator "${emulator[@]}"
+    BIGTABLE_EMULATOR_HOST=$host node "${@:3}" &
+    cases_pid=$!
+    while kill -0 "$cases_pid" 2>/dev/null; do
+        if [ "$(docker inspect -f '{{.State.Running}}' "$container")" != true ]; then
+            kill "$cases_pid"
+            echo "The $1 emulator exited during $2:" >&2
+            log=$(docker logs "$container" 2>&1)
+            # gcloud prefixes each line of the stock emulator's log with [bigtable].
+            grep -m1 -A6 'panic' <<<"$log" >&2 || tail -20 <<<"$log" >&2
+            break
+        fi
+        sleep 1
+    done
+    wait "$cases_pid" || true
+    cases_pid=
+    docker rm -f "$container" >/dev/null
+    container=
+}
+
+# Run the cases for each aggregate family, then the table cases, each on a fresh emulator, so a crash in one set of
+# cases leaves the next to run.
 # Usage: cases_on_emulator <name> <image> [<command>...]
 cases_on_emulator() {
     echo "$1 emulator: $(docker image inspect -f '{{if .RepoDigests}}{{index .RepoDigests 0}}{{else}}{{.Id}}{{end}}' "$2")"
+    emulator=("${@:2}")
     mkdir -p "$work/$1"
     for family in "${aggregates[@]}"; do
-        start_emulator "${@:2}"
-        BIGTABLE_EMULATOR_HOST=$host node cases.mjs "$work/$1/$family.json" "${target[@]}" "$family" "$PARITY_PLAIN_FAMILY" &
-        cases_pid=$!
-        while kill -0 "$cases_pid" 2>/dev/null; do
-            if [ "$(docker inspect -f '{{.State.Running}}' "$container")" != true ]; then
-                kill "$cases_pid"
-                echo "The $1 emulator exited during the $family cases:" >&2
-                log=$(docker logs "$container" 2>&1)
-                # gcloud prefixes each line of the stock emulator's log with [bigtable].
-                grep -m1 -A6 'panic' <<<"$log" >&2 || tail -20 <<<"$log" >&2
-                break
-            fi
-            sleep 1
-        done
-        wait "$cases_pid" || true
-        cases_pid=
-        docker rm -f "$container" >/dev/null
-        container=
+        cases_on_fresh_emulator "$1" "the $family cases" \
+            cases.mjs "$work/$1/$family.json" "${target[@]}" "$family" "$PARITY_PLAIN_FAMILY"
     done
+    cases_on_fresh_emulator "$1" "the table cases" table-cases.mjs "$work/$1/tables.json" "$PARITY_PROJECT" "$PARITY_INSTANCE"
 }
 
 docker pull -q "$STOCK_IMAGE" >/dev/null
@@ -98,5 +108,6 @@ mkdir -p "$work/real"
 for family in "${aggregates[@]}"; do
     node cases.mjs "$work/real/$family.json" "${target[@]}" "$family" "$PARITY_PLAIN_FAMILY"
 done
+node table-cases.mjs "$work/real/tables.json" "$PARITY_PROJECT" "$PARITY_INSTANCE"
 
 node compare.mjs "$work" better-bttest stock
