@@ -634,6 +634,10 @@ func literal(l *gsql.ResolvedLiteral) (Value, error) {
 	if err != nil {
 		return Value{}, internal(err)
 	}
+	return literalValue(v)
+}
+
+func literalValue(v *gsql.Value) (Value, error) {
 	isNull, err := v.IsNull()
 	if err != nil {
 		return Value{}, internal(err)
@@ -665,7 +669,7 @@ func literal(l *gsql.ResolvedLiteral) (Value, error) {
 		}
 		out.Elems = make([]Value, len(els))
 		for i, el := range els {
-			if out.Elems[i], err = literal(el); err != nil {
+			if out.Elems[i], err = literalValue(el); err != nil {
 				return Value{}, err
 			}
 		}
