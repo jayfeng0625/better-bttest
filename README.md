@@ -33,7 +33,7 @@ Print a commit's index digest:
 docker buildx imagetools inspect ghcr.io/jayfeng0625/better-bttest:<commit SHA> --format '{{.Manifest.Digest}}'
 ```
 
-Each publish attests the build provenance of both indexes with a Sigstore-signed [artifact attestation](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations).
+Each publish attests the build provenance of both indexes with a Sigstore-signed [artifact attestation](https://github.com/actions/attest#readme).
 GitHub stores the attestations.
 Check where and how an image was built with [`gh attestation verify`](https://cli.github.com/manual/gh_attestation_verify):
 
