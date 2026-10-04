@@ -55,8 +55,10 @@ func function(name string, xs []expr, ts []Type, consts []*Value) expr {
 	case "$between":
 		// GoogleSQL defines v BETWEEN lo AND hi as lo <= v AND v <= hi, so a NULL bound yields false when the other
 		// comparison is false.
-		le := func(a, b expr) expr { return function("$less_or_equal", []expr{a, b}, ts, nil) }
-		return logical(true, []expr{le(xs[1], xs[0]), le(xs[0], xs[2])})
+		le := func(i, j int) expr {
+			return function("$less_or_equal", []expr{xs[i], xs[j]}, []Type{ts[i], ts[j]}, []*Value{consts[i], consts[j]})
+		}
+		return logical(true, []expr{le(1, 0), le(0, 2)})
 	case "$and", "$or":
 		return logical(name == "$and", xs)
 	case "$not":

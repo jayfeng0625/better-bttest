@@ -48,16 +48,14 @@ A parity case sends the same requests to a real table and to the emulator.
   Google's emulator crashes on a missing value.
 - **[SQL queries](https://cloud.google.com/bigtable/docs/googlesql-overview).**
   `PrepareQuery` and `ExecuteQuery` run a `SELECT` over one table. The analyzer in [go-googlesql](https://github.com/goccy/go-googlesql) types each query.
-  A query can use these constructs:
-  - Clauses: a select list with aliases and `*`, a subquery in `FROM`, `WHERE`, `ORDER BY`, and `LIMIT`.
-  - Operators: comparisons, `AND`, `OR`, `NOT`, `IS NULL`, `IN`, `BETWEEN`, and `LIKE`.
-  - Functions: `STARTS_WITH`, `CAST` between `BYTES` and `STRING`, and `TO_INT64`.
-  - Values: `fam['col']` and query parameters.
-
-  Any other construct fails `PrepareQuery` with `InvalidArgument`.
   A prepared query expires 40 s after `PrepareQuery`, or once a family it reads is dropped.
   `ExecuteQuery` then fails as production does, with `FailedPrecondition` and a `PREPARED_QUERY_EXPIRED` violation.
   The stock emulator returns `Unimplemented`.
+  A construct outside the list below fails `PrepareQuery` with `InvalidArgument`.
+  A query can take query parameters and use these constructs:
+  - Query parts: a select list with aliases and `*`, a subquery in `FROM`, `WHERE`, `ORDER BY`, and `LIMIT`.
+  - Operators: comparisons, `AND`, `OR`, `NOT`, `IS NULL`, `IN`, `BETWEEN`, `LIKE`, and the map subscript `fam['col']`.
+  - Functions: `STARTS_WITH`, `CAST` between `BYTES` and `STRING`, and `TO_INT64`.
 - **[Materialized views](https://cloud.google.com/bigtable/docs/materialized-views).**
   `CreateMaterializedView` stores a view, and `GetMaterializedView` returns it.
   A view that does not exist, or an ID that is taken, gets the error that production returns.
