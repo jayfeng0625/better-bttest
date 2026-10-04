@@ -269,7 +269,6 @@ func (c *compiler) input(n gsql.ResolvedScanNode, err error) (scan, error) {
 	return c.scan(n)
 }
 
-// computed compiles a list of computed columns into their column ids and expressions.
 func (c *compiler) computed(cols []*gsql.ResolvedComputedColumn) ([]int32, []expr, error) {
 	var ids []int32
 	var exprs []expr
@@ -384,7 +383,6 @@ func (c *compiler) aggregate(s *gsql.ResolvedAggregateScan) (scan, error) {
 	return a, nil
 }
 
-// aggregateCall compiles COUNT(*), SUM over INT64 or MAX.
 func (c *compiler) aggregateCall(cc *gsql.ResolvedComputedColumn) (aggSpec, error) {
 	col, err := cc.Column()
 	if err != nil {

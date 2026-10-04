@@ -178,6 +178,10 @@ func appendGroupKey(b []byte, v Value) []byte {
 	b = binary.AppendUvarint(b, uint64(len(v.Bytes)))
 	b = append(b, v.Bytes...)
 	b = binary.BigEndian.AppendUint64(b, uint64(v.Int))
+	b = binary.AppendUvarint(b, uint64(len(v.Elems)))
+	for _, e := range v.Elems {
+		b = appendGroupKey(b, e)
+	}
 	if v.Bool {
 		return append(b, 1)
 	}

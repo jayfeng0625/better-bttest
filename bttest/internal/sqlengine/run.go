@@ -362,7 +362,6 @@ func (a *aggregate) run(x *execCtx, emit func([]Value) error) error {
 	return nil
 }
 
-// add folds one input value into an aggregate's running value.
 func (ag aggSpec) add(acc *Value, v Value) error {
 	if ag.fn == aggCountStar {
 		acc.Int++

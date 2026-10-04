@@ -138,7 +138,7 @@ func function(name string, xs []expr, ts []Type, consts []*Value) expr {
 			return arr[i], nil
 		})
 	case "split":
-		// SPLIT on STRING splits by character, which the engine does not support.
+		// The engine supports SPLIT only on BYTES, the type the totals query splits.
 		if ts[0].Kind != KindBytes {
 			return nil
 		}
@@ -178,7 +178,7 @@ func function(name string, xs []expr, ts []Type, consts []*Value) expr {
 		}
 	case "$case_no_value":
 		// CASE WHEN c1 THEN v1 ... [ELSE e] END resolves to its conditions and values in pairs, then the ELSE value
-		// when the count is odd. Only the chosen value is evaluated.
+		// when the count is odd. The engine evaluates only the chosen value.
 		return func(x *execCtx, row []Value) (Value, error) {
 			n := len(xs)
 			for i := 0; i+1 < n; i += 2 {

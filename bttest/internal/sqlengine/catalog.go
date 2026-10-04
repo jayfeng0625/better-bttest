@@ -37,6 +37,7 @@ var features = []gsql.LanguageFeature{
 	gsql.LanguageFeatureFeatureImplicitCoercionStringLiteralToBytes,
 	gsql.LanguageFeatureFeatureBareArrayAccess,
 	gsql.LanguageFeatureFeatureJsonArrayFunctions,
+	gsql.LanguageFeatureFeatureGroupByArray,
 }
 
 // env is one analyzer setup. go-googlesql's AnalyzerOptions must not be shared across concurrent analyses, so
