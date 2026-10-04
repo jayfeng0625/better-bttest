@@ -210,12 +210,26 @@ func TestSQLPrepareRejectsUnsupportedSQL(t *testing.T) {
 		{"SELECT LENGTH(_key) FROM t", "The emulator does not support LENGTH"},
 		{"SELECT _key FROM t GROUP BY _key", "The emulator does not support GROUP BY or aggregate functions"},
 		{"SELECT _key FROM t LIMIT 1 OFFSET 1", "The emulator does not support OFFSET"},
+		{"SELECT DISTINCT _key FROM t", "The emulator does not support SELECT DISTINCT"},
+		{"SELECT _key FROM t WHERE _key IN (SELECT _key FROM t)", "The emulator does not support IN subqueries"},
+		{"SELECT _key FROM t WHERE EXISTS (SELECT _key FROM t)", "The emulator does not support EXISTS subqueries"},
+		{"SELECT (SELECT _key) FROM t", "The emulator does not support scalar subqueries"},
+		{"SELECT STRUCT(1 AS a).a FROM t", "The emulator does not support STRUCT field access"},
 	} {
 		t.Run(tc.sql, func(t *testing.T) {
 			_, err := f.client.PrepareStatement(ctx, tc.sql, nil)
 			wantStatus(t, err, codes.InvalidArgument, tc.msg)
 		})
 	}
+}
+
+func TestSQLPrepareRejectsUnsupportedParameterType(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+
+	_, err := f.client.PrepareStatement(ctx, "SELECT _key FROM t WHERE @b", map[string]bigtable.SQLType{"b": bigtable.BoolSQLType{}})
+
+	wantStatus(t, err, codes.InvalidArgument, "The emulator does not support query parameters of type bool_type")
 }
 
 func TestSQLReadsUnquotedDashedTableName(t *testing.T) {
@@ -248,6 +262,17 @@ func TestSQLBoundParameterSelectsMatchingRow(t *testing.T) {
 	got := f.query(ctx, t, "SELECT _key FROM t WHERE _key = @k", map[string]bigtable.SQLType{"k": bigtable.BytesSQLType{}}, map[string]any{"k": []byte("c")})
 
 	if diff := cmp.Diff([]string{"c"}, got.keys()); diff != "" {
+		t.Errorf("keys (-want +got):\n%s", diff)
+	}
+}
+
+func TestSQLLikeBoundParameterPatternSelectsMatchingRow(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+
+	got := f.query(ctx, t, "SELECT _key FROM t WHERE CAST(_key AS STRING) LIKE @p", map[string]bigtable.SQLType{"p": bigtable.StringSQLType{}}, map[string]any{"p": "b%"})
+
+	if diff := cmp.Diff([]string{"b"}, got.keys()); diff != "" {
 		t.Errorf("keys (-want +got):\n%s", diff)
 	}
 }
@@ -352,37 +377,39 @@ func TestSQLExecuteQuerySendsBatchThenToken(t *testing.T) {
 		}},
 		{"no rows", "SELECT _key FROM t WHERE _key = 'nope'", nil},
 	} {
-		msgs, err := f.executeRaw(ctx, t, f.prepareRaw(ctx, t, tc.sql))
-		if err != nil {
-			t.Fatalf("%s: ExecuteQuery: %v", tc.name, err)
-		}
-		if len(msgs) != 2 {
-			t.Fatalf("%s: got %d messages, want 2: %v", tc.name, len(msgs), msgs)
-		}
-		first, second := msgs[0].GetResults(), msgs[1].GetResults()
-		batch := first.GetProtoRowsBatch()
-		if batch == nil || !first.GetReset_() || first.ResumeToken != nil {
-			t.Errorf("%s: first message = %v, want a batch with reset and no token", tc.name, first)
-		}
-		if tc.values == nil {
-			if len(batch.GetBatchData()) != 0 || first.BatchChecksum != nil {
-				t.Errorf("%s: first message = %v, want an empty batch and no checksum", tc.name, first)
+		t.Run(tc.name, func(t *testing.T) {
+			msgs, err := f.executeRaw(ctx, t, f.prepareRaw(ctx, t, tc.sql))
+			if err != nil {
+				t.Fatalf("ExecuteQuery: %v", err)
 			}
-		} else {
-			var rows btpb.ProtoRows
-			if err := proto.Unmarshal(batch.GetBatchData(), &rows); err != nil {
-				t.Fatal(err)
+			if len(msgs) != 2 {
+				t.Fatalf("got %d messages, want 2: %v", len(msgs), msgs)
 			}
-			if diff := cmp.Diff(tc.values, rows.Values, protocmp.Transform()); diff != "" {
-				t.Errorf("%s: values (-want +got):\n%s", tc.name, diff)
+			first, second := msgs[0].GetResults(), msgs[1].GetResults()
+			batch := first.GetProtoRowsBatch()
+			if batch == nil || !first.GetReset_() || first.ResumeToken != nil {
+				t.Errorf("first message = %v, want a batch with reset and no token", first)
 			}
-			if want := crc32.Checksum(batch.GetBatchData(), crc32.MakeTable(crc32.Castagnoli)); first.GetBatchChecksum() != want || first.BatchChecksum == nil {
-				t.Errorf("%s: batch_checksum = %v, want %d", tc.name, first.BatchChecksum, want)
+			if tc.values == nil {
+				if len(batch.GetBatchData()) != 0 || first.BatchChecksum != nil {
+					t.Errorf("first message = %v, want an empty batch and no checksum", first)
+				}
+			} else {
+				var rows btpb.ProtoRows
+				if err := proto.Unmarshal(batch.GetBatchData(), &rows); err != nil {
+					t.Fatal(err)
+				}
+				if diff := cmp.Diff(tc.values, rows.Values, protocmp.Transform()); diff != "" {
+					t.Errorf("values (-want +got):\n%s", diff)
+				}
+				if want := crc32.Checksum(batch.GetBatchData(), crc32.MakeTable(crc32.Castagnoli)); first.GetBatchChecksum() != want || first.BatchChecksum == nil {
+					t.Errorf("batch_checksum = %v, want %d", first.BatchChecksum, want)
+				}
 			}
-		}
-		if second.GetPartialRows() != nil || second.GetReset_() || second.BatchChecksum != nil || len(second.GetResumeToken()) == 0 {
-			t.Errorf("%s: second message = %v, want only a resume token", tc.name, second)
-		}
+			if second.GetPartialRows() != nil || second.GetReset_() || second.BatchChecksum != nil || len(second.GetResumeToken()) == 0 {
+				t.Errorf("second message = %v, want only a resume token", second)
+			}
+		})
 	}
 }
 
