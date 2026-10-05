@@ -294,9 +294,8 @@ func TableCases() []Case {
 		}
 	}
 
-	write := func(key Row) MutateRow {
-		return MutateRow{CaseTable: true, Row: key, Mutations: Mutations(SetCell("cf", []byte("v"), Col("q")))}
-	}
+	cell := Mutations(SetCell("cf", []byte("v"), Col("q")))
+	write := func(key Row) MutateRow { return MutateRow{CaseTable: true, Row: key, Mutations: cell} }
 	return append(cases,
 		Case{
 			Name:  "UpdateTable row_key_schema on a protected table",
@@ -318,8 +317,8 @@ func TableCases() []Case {
 				GenerateConsistencyToken{}, CheckConsistency{},
 				ReadRow{CaseTable: true, Row: "k"},
 				write("k"),
-				MutateRows{CaseTable: true, Entries: []Entry{{Row: "k", Mutations: Mutations(SetCell("cf", []byte("v"), Col("q")))}}},
-				CheckAndMutate{CaseTable: true, Row: "k", True: Mutations(SetCell("cf", []byte("v"), Col("q")))},
+				MutateRows{CaseTable: true, Entries: []Entry{{Row: "k", Mutations: cell}}},
+				CheckAndMutate{CaseTable: true, Row: "k", True: cell},
 				ReadModifyWrite{CaseTable: true, Row: "k", Rules: Rules(Increment("cf"))},
 				SampleRowKeys{},
 			},

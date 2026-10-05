@@ -23,22 +23,27 @@ const (
 	goldenNumberedInstance = "projects/{<project>}/instances/<instance>"
 )
 
+var numberedInstance = regexp.MustCompile(`projects/\{[^}]*\}/instances/[^/]+`)
+
 // Normalize returns results as the golden files keep them, with what differs between targets and runs replaced. Status
 // messages embed table paths, which carry the target's instance, and row keys and table names, which carry the run id.
 // A cell at the server's clock gets ServerTime, the time that SetCell takes for the server's clock. ReadRows leaves the
 // order of a row's families unspecified, so the cells sort by family, keeping their order within each.
 func Normalize(instance, runID string, results []Result) []Result {
-	_, instanceID, _ := strings.Cut(instance, "/instances/")
-	n := normalizer{
-		strings.NewReplacer(instance, goldenInstance, runID, "<run>"),
-		regexp.MustCompile(`projects/\{[^}]*\}/instances/` + regexp.QuoteMeta(instanceID) + `/`),
+	replacer := strings.NewReplacer(instance, goldenInstance, runID, "<run>")
+	status := func(s Status) Status {
+		s.Message = numberedInstance.ReplaceAllLiteralString(replacer.Replace(s.Message), goldenNumberedInstance)
+		if strings.HasPrefix(s.Message, structMessage) {
+			s.Message = structMessage
+		}
+		return s
 	}
 	out := make([]Result, len(results))
 	for i, r := range results {
-		r.Status = n.status(r.Status)
+		r.Status = status(r.Status)
 		r.Entries = slices.Clone(r.Entries)
 		for j, e := range r.Entries {
-			r.Entries[j] = n.status(e)
+			r.Entries[j] = status(e)
 		}
 		r.Cells = slices.Clone(r.Cells)
 		slices.SortStableFunc(r.Cells, func(a, b Cell) int { return strings.Compare(family(a), family(b)) })
@@ -59,20 +64,6 @@ func family(c Cell) string {
 
 // Production's message for a row key schema with no encoding continues with text that differs between calls.
 const structMessage = "Missing encoding for STRUCT"
-
-type normalizer struct {
-	replacer         *strings.Replacer
-	numberedInstance *regexp.Regexp
-}
-
-func (n normalizer) status(s Status) Status {
-	s.Message = n.replacer.Replace(s.Message)
-	s.Message = n.numberedInstance.ReplaceAllLiteralString(s.Message, goldenNumberedInstance+"/")
-	if strings.HasPrefix(s.Message, structMessage) {
-		s.Message = structMessage
-	}
-	return s
-}
 
 // Diff returns each call whose result differs between want and got, or "" when every result matches.
 func Diff(want, got []Result) string {
