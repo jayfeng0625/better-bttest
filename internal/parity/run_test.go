@@ -169,7 +169,7 @@ func TestRunCreatesAndReadsATableThenDeletesIt(t *testing.T) {
 	if d := cmp.Diff(want, got, protocmp.Transform()); d != "" {
 		t.Errorf("Run (-want +got):\n%s", d)
 	}
-	if tables := tableIDs(ctx, t, target); !cmp.Equal(tables, []string{target.Table}) {
+	if tables := tableIDs(ctx, t, target); !cmp.Equal(tables, []string{parityTable}) {
 		t.Errorf("tables after the case = %v, want only the parity table", tables)
 	}
 }
@@ -203,7 +203,7 @@ func TestRunDeletesAProtectedTable(t *testing.T) {
 	if len(got) != 1 || got[0].Table == nil || !got[0].Table.DeletionProtection {
 		t.Fatalf("Run = %+v, want a GetTable of a protected table", got)
 	}
-	if tables := tableIDs(ctx, t, target); !cmp.Equal(tables, []string{target.Table}) {
+	if tables := tableIDs(ctx, t, target); !cmp.Equal(tables, []string{parityTable}) {
 		t.Errorf("tables after the case = %v, want only the parity table", tables)
 	}
 }

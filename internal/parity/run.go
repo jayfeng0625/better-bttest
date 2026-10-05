@@ -19,7 +19,7 @@ import (
 const rowPrefix = "probe#"
 
 // Every table the cases create starts with this prefix and the run id, to fit the 50-character table id limit.
-const tablePrefix = "better-bttest-parity-"
+const tablePrefix = parityTable + "-"
 
 // Run makes the case's calls on the target, and returns each of Calls' results. The ordinal is the case's place in
 // the run, which names its tables, so every target gives a case the same table names. Run deletes the case's tables
@@ -77,9 +77,9 @@ func (r *runner) rowOn(table string, row Row) (tableName string, key []byte) {
 		return r.tablePath(table), []byte(row)
 	}
 	if row == "" {
-		return r.target.tablePath(r.target.Table), []byte(r.rowKeyPrefix)
+		return r.target.tablePath(parityTable), []byte(r.rowKeyPrefix)
 	}
-	return r.target.tablePath(r.target.Table), []byte(r.rowKeyPrefix + "#" + string(row))
+	return r.target.tablePath(parityTable), []byte(r.rowKeyPrefix + "#" + string(row))
 }
 
 // Delete the case's tables, clearing deletion protection first. A table the case never created is not found.

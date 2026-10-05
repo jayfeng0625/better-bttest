@@ -65,7 +65,7 @@ func Cleanup(ctx context.Context, t Target) error {
 // The keys of the case rows on the parity table.
 func caseRows(ctx context.Context, t Target) ([][]byte, error) {
 	stream, err := t.Data.ReadRows(ctx, &btpb.ReadRowsRequest{
-		TableName: t.tablePath(t.Table),
+		TableName: t.tablePath(parityTable),
 		Rows: &btpb.RowSet{RowRanges: []*btpb.RowRange{{
 			StartKey: &btpb.RowRange_StartKeyClosed{StartKeyClosed: []byte(rowPrefix)},
 			EndKey:   &btpb.RowRange_EndKeyOpen{EndKeyOpen: []byte(strings.TrimSuffix(rowPrefix, "#") + "$")},
@@ -96,7 +96,7 @@ func caseRows(ctx context.Context, t Target) ([][]byte, error) {
 }
 
 func deleteRows(ctx context.Context, t Target, keys [][]byte) error {
-	req := &btpb.MutateRowsRequest{TableName: t.tablePath(t.Table)}
+	req := &btpb.MutateRowsRequest{TableName: t.tablePath(parityTable)}
 	for _, key := range keys {
 		req.Entries = append(req.Entries, &btpb.MutateRowsRequest_Entry{RowKey: key, Mutations: Mutations(DeleteFromRow())})
 	}

@@ -43,17 +43,17 @@ Production's results are in `internal/parity/testdata/real.json`, so `go test ./
 
 ### Record production's results
 
-Run the cases on a real table with `-update`:
+Run the cases on a real instance with `-update`:
 
 ```sh
-go test ./internal/parity -run 'TestParity$' -real=<project>/<instance>/<table> -update
+go test ./internal/parity -run 'TestParity$' -real=<project>/<instance> -update
 ```
 
 The run uses Application Default Credentials. To set them up, run `gcloud auth application-default login`.
-The credentials must be able to write to the table, and to create and delete tables in its instance.
+The credentials must be able to write to the table `better-bttest-parity` in the instance, and to create and delete tables there.
 
-The data cases write rows to the table.
-Create it with the families that `families` in `internal/parity/fixture.go` lists, each with the garbage collection rule `never`:
+The data cases write rows to `better-bttest-parity`.
+Create the table with the families that `families` in `internal/parity/fixture.go` lists, each with the garbage collection rule `never`:
 
 - `sum`, an int64 Sum aggregate family
 - `min`, an int64 MIN aggregate family

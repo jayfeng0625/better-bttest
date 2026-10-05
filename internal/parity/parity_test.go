@@ -24,8 +24,8 @@ const goldenPath = "testdata/real.json"
 const caseDeadline = 30 * time.Second
 
 var (
-	realTable = flag.String("real", "", "run the cases on the real table <project>/<instance>/<table> too, and check the gate against it")
-	update    = flag.Bool("update", false, "with -real, write the real table's results to "+goldenPath)
+	realInstance = flag.String("real", "", "run the cases on the parity table in the real instance <project>/<instance> too, and check the gate against it")
+	update       = flag.Bool("update", false, "with -real, write the real table's results to "+goldenPath)
 )
 
 // TestParity runs every case on the gate, and checks its results against the real table's. With -real, the run
@@ -35,9 +35,12 @@ func TestParity(t *testing.T) {
 	runID := newRunID(t)
 	var golden map[string][]Result
 	switch {
-	case *realTable != "":
+	case *realInstance != "":
 		golden = realResults(t, cases, runID)
 		if *update {
+			if t.Failed() {
+				t.Fatalf("a case failed on the real table, so %s stays as it is", goldenPath)
+			}
 			writeGolden(t, golden)
 		}
 	case *update:
@@ -106,20 +109,20 @@ func readGolden(t *testing.T) map[string][]Result {
 // row and case table when the test ends.
 func realResults(t *testing.T, cases []Case, runID string) map[string][]Result {
 	t.Helper()
-	parts := strings.Split(*realTable, "/")
-	if len(parts) != 3 {
-		t.Fatalf("-real is %q, want <project>/<instance>/<table>", *realTable)
+	parts := strings.Split(*realInstance, "/")
+	if len(parts) != 2 {
+		t.Fatalf("-real is %q, want <project>/<instance>", *realInstance)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), caseDeadline)
 	defer cancel()
-	real, stop, err := DialReal(ctx, "projects/"+parts[0]+"/instances/"+parts[1], parts[2])
+	real, stop, err := DialReal(ctx, "projects/"+parts[0]+"/instances/"+parts[1])
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(stop)
-	tbl, err := real.Admin.GetTable(ctx, &adminpb.GetTableRequest{Name: real.tablePath(real.Table), View: adminpb.Table_SCHEMA_VIEW})
+	tbl, err := real.Admin.GetTable(ctx, &adminpb.GetTableRequest{Name: real.tablePath(parityTable), View: adminpb.Table_SCHEMA_VIEW})
 	if err != nil {
-		t.Fatalf("read the schema of %s: %v", real.Table, err)
+		t.Fatalf("read the schema of %s: %v", parityTable, err)
 	}
 	if problems := SchemaProblems(tbl.ColumnFamilies); len(problems) > 0 {
 		t.Fatalf("the parity table's families differ from the cases':\n%s", strings.Join(problems, "\n"))
@@ -156,8 +159,7 @@ func writeGolden(t *testing.T, golden map[string][]Result) {
 	if err := enc.Encode(golden); err != nil {
 		t.Fatal(err)
 	}
-	parts := strings.Split(*realTable, "/")
-	for _, name := range parts[:2] {
+	for _, name := range strings.Split(*realInstance, "/") {
 		if bytes.Contains(data.Bytes(), []byte(name)) {
 			t.Fatalf("the results name %q, which must stay out of %s", name, goldenPath)
 		}

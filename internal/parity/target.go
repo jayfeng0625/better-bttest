@@ -29,8 +29,10 @@ type Target struct {
 	// The admin service's long-running operations, which UpdateTable returns.
 	Operations longrunningpb.OperationsClient
 	Instance   string // projects/<project>/instances/<instance>
-	Table      string // the parity table's id
 }
+
+// The parity table's id on every target, so that status messages that name the table match across targets.
+const parityTable = "better-bttest-parity"
 
 func (t Target) tablePath(id string) string { return t.Instance + "/tables/" + id }
 
@@ -87,10 +89,9 @@ func StartGate(ctx context.Context) (Target, func(), error) {
 		Admin:      adminpb.NewBigtableTableAdminClient(conn),
 		Operations: longrunningpb.NewOperationsClient(conn),
 		Instance:   "projects/parity/instances/parity",
-		Table:      "better-bttest-parity",
 	}
 	if _, err := t.Admin.CreateTable(ctx, &adminpb.CreateTableRequest{
-		Parent: t.Instance, TableId: t.Table, Table: &adminpb.Table{ColumnFamilies: columnFamilies()},
+		Parent: t.Instance, TableId: parityTable, Table: &adminpb.Table{ColumnFamilies: columnFamilies()},
 	}); err != nil {
 		stop()
 		return Target{}, nil, fmt.Errorf("create the parity table: %w", err)
@@ -99,8 +100,8 @@ func StartGate(ctx context.Context) (Target, func(), error) {
 }
 
 // DialReal connects to the real Bigtable with Application Default Credentials. The instance is
-// projects/<project>/instances/<instance>, and the table is the parity table's id.
-func DialReal(ctx context.Context, instance, table string) (Target, func(), error) {
+// projects/<project>/instances/<instance>.
+func DialReal(ctx context.Context, instance string) (Target, func(), error) {
 	data, err := gtransport.Dial(ctx, option.WithEndpoint("bigtable.googleapis.com:443"), option.WithScopes(bigtable.Scope))
 	if err != nil {
 		return Target{}, nil, err
@@ -119,7 +120,6 @@ func DialReal(ctx context.Context, instance, table string) (Target, func(), erro
 		Admin:      adminpb.NewBigtableTableAdminClient(admin),
 		Operations: longrunningpb.NewOperationsClient(admin),
 		Instance:   instance,
-		Table:      table,
 	}, stop, nil
 }
 
@@ -158,7 +158,6 @@ func StartContainer(ctx context.Context, image string, command []string, label s
 		Admin:      adminpb.NewBigtableTableAdminClient(conn),
 		Operations: longrunningpb.NewOperationsClient(conn),
 		Instance:   "projects/parity/instances/parity",
-		Table:      "better-bttest-parity",
 	}}
 	for {
 		_, err := c.Admin.ListTables(ctx, &adminpb.ListTablesRequest{Parent: c.Instance})
@@ -173,7 +172,7 @@ func StartContainer(ctx context.Context, image string, command []string, label s
 		}
 	}
 	if _, err := c.Admin.CreateTable(ctx, &adminpb.CreateTableRequest{
-		Parent: c.Instance, TableId: c.Table, Table: &adminpb.Table{ColumnFamilies: columnFamilies()},
+		Parent: c.Instance, TableId: parityTable, Table: &adminpb.Table{ColumnFamilies: columnFamilies()},
 	}); err != nil {
 		stop()
 		return Container{}, nil, fmt.Errorf("create the parity table: %w", err)
