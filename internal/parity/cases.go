@@ -313,7 +313,29 @@ func TableCases() []Case {
 
 	cell := Mutations(SetCell("cf", []byte("v"), Col("q")))
 	write := func(key Row) MutateRow { return MutateRow{CaseTable: true, Row: key, Mutations: cell} }
+	emptyRule := &adminpb.ColumnFamily{GcRule: &adminpb.GcRule{}}
 	return append(cases,
+		Case{
+			Name:  "CreateTable with the parity table's families",
+			Calls: []Call{CreateTable{Families: families()}, GetTable{}},
+		},
+		Case{
+			Name:  "CreateTable with the parity table's families, each with an empty GC rule",
+			Calls: []Call{CreateTable{Families: WithEmptyGCRules(families())}, GetTable{}},
+		},
+		Case{
+			Name:  "ModifyColumnFamilies with an empty GC rule",
+			Setup: []Call{CreateTable{}},
+			Calls: []Call{
+				ModifyColumnFamilies{Mods: []*adminpb.ModifyColumnFamiliesRequest_Modification{
+					CreateFamily(string(Plain), emptyRule),
+					CreateFamily(string(Sum), WithEmptyGCRules(families())[string(Sum)]),
+				}},
+				GetTable{},
+				ModifyColumnFamilies{Mods: []*adminpb.ModifyColumnFamiliesRequest_Modification{UpdateFamily("cf", emptyRule)}},
+				GetTable{},
+			},
+		},
 		Case{
 			Name:  "UpdateTable row_key_schema on a protected table",
 			Setup: []Call{CreateTable{}, SetDeletionProtection{On: true}},

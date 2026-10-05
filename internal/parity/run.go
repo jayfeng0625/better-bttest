@@ -203,12 +203,13 @@ func (SampleRowKeys) run(ctx context.Context, r *runner) (Result, error) {
 
 func (c CreateTable) run(ctx context.Context, r *runner) (Result, error) {
 	r.created = true
+	families := c.Families
+	if families == nil {
+		families = map[string]*adminpb.ColumnFamily{"cf": {GcRule: &adminpb.GcRule{Rule: &adminpb.GcRule_MaxNumVersions{MaxNumVersions: 1}}}}
+	}
 	_, err := r.target.Admin.CreateTable(ctx, &adminpb.CreateTableRequest{
 		Parent: r.target.Instance, TableId: r.table,
-		Table: &adminpb.Table{
-			ColumnFamilies: map[string]*adminpb.ColumnFamily{"cf": {GcRule: &adminpb.GcRule{Rule: &adminpb.GcRule_MaxNumVersions{MaxNumVersions: 1}}}},
-			RowKeySchema:   c.Schema,
-		},
+		Table: &adminpb.Table{ColumnFamilies: families, RowKeySchema: c.Schema},
 	})
 	return Result{}, err
 }
@@ -221,14 +222,12 @@ func (c SetDeletionProtection) run(ctx context.Context, r *runner) (Result, erro
 	return Result{}, r.target.updateTable(ctx, &adminpb.Table{Name: r.tablePath(), DeletionProtection: c.On}, "deletion_protection", false)
 }
 
-func (ModifyColumnFamilies) run(ctx context.Context, r *runner) (Result, error) {
-	_, err := r.target.Admin.ModifyColumnFamilies(ctx, &adminpb.ModifyColumnFamiliesRequest{
-		Name: r.tablePath(),
-		Modifications: []*adminpb.ModifyColumnFamiliesRequest_Modification{{
-			Id:  "cf2",
-			Mod: &adminpb.ModifyColumnFamiliesRequest_Modification_Create{Create: &adminpb.ColumnFamily{}},
-		}},
-	})
+func (c ModifyColumnFamilies) run(ctx context.Context, r *runner) (Result, error) {
+	mods := c.Mods
+	if mods == nil {
+		mods = []*adminpb.ModifyColumnFamiliesRequest_Modification{CreateFamily("cf2", &adminpb.ColumnFamily{})}
+	}
+	_, err := r.target.Admin.ModifyColumnFamilies(ctx, &adminpb.ModifyColumnFamiliesRequest{Name: r.tablePath(), Modifications: mods})
 	return Result{}, err
 }
 
@@ -261,7 +260,9 @@ func (GetTable) run(ctx context.Context, r *runner) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	return Result{Table: &TableView{RowKeySchema: tbl.RowKeySchema, DeletionProtection: tbl.DeletionProtection}}, nil
+	return Result{Table: &TableView{
+		ColumnFamilies: tbl.ColumnFamilies, RowKeySchema: tbl.RowKeySchema, DeletionProtection: tbl.DeletionProtection,
+	}}, nil
 }
 
 // Pass each response on the stream to f, until the stream ends.

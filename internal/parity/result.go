@@ -43,6 +43,7 @@ type Hex []byte
 
 // A TableView is a table as GetTable with SCHEMA_VIEW returns it.
 type TableView struct {
+	ColumnFamilies     map[string]*adminpb.ColumnFamily
 	RowKeySchema       *adminpb.Type_Struct
 	DeletionProtection bool
 }
