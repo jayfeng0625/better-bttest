@@ -4,91 +4,91 @@
       "Call": "GetTable",
       "Status": {
         "Code": "NotFound",
-        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171"
+        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t172"
       }
     },
     {
       "Call": "DeleteTable",
       "Status": {
         "Code": "NotFound",
-        "Message": "Failed to read: projects/{\u003cproject\u003e}/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171"
+        "Message": "Failed to read: projects/{\u003cproject\u003e}/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t172"
       }
     },
     {
       "Call": "SetDeletionProtection",
       "Status": {
         "Code": "NotFound",
-        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171"
+        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t172"
       }
     },
     {
       "Call": "ModifyColumnFamilies",
       "Status": {
         "Code": "NotFound",
-        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171"
+        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t172"
       }
     },
     {
       "Call": "DropRowRange",
       "Status": {
         "Code": "NotFound",
-        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171"
+        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t172"
       }
     },
     {
       "Call": "GenerateConsistencyToken",
       "Status": {
         "Code": "NotFound",
-        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171"
+        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t172"
       }
     },
     {
       "Call": "CheckConsistency",
       "Status": {
         "Code": "NotFound",
-        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171"
+        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t172"
       }
     },
     {
       "Call": "ReadRow",
       "Status": {
         "Code": "NotFound",
-        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171"
+        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t172"
       }
     },
     {
       "Call": "MutateRow",
       "Status": {
         "Code": "NotFound",
-        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171"
+        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t172"
       }
     },
     {
       "Call": "MutateRows",
       "Status": {
         "Code": "NotFound",
-        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171"
+        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t172"
       }
     },
     {
       "Call": "CheckAndMutate",
       "Status": {
         "Code": "NotFound",
-        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171"
+        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t172"
       }
     },
     {
       "Call": "ReadModifyWrite",
       "Status": {
         "Code": "NotFound",
-        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171"
+        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t172"
       }
     },
     {
       "Call": "SampleRowKeys",
       "Status": {
         "Code": "NotFound",
-        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171"
+        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t172"
       }
     }
   ],
@@ -297,6 +297,36 @@
           }
         },
         "DeletionProtection": false
+      }
+    }
+  ],
+  "DropRowRange with a deadline under 2 minutes, then with one over": [
+    {
+      "Call": "DropRowRange",
+      "Status": {
+        "Code": "FailedPrecondition",
+        "Message": "Insufficient deadline to delete a row range from projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171. Please re-issue the request with a deadline at least 2m."
+      }
+    },
+    {
+      "Call": "ReadRowKeys",
+      "Status": {
+        "Code": "OK"
+      },
+      "Keys": [
+        "6b"
+      ]
+    },
+    {
+      "Call": "DropRowRange",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRowKeys",
+      "Status": {
+        "Code": "OK"
       }
     }
   ],

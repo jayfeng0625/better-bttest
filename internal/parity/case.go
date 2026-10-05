@@ -5,6 +5,7 @@ package parity
 import (
 	"context"
 	"encoding/binary"
+	"time"
 
 	"cloud.google.com/go/bigtable/admin/apiv2/adminpb"
 	btpb "cloud.google.com/go/bigtable/apiv2/bigtablepb"
@@ -73,8 +74,8 @@ type SetDeletionProtection struct{ On bool }
 // ModifyColumnFamilies that creates the family cf2.
 type ModifyColumnFamilies struct{}
 
-// DropRowRange of every row, with a deadline of dropRowRangeDeadline.
-type DropRowRange struct{}
+// DropRowRange of every row, with its own deadline, past the case's. Production rejects a deadline under 2 minutes.
+type DropRowRange struct{ Deadline time.Duration }
 
 type DeleteTable struct{}
 

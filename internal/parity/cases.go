@@ -4,6 +4,7 @@ package parity
 
 import (
 	"slices"
+	"time"
 
 	"cloud.google.com/go/bigtable/admin/apiv2/adminpb"
 )
@@ -311,9 +312,14 @@ func TableCases() []Case {
 			Calls: []Call{write("a#b#c#d#e"), write("a"), write("a#\xff\xfe#c#d"), ReadRowKeys{}},
 		},
 		Case{
+			Name:  "DropRowRange with a deadline under 2 minutes, then with one over",
+			Setup: []Call{CreateTable{}, write("k")},
+			Calls: []Call{DropRowRange{Deadline: time.Minute}, ReadRowKeys{}, DropRowRange{Deadline: 3 * time.Minute}, ReadRowKeys{}},
+		},
+		Case{
 			Name: "Calls on a table that does not exist",
 			Calls: []Call{
-				GetTable{}, DeleteTable{}, SetDeletionProtection{}, ModifyColumnFamilies{}, DropRowRange{},
+				GetTable{}, DeleteTable{}, SetDeletionProtection{}, ModifyColumnFamilies{}, DropRowRange{Deadline: 3 * time.Minute},
 				GenerateConsistencyToken{}, CheckConsistency{},
 				ReadRow{CaseTable: true, Row: "k"},
 				write("k"),

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"reflect"
-	"time"
 
 	"cloud.google.com/go/bigtable/admin/apiv2/adminpb"
 	btpb "cloud.google.com/go/bigtable/apiv2/bigtablepb"
@@ -233,11 +232,8 @@ func (ModifyColumnFamilies) run(ctx context.Context, r *runner) (Result, error) 
 	return Result{}, err
 }
 
-// Production rejects a DropRowRange with a deadline under 2 minutes, so the call gets its own deadline, past the case's.
-const dropRowRangeDeadline = 3 * time.Minute
-
-func (DropRowRange) run(ctx context.Context, r *runner) (Result, error) {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dropRowRangeDeadline)
+func (c DropRowRange) run(ctx context.Context, r *runner) (Result, error) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), c.Deadline)
 	defer cancel()
 	_, err := r.target.Admin.DropRowRange(ctx, &adminpb.DropRowRangeRequest{
 		Name: r.tablePath(), Target: &adminpb.DropRowRangeRequest_DeleteAllDataFromTable{DeleteAllDataFromTable: true},
