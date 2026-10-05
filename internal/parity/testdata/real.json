@@ -1,0 +1,5280 @@
+{
+  "CreateTable with a row key schema with a different delimiter": [
+    {
+      "Call": "CreateTable",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "RowKeySchema": {
+          "fields": [
+            {
+              "fieldName": "a",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "b",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "c",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "d",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            }
+          ],
+          "encoding": {
+            "delimitedBytes": {
+              "delimiter": "fA=="
+            }
+          }
+        },
+        "DeletionProtection": false
+      }
+    }
+  ],
+  "CreateTable with a row key schema with four fields": [
+    {
+      "Call": "CreateTable",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "RowKeySchema": {
+          "fields": [
+            {
+              "fieldName": "a",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "b",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "c",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "d",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            }
+          ],
+          "encoding": {
+            "delimitedBytes": {
+              "delimiter": "Iw=="
+            }
+          }
+        },
+        "DeletionProtection": false
+      }
+    }
+  ],
+  "CreateTable with a row key schema with no encoding": [
+    {
+      "Call": "CreateTable",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Missing encoding for STRUCT"
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "NotFound"
+      }
+    }
+  ],
+  "CreateTable with a row key schema with no fields": [
+    {
+      "Call": "CreateTable",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "RowKeySchema": {
+          "encoding": {
+            "delimitedBytes": {
+              "delimiter": "Iw=="
+            }
+          }
+        },
+        "DeletionProtection": false
+      }
+    }
+  ],
+  "CreateTable with a row key schema with one field": [
+    {
+      "Call": "CreateTable",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "RowKeySchema": {
+          "fields": [
+            {
+              "fieldName": "a",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            }
+          ],
+          "encoding": {
+            "delimitedBytes": {
+              "delimiter": "Iw=="
+            }
+          }
+        },
+        "DeletionProtection": false
+      }
+    }
+  ],
+  "MutateRow AddToCell on plain": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#MutateRow AddToCell on plain' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "MutateRow MergeToCell on plain": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#MutateRow MergeToCell on plain' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "MutateRow SetCell on plain": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "MutateRows AddToCell on plain, then a valid entry": [
+    {
+      "Call": "MutateRows",
+      "Status": {
+        "Code": "OK"
+      },
+      "Entries": [
+        {
+          "Code": "InvalidArgument",
+          "Message": "Error while mutating the row 'probe#\u003crun\u003e#MutateRows AddToCell on plain, then a valid entry#first' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+        },
+        {
+          "Code": "InvalidArgument",
+          "Message": "Error while mutating the row 'probe#\u003crun\u003e#MutateRows AddToCell on plain, then a valid entry#second' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+        }
+      ]
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "UpdateTable row_key_schema on a protected table": [
+    {
+      "Call": "SetRowKeySchema",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "RowKeySchema": {
+          "fields": [
+            {
+              "fieldName": "a",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "b",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "c",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "d",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            }
+          ],
+          "encoding": {
+            "delimitedBytes": {
+              "delimiter": "Iw=="
+            }
+          }
+        },
+        "DeletionProtection": true
+      }
+    },
+    {
+      "Call": "SetRowKeySchema",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "DeletionProtection": true
+      }
+    }
+  ],
+  "UpdateTable row_key_schema with a different delimiter, on a table with four fields": [
+    {
+      "Call": "SetRowKeySchema",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Row key schema in-place modification is not allowed."
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "RowKeySchema": {
+          "fields": [
+            {
+              "fieldName": "a",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "b",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "c",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "d",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            }
+          ],
+          "encoding": {
+            "delimitedBytes": {
+              "delimiter": "Iw=="
+            }
+          }
+        },
+        "DeletionProtection": false
+      }
+    },
+    {
+      "Call": "SetRowKeySchema",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Row key schema in-place modification is not allowed."
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "RowKeySchema": {
+          "fields": [
+            {
+              "fieldName": "a",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "b",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "c",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "d",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            }
+          ],
+          "encoding": {
+            "delimitedBytes": {
+              "delimiter": "Iw=="
+            }
+          }
+        },
+        "DeletionProtection": false
+      }
+    }
+  ],
+  "UpdateTable row_key_schema with a different delimiter, on a table with no schema": [
+    {
+      "Call": "SetRowKeySchema",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "RowKeySchema": {
+          "fields": [
+            {
+              "fieldName": "a",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "b",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "c",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "d",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            }
+          ],
+          "encoding": {
+            "delimitedBytes": {
+              "delimiter": "fA=="
+            }
+          }
+        },
+        "DeletionProtection": false
+      }
+    },
+    {
+      "Call": "SetRowKeySchema",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "RowKeySchema": {
+          "fields": [
+            {
+              "fieldName": "a",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "b",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "c",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "d",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            }
+          ],
+          "encoding": {
+            "delimitedBytes": {
+              "delimiter": "fA=="
+            }
+          }
+        },
+        "DeletionProtection": false
+      }
+    }
+  ],
+  "UpdateTable row_key_schema with four fields, on a table with four fields": [
+    {
+      "Call": "SetRowKeySchema",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "RowKeySchema": {
+          "fields": [
+            {
+              "fieldName": "a",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "b",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "c",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "d",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            }
+          ],
+          "encoding": {
+            "delimitedBytes": {
+              "delimiter": "Iw=="
+            }
+          }
+        },
+        "DeletionProtection": false
+      }
+    },
+    {
+      "Call": "SetRowKeySchema",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "RowKeySchema": {
+          "fields": [
+            {
+              "fieldName": "a",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "b",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "c",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "d",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            }
+          ],
+          "encoding": {
+            "delimitedBytes": {
+              "delimiter": "Iw=="
+            }
+          }
+        },
+        "DeletionProtection": false
+      }
+    }
+  ],
+  "UpdateTable row_key_schema with four fields, on a table with no schema": [
+    {
+      "Call": "SetRowKeySchema",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "RowKeySchema": {
+          "fields": [
+            {
+              "fieldName": "a",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "b",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "c",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "d",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            }
+          ],
+          "encoding": {
+            "delimitedBytes": {
+              "delimiter": "Iw=="
+            }
+          }
+        },
+        "DeletionProtection": false
+      }
+    },
+    {
+      "Call": "SetRowKeySchema",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "RowKeySchema": {
+          "fields": [
+            {
+              "fieldName": "a",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "b",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "c",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "d",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            }
+          ],
+          "encoding": {
+            "delimitedBytes": {
+              "delimiter": "Iw=="
+            }
+          }
+        },
+        "DeletionProtection": false
+      }
+    }
+  ],
+  "UpdateTable row_key_schema with no encoding, on a table with four fields": [
+    {
+      "Call": "SetRowKeySchema",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Missing encoding for STRUCT"
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "RowKeySchema": {
+          "fields": [
+            {
+              "fieldName": "a",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "b",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "c",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "d",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            }
+          ],
+          "encoding": {
+            "delimitedBytes": {
+              "delimiter": "Iw=="
+            }
+          }
+        },
+        "DeletionProtection": false
+      }
+    },
+    {
+      "Call": "SetRowKeySchema",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Missing encoding for STRUCT"
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "RowKeySchema": {
+          "fields": [
+            {
+              "fieldName": "a",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "b",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "c",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "d",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            }
+          ],
+          "encoding": {
+            "delimitedBytes": {
+              "delimiter": "Iw=="
+            }
+          }
+        },
+        "DeletionProtection": false
+      }
+    }
+  ],
+  "UpdateTable row_key_schema with no encoding, on a table with no schema": [
+    {
+      "Call": "SetRowKeySchema",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Missing encoding for STRUCT"
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "DeletionProtection": false
+      }
+    },
+    {
+      "Call": "SetRowKeySchema",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Missing encoding for STRUCT"
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "DeletionProtection": false
+      }
+    }
+  ],
+  "UpdateTable row_key_schema with no fields, on a table with four fields": [
+    {
+      "Call": "SetRowKeySchema",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Row key schema in-place modification is not allowed."
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "RowKeySchema": {
+          "fields": [
+            {
+              "fieldName": "a",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "b",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "c",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "d",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            }
+          ],
+          "encoding": {
+            "delimitedBytes": {
+              "delimiter": "Iw=="
+            }
+          }
+        },
+        "DeletionProtection": false
+      }
+    },
+    {
+      "Call": "SetRowKeySchema",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Row key schema in-place modification is not allowed."
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "RowKeySchema": {
+          "fields": [
+            {
+              "fieldName": "a",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "b",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "c",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "d",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            }
+          ],
+          "encoding": {
+            "delimitedBytes": {
+              "delimiter": "Iw=="
+            }
+          }
+        },
+        "DeletionProtection": false
+      }
+    }
+  ],
+  "UpdateTable row_key_schema with no fields, on a table with no schema": [
+    {
+      "Call": "SetRowKeySchema",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "RowKeySchema": {
+          "encoding": {
+            "delimitedBytes": {
+              "delimiter": "Iw=="
+            }
+          }
+        },
+        "DeletionProtection": false
+      }
+    },
+    {
+      "Call": "SetRowKeySchema",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "RowKeySchema": {
+          "encoding": {
+            "delimitedBytes": {
+              "delimiter": "Iw=="
+            }
+          }
+        },
+        "DeletionProtection": false
+      }
+    }
+  ],
+  "UpdateTable row_key_schema with no schema, on a table with four fields": [
+    {
+      "Call": "SetRowKeySchema",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Row key schema cannot be cleared without setting ignore_warnings to true."
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "RowKeySchema": {
+          "fields": [
+            {
+              "fieldName": "a",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "b",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "c",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "d",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            }
+          ],
+          "encoding": {
+            "delimitedBytes": {
+              "delimiter": "Iw=="
+            }
+          }
+        },
+        "DeletionProtection": false
+      }
+    },
+    {
+      "Call": "SetRowKeySchema",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "DeletionProtection": false
+      }
+    }
+  ],
+  "UpdateTable row_key_schema with no schema, on a table with no schema": [
+    {
+      "Call": "SetRowKeySchema",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "DeletionProtection": false
+      }
+    },
+    {
+      "Call": "SetRowKeySchema",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "DeletionProtection": false
+      }
+    }
+  ],
+  "UpdateTable row_key_schema with one field, on a table with four fields": [
+    {
+      "Call": "SetRowKeySchema",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Row key schema in-place modification is not allowed."
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "RowKeySchema": {
+          "fields": [
+            {
+              "fieldName": "a",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "b",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "c",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "d",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            }
+          ],
+          "encoding": {
+            "delimitedBytes": {
+              "delimiter": "Iw=="
+            }
+          }
+        },
+        "DeletionProtection": false
+      }
+    },
+    {
+      "Call": "SetRowKeySchema",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Row key schema in-place modification is not allowed."
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "RowKeySchema": {
+          "fields": [
+            {
+              "fieldName": "a",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "b",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "c",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            },
+            {
+              "fieldName": "d",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            }
+          ],
+          "encoding": {
+            "delimitedBytes": {
+              "delimiter": "Iw=="
+            }
+          }
+        },
+        "DeletionProtection": false
+      }
+    }
+  ],
+  "UpdateTable row_key_schema with one field, on a table with no schema": [
+    {
+      "Call": "SetRowKeySchema",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "RowKeySchema": {
+          "fields": [
+            {
+              "fieldName": "a",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            }
+          ],
+          "encoding": {
+            "delimitedBytes": {
+              "delimiter": "Iw=="
+            }
+          }
+        },
+        "DeletionProtection": false
+      }
+    },
+    {
+      "Call": "SetRowKeySchema",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "OK"
+      },
+      "Table": {
+        "RowKeySchema": {
+          "fields": [
+            {
+              "fieldName": "a",
+              "type": {
+                "stringType": {
+                  "encoding": {
+                    "utf8Bytes": {}
+                  }
+                }
+              }
+            }
+          ],
+          "encoding": {
+            "delimitedBytes": {
+              "delimiter": "Iw=="
+            }
+          }
+        },
+        "DeletionProtection": false
+      }
+    }
+  ],
+  "Writes with keys that do not fit the row key schema": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRowKeys",
+      "Status": {
+        "Code": "OK"
+      },
+      "Keys": [
+        "61",
+        "612362236323642365",
+        "6123fffe23632364"
+      ]
+    }
+  ],
+  "max/AddToCell at two timestamps": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 2000,
+          "Value": "000000000000007b"
+        },
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "max/AddToCell compares negative values as signed": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "fffffffffffffffd"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "0000000000000005"
+        }
+      ]
+    }
+  ],
+  "max/AddToCell merges at one timestamp": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "0000000000000315"
+        }
+      ]
+    }
+  ],
+  "max/AddToCell with an empty input on an empty cell": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "0000000000000000"
+        }
+      ]
+    }
+  ],
+  "max/AddToCell with no input on 456": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "max/AddToCell with no input on an empty cell": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "0000000000000000"
+        }
+      ]
+    }
+  ],
+  "max/CheckAndMutateRow AddToCell with a bytes input in the applied branch": [
+    {
+      "Call": "CheckAndMutate",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error in field 'true mutation list' : Error in element #1 : Error in field 'input' : must use `int_value`"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "max/CheckAndMutateRow AddToCell with a bytes input in the branch it skips": [
+    {
+      "Call": "CheckAndMutate",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error in field 'false mutation list' : Error in element #0 : Error in field 'input' : must use `int_value`"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "max/CheckAndMutateRow MergeToCell with a 3-byte input in the applied branch": [
+    {
+      "Call": "CheckAndMutate",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#max/CheckAndMutateRow MergeToCell with a 3-byte input in the applied branch' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "max/CheckAndMutateRow MergeToCell with a 3-byte input in the branch it skips": [
+    {
+      "Call": "CheckAndMutate",
+      "Status": {
+        "Code": "OK"
+      },
+      "Matched": true
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "max/CheckAndMutateRow SetCell on aggregate in the applied branch": [
+    {
+      "Call": "CheckAndMutate",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#max/CheckAndMutateRow SetCell on aggregate in the applied branch' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "max/CheckAndMutateRow SetCell on aggregate in the branch it skips": [
+    {
+      "Call": "CheckAndMutate",
+      "Status": {
+        "Code": "OK"
+      },
+      "Matched": true
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        },
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "max/DeleteFromColumn on the aggregate family, then AddToCell": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "00000000000002a6"
+        }
+      ]
+    }
+  ],
+  "max/MergeToCell compares negative values as signed": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "fffffffffffffffd"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "0000000000000005"
+        }
+      ]
+    }
+  ],
+  "max/MergeToCell merges at one timestamp": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "0000000000000315"
+        }
+      ]
+    }
+  ],
+  "max/MergeToCell with a 0-byte input on 456": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "max/MergeToCell with a 0-byte input on an empty cell": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "max/MergeToCell with a 3-byte input on 456": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#max/MergeToCell with a 3-byte input on 456' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "max/MergeToCell with a 3-byte input on an empty cell": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#max/MergeToCell with a 3-byte input on an empty cell' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "max/MergeToCell with a 9-byte input on 456": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#max/MergeToCell with a 9-byte input on 456' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "max/MergeToCell with a 9-byte input on an empty cell": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#max/MergeToCell with a 9-byte input on an empty cell' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "max/MergeToCell with an empty input on an empty cell": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "max/MergeToCell with no input on 456": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "max/MergeToCell with no input on an empty cell": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "max/MutateRow AddToCell on aggregate": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "max/MutateRow AddToCell then SetCell on aggregate": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#max/MutateRow AddToCell then SetCell on aggregate' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "max/MutateRow AddToCell with a bytes input": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error in field 'Mutation list' : Error in element #0 : Error in field 'input' : must use `int_value`"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "max/MutateRow DeleteFromColumn on aggregate": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "max/MutateRow DeleteFromColumn with a time range on aggregate": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "max/MutateRow DeleteFromFamily on aggregate": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "max/MutateRow DeleteFromRow with aggregate cells": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "max/MutateRow MergeToCell on aggregate": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "max/MutateRow MergeToCell with a raw input": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error in field 'Mutation list' : Error in element #0 : Error in field 'input' : must use `bytes_value`"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "max/MutateRow MergeToCell with an int input": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error in field 'Mutation list' : Error in element #0 : Error in field 'input' : must use `bytes_value`"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "max/MutateRow SetCell on aggregate": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#max/MutateRow SetCell on aggregate' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "max/MutateRow SetCell on plain then SetCell on aggregate": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#max/MutateRow SetCell on plain then SetCell on aggregate' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "max/MutateRow SetCell on plain, then AddToCell with a bytes input": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error in field 'Mutation list' : Error in element #1 : Error in field 'input' : must use `int_value`"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "max/MutateRow SetCell on plain, then MergeToCell with a 3-byte input": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#max/MutateRow SetCell on plain, then MergeToCell with a 3-byte input' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "max/MutateRows MergeToCell with a 3-byte input, then a valid entry": [
+    {
+      "Call": "MutateRows",
+      "Status": {
+        "Code": "OK"
+      },
+      "Entries": [
+        {
+          "Code": "InvalidArgument",
+          "Message": "Error while mutating the row 'probe#\u003crun\u003e#max/MutateRows MergeToCell with a 3-byte input, then a valid entry#first' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+        },
+        {
+          "Code": "InvalidArgument",
+          "Message": "Error while mutating the row 'probe#\u003crun\u003e#max/MutateRows MergeToCell with a 3-byte input, then a valid entry#second' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+        }
+      ]
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "max/MutateRows SetCell on aggregate, then a valid entry": [
+    {
+      "Call": "MutateRows",
+      "Status": {
+        "Code": "OK"
+      },
+      "Entries": [
+        {
+          "Code": "InvalidArgument",
+          "Message": "Error while mutating the row 'probe#\u003crun\u003e#max/MutateRows SetCell on aggregate, then a valid entry#first' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+        },
+        {
+          "Code": "InvalidArgument",
+          "Message": "Error while mutating the row 'probe#\u003crun\u003e#max/MutateRows SetCell on aggregate, then a valid entry#second' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+        }
+      ]
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "max/MutateRows a valid entry, then AddToCell with a bytes input": [
+    {
+      "Call": "MutateRows",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error in field 'Entry list' : Error in element #1 : Error in field 'Mutation list' : Error in element #0 : Error in field 'input' : must use `int_value`"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "max/MutateRows a valid entry, then SetCell on aggregate": [
+    {
+      "Call": "MutateRows",
+      "Status": {
+        "Code": "OK"
+      },
+      "Entries": [
+        {
+          "Code": "InvalidArgument",
+          "Message": "Error while mutating the row 'probe#\u003crun\u003e#max/MutateRows a valid entry, then SetCell on aggregate#first' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+        },
+        {
+          "Code": "InvalidArgument",
+          "Message": "Error while mutating the row 'probe#\u003crun\u003e#max/MutateRows a valid entry, then SetCell on aggregate#second' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+        }
+      ]
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "max/MutateRows valid entries": [
+    {
+      "Call": "MutateRows",
+      "Status": {
+        "Code": "OK"
+      },
+      "Entries": [
+        {
+          "Code": "OK"
+        },
+        {
+          "Code": "OK"
+        }
+      ]
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "max/ReadModifyWriteRow append on aggregate": [
+    {
+      "Call": "ReadModifyWrite",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#max/ReadModifyWriteRow append on aggregate' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "max/ReadModifyWriteRow append on empty aggregate": [
+    {
+      "Call": "ReadModifyWrite",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#max/ReadModifyWriteRow append on empty aggregate' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "max/ReadModifyWriteRow increment on aggregate": [
+    {
+      "Call": "ReadModifyWrite",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#max/ReadModifyWriteRow increment on aggregate' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "max/ReadModifyWriteRow increment on empty aggregate": [
+    {
+      "Call": "ReadModifyWrite",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#max/ReadModifyWriteRow increment on empty aggregate' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "max/ReadModifyWriteRow increment on plain, then on aggregate": [
+    {
+      "Call": "ReadModifyWrite",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#max/ReadModifyWriteRow increment on plain, then on aggregate' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "max/row write, then a second row write": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        },
+        {
+          "Column": "plain:createdAt",
+          "TS": 222000,
+          "Value": "00000000000000de"
+        },
+        {
+          "Column": "plain:expiresAt",
+          "TS": 123000,
+          "Value": "0000000000000315"
+        },
+        {
+          "Column": "plain:flag",
+          "TS": 789000,
+          "Value": "0000000000000001"
+        },
+        {
+          "Column": "plain:labels",
+          "TS": 123000,
+          "Value": "5b2264656661756c74225d"
+        },
+        {
+          "Column": "plain:updatedAt",
+          "TS": 123000,
+          "Value": "000000000000007b"
+        },
+        {
+          "Column": "plain:version",
+          "TS": 1000,
+          "Value": "0000000000000001"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "max:c",
+          "TS": 1000,
+          "Value": "00000000000002a6"
+        },
+        {
+          "Column": "plain:createdAt",
+          "TS": 222000,
+          "Value": "00000000000000de"
+        },
+        {
+          "Column": "plain:expiresAt",
+          "TS": 123000,
+          "Value": "0000000000000315"
+        },
+        {
+          "Column": "plain:flag",
+          "TS": 789000,
+          "Value": "0000000000000001"
+        },
+        {
+          "Column": "plain:labels",
+          "TS": 123000,
+          "Value": "5b2264656661756c74225d"
+        },
+        {
+          "Column": "plain:updatedAt",
+          "TS": 456000,
+          "Value": "00000000000001c8"
+        },
+        {
+          "Column": "plain:updatedAt",
+          "TS": 123000,
+          "Value": "000000000000007b"
+        },
+        {
+          "Column": "plain:version",
+          "TS": 1000,
+          "Value": "0000000000000001"
+        }
+      ]
+    }
+  ],
+  "min/AddToCell at two timestamps": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 2000,
+          "Value": "000000000000007b"
+        },
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "min/AddToCell compares negative values as signed": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "fffffffffffffffd"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "fffffffffffffffd"
+        }
+      ]
+    }
+  ],
+  "min/AddToCell merges at one timestamp": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "000000000000007b"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "000000000000007b"
+        }
+      ]
+    }
+  ],
+  "min/AddToCell with an empty input on an empty cell": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "0000000000000000"
+        }
+      ]
+    }
+  ],
+  "min/AddToCell with no input on 456": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "0000000000000000"
+        }
+      ]
+    }
+  ],
+  "min/AddToCell with no input on an empty cell": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "0000000000000000"
+        }
+      ]
+    }
+  ],
+  "min/CheckAndMutateRow AddToCell with a bytes input in the applied branch": [
+    {
+      "Call": "CheckAndMutate",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error in field 'true mutation list' : Error in element #1 : Error in field 'input' : must use `int_value`"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "min/CheckAndMutateRow AddToCell with a bytes input in the branch it skips": [
+    {
+      "Call": "CheckAndMutate",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error in field 'false mutation list' : Error in element #0 : Error in field 'input' : must use `int_value`"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "min/CheckAndMutateRow MergeToCell with a 3-byte input in the applied branch": [
+    {
+      "Call": "CheckAndMutate",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#min/CheckAndMutateRow MergeToCell with a 3-byte input in the applied branch' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "min/CheckAndMutateRow MergeToCell with a 3-byte input in the branch it skips": [
+    {
+      "Call": "CheckAndMutate",
+      "Status": {
+        "Code": "OK"
+      },
+      "Matched": true
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "min/CheckAndMutateRow SetCell on aggregate in the applied branch": [
+    {
+      "Call": "CheckAndMutate",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#min/CheckAndMutateRow SetCell on aggregate in the applied branch' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "min/CheckAndMutateRow SetCell on aggregate in the branch it skips": [
+    {
+      "Call": "CheckAndMutate",
+      "Status": {
+        "Code": "OK"
+      },
+      "Matched": true
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        },
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "min/DeleteFromColumn on the aggregate family, then AddToCell": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "00000000000002a6"
+        }
+      ]
+    }
+  ],
+  "min/MergeToCell compares negative values as signed": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "fffffffffffffffd"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "fffffffffffffffd"
+        }
+      ]
+    }
+  ],
+  "min/MergeToCell merges at one timestamp": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "000000000000007b"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "000000000000007b"
+        }
+      ]
+    }
+  ],
+  "min/MergeToCell with a 0-byte input on 456": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "min/MergeToCell with a 0-byte input on an empty cell": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "min/MergeToCell with a 3-byte input on 456": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#min/MergeToCell with a 3-byte input on 456' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "min/MergeToCell with a 3-byte input on an empty cell": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#min/MergeToCell with a 3-byte input on an empty cell' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "min/MergeToCell with a 9-byte input on 456": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#min/MergeToCell with a 9-byte input on 456' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "min/MergeToCell with a 9-byte input on an empty cell": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#min/MergeToCell with a 9-byte input on an empty cell' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "min/MergeToCell with an empty input on an empty cell": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "min/MergeToCell with no input on 456": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "min/MergeToCell with no input on an empty cell": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "min/MutateRow AddToCell on aggregate": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "min/MutateRow AddToCell then SetCell on aggregate": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#min/MutateRow AddToCell then SetCell on aggregate' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "min/MutateRow AddToCell with a bytes input": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error in field 'Mutation list' : Error in element #0 : Error in field 'input' : must use `int_value`"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "min/MutateRow DeleteFromColumn on aggregate": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "min/MutateRow DeleteFromColumn with a time range on aggregate": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "min/MutateRow DeleteFromFamily on aggregate": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "min/MutateRow DeleteFromRow with aggregate cells": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "min/MutateRow MergeToCell on aggregate": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "min/MutateRow MergeToCell with a raw input": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error in field 'Mutation list' : Error in element #0 : Error in field 'input' : must use `bytes_value`"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "min/MutateRow MergeToCell with an int input": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error in field 'Mutation list' : Error in element #0 : Error in field 'input' : must use `bytes_value`"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "min/MutateRow SetCell on aggregate": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#min/MutateRow SetCell on aggregate' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "min/MutateRow SetCell on plain then SetCell on aggregate": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#min/MutateRow SetCell on plain then SetCell on aggregate' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "min/MutateRow SetCell on plain, then AddToCell with a bytes input": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error in field 'Mutation list' : Error in element #1 : Error in field 'input' : must use `int_value`"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "min/MutateRow SetCell on plain, then MergeToCell with a 3-byte input": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#min/MutateRow SetCell on plain, then MergeToCell with a 3-byte input' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "min/MutateRows MergeToCell with a 3-byte input, then a valid entry": [
+    {
+      "Call": "MutateRows",
+      "Status": {
+        "Code": "OK"
+      },
+      "Entries": [
+        {
+          "Code": "InvalidArgument",
+          "Message": "Error while mutating the row 'probe#\u003crun\u003e#min/MutateRows MergeToCell with a 3-byte input, then a valid entry#first' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+        },
+        {
+          "Code": "InvalidArgument",
+          "Message": "Error while mutating the row 'probe#\u003crun\u003e#min/MutateRows MergeToCell with a 3-byte input, then a valid entry#second' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+        }
+      ]
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "min/MutateRows SetCell on aggregate, then a valid entry": [
+    {
+      "Call": "MutateRows",
+      "Status": {
+        "Code": "OK"
+      },
+      "Entries": [
+        {
+          "Code": "InvalidArgument",
+          "Message": "Error while mutating the row 'probe#\u003crun\u003e#min/MutateRows SetCell on aggregate, then a valid entry#first' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+        },
+        {
+          "Code": "InvalidArgument",
+          "Message": "Error while mutating the row 'probe#\u003crun\u003e#min/MutateRows SetCell on aggregate, then a valid entry#second' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+        }
+      ]
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "min/MutateRows a valid entry, then AddToCell with a bytes input": [
+    {
+      "Call": "MutateRows",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error in field 'Entry list' : Error in element #1 : Error in field 'Mutation list' : Error in element #0 : Error in field 'input' : must use `int_value`"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "min/MutateRows a valid entry, then SetCell on aggregate": [
+    {
+      "Call": "MutateRows",
+      "Status": {
+        "Code": "OK"
+      },
+      "Entries": [
+        {
+          "Code": "InvalidArgument",
+          "Message": "Error while mutating the row 'probe#\u003crun\u003e#min/MutateRows a valid entry, then SetCell on aggregate#first' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+        },
+        {
+          "Code": "InvalidArgument",
+          "Message": "Error while mutating the row 'probe#\u003crun\u003e#min/MutateRows a valid entry, then SetCell on aggregate#second' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+        }
+      ]
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "min/MutateRows valid entries": [
+    {
+      "Call": "MutateRows",
+      "Status": {
+        "Code": "OK"
+      },
+      "Entries": [
+        {
+          "Code": "OK"
+        },
+        {
+          "Code": "OK"
+        }
+      ]
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "min/ReadModifyWriteRow append on aggregate": [
+    {
+      "Call": "ReadModifyWrite",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#min/ReadModifyWriteRow append on aggregate' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "min/ReadModifyWriteRow append on empty aggregate": [
+    {
+      "Call": "ReadModifyWrite",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#min/ReadModifyWriteRow append on empty aggregate' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "min/ReadModifyWriteRow increment on aggregate": [
+    {
+      "Call": "ReadModifyWrite",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#min/ReadModifyWriteRow increment on aggregate' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "min/ReadModifyWriteRow increment on empty aggregate": [
+    {
+      "Call": "ReadModifyWrite",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#min/ReadModifyWriteRow increment on empty aggregate' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "min/ReadModifyWriteRow increment on plain, then on aggregate": [
+    {
+      "Call": "ReadModifyWrite",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#min/ReadModifyWriteRow increment on plain, then on aggregate' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "min/row write, then a second row write": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        },
+        {
+          "Column": "plain:createdAt",
+          "TS": 222000,
+          "Value": "00000000000000de"
+        },
+        {
+          "Column": "plain:expiresAt",
+          "TS": 123000,
+          "Value": "0000000000000315"
+        },
+        {
+          "Column": "plain:flag",
+          "TS": 789000,
+          "Value": "0000000000000001"
+        },
+        {
+          "Column": "plain:labels",
+          "TS": 123000,
+          "Value": "5b2264656661756c74225d"
+        },
+        {
+          "Column": "plain:updatedAt",
+          "TS": 123000,
+          "Value": "000000000000007b"
+        },
+        {
+          "Column": "plain:version",
+          "TS": 1000,
+          "Value": "0000000000000001"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "min:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        },
+        {
+          "Column": "plain:createdAt",
+          "TS": 222000,
+          "Value": "00000000000000de"
+        },
+        {
+          "Column": "plain:expiresAt",
+          "TS": 123000,
+          "Value": "0000000000000315"
+        },
+        {
+          "Column": "plain:flag",
+          "TS": 789000,
+          "Value": "0000000000000001"
+        },
+        {
+          "Column": "plain:labels",
+          "TS": 123000,
+          "Value": "5b2264656661756c74225d"
+        },
+        {
+          "Column": "plain:updatedAt",
+          "TS": 456000,
+          "Value": "00000000000001c8"
+        },
+        {
+          "Column": "plain:updatedAt",
+          "TS": 123000,
+          "Value": "000000000000007b"
+        },
+        {
+          "Column": "plain:version",
+          "TS": 1000,
+          "Value": "0000000000000001"
+        }
+      ]
+    }
+  ],
+  "sum/AddToCell at two timestamps": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "sum:c",
+          "TS": 2000,
+          "Value": "000000000000007b"
+        },
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "sum/AddToCell compares negative values as signed": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "fffffffffffffffd"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "0000000000000002"
+        }
+      ]
+    }
+  ],
+  "sum/AddToCell merges at one timestamp": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "0000000000000243"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "0000000000000558"
+        }
+      ]
+    }
+  ],
+  "sum/AddToCell with an empty input on an empty cell": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "0000000000000000"
+        }
+      ]
+    }
+  ],
+  "sum/AddToCell with no input on 456": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "sum/AddToCell with no input on an empty cell": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "0000000000000000"
+        }
+      ]
+    }
+  ],
+  "sum/CheckAndMutateRow AddToCell with a bytes input in the applied branch": [
+    {
+      "Call": "CheckAndMutate",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error in field 'true mutation list' : Error in element #1 : Error in field 'input' : must use `int_value`"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "sum/CheckAndMutateRow AddToCell with a bytes input in the branch it skips": [
+    {
+      "Call": "CheckAndMutate",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error in field 'false mutation list' : Error in element #0 : Error in field 'input' : must use `int_value`"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "sum/CheckAndMutateRow MergeToCell with a 3-byte input in the applied branch": [
+    {
+      "Call": "CheckAndMutate",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#sum/CheckAndMutateRow MergeToCell with a 3-byte input in the applied branch' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "sum/CheckAndMutateRow MergeToCell with a 3-byte input in the branch it skips": [
+    {
+      "Call": "CheckAndMutate",
+      "Status": {
+        "Code": "OK"
+      },
+      "Matched": true
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "sum/CheckAndMutateRow SetCell on aggregate in the applied branch": [
+    {
+      "Call": "CheckAndMutate",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#sum/CheckAndMutateRow SetCell on aggregate in the applied branch' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "sum/CheckAndMutateRow SetCell on aggregate in the branch it skips": [
+    {
+      "Call": "CheckAndMutate",
+      "Status": {
+        "Code": "OK"
+      },
+      "Matched": true
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        },
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "sum/DeleteFromColumn on the aggregate family, then AddToCell": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "00000000000002a6"
+        }
+      ]
+    }
+  ],
+  "sum/MergeToCell compares negative values as signed": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "fffffffffffffffd"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "0000000000000002"
+        }
+      ]
+    }
+  ],
+  "sum/MergeToCell merges at one timestamp": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "0000000000000243"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "0000000000000558"
+        }
+      ]
+    }
+  ],
+  "sum/MergeToCell with a 0-byte input on 456": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "sum/MergeToCell with a 0-byte input on an empty cell": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "sum/MergeToCell with a 3-byte input on 456": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#sum/MergeToCell with a 3-byte input on 456' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "sum/MergeToCell with a 3-byte input on an empty cell": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#sum/MergeToCell with a 3-byte input on an empty cell' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "sum/MergeToCell with a 9-byte input on 456": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#sum/MergeToCell with a 9-byte input on 456' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "sum/MergeToCell with a 9-byte input on an empty cell": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#sum/MergeToCell with a 9-byte input on an empty cell' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "sum/MergeToCell with an empty input on an empty cell": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "sum/MergeToCell with no input on 456": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "sum/MergeToCell with no input on an empty cell": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "sum/MutateRow AddToCell on aggregate": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "sum/MutateRow AddToCell then SetCell on aggregate": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#sum/MutateRow AddToCell then SetCell on aggregate' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "sum/MutateRow AddToCell with a bytes input": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error in field 'Mutation list' : Error in element #0 : Error in field 'input' : must use `int_value`"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "sum/MutateRow DeleteFromColumn on aggregate": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "sum/MutateRow DeleteFromColumn with a time range on aggregate": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "sum/MutateRow DeleteFromFamily on aggregate": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "sum/MutateRow DeleteFromRow with aggregate cells": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "sum/MutateRow MergeToCell on aggregate": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "sum/MutateRow MergeToCell with a raw input": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error in field 'Mutation list' : Error in element #0 : Error in field 'input' : must use `bytes_value`"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "sum/MutateRow MergeToCell with an int input": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error in field 'Mutation list' : Error in element #0 : Error in field 'input' : must use `bytes_value`"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "sum/MutateRow SetCell on aggregate": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#sum/MutateRow SetCell on aggregate' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "sum/MutateRow SetCell on plain then SetCell on aggregate": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#sum/MutateRow SetCell on plain then SetCell on aggregate' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "sum/MutateRow SetCell on plain, then AddToCell with a bytes input": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error in field 'Mutation list' : Error in element #1 : Error in field 'input' : must use `int_value`"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "sum/MutateRow SetCell on plain, then MergeToCell with a 3-byte input": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#sum/MutateRow SetCell on plain, then MergeToCell with a 3-byte input' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "sum/MutateRows MergeToCell with a 3-byte input, then a valid entry": [
+    {
+      "Call": "MutateRows",
+      "Status": {
+        "Code": "OK"
+      },
+      "Entries": [
+        {
+          "Code": "InvalidArgument",
+          "Message": "Error while mutating the row 'probe#\u003crun\u003e#sum/MutateRows MergeToCell with a 3-byte input, then a valid entry#first' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+        },
+        {
+          "Code": "InvalidArgument",
+          "Message": "Error while mutating the row 'probe#\u003crun\u003e#sum/MutateRows MergeToCell with a 3-byte input, then a valid entry#second' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+        }
+      ]
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "sum/MutateRows SetCell on aggregate, then a valid entry": [
+    {
+      "Call": "MutateRows",
+      "Status": {
+        "Code": "OK"
+      },
+      "Entries": [
+        {
+          "Code": "InvalidArgument",
+          "Message": "Error while mutating the row 'probe#\u003crun\u003e#sum/MutateRows SetCell on aggregate, then a valid entry#first' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+        },
+        {
+          "Code": "InvalidArgument",
+          "Message": "Error while mutating the row 'probe#\u003crun\u003e#sum/MutateRows SetCell on aggregate, then a valid entry#second' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+        }
+      ]
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "sum/MutateRows a valid entry, then AddToCell with a bytes input": [
+    {
+      "Call": "MutateRows",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error in field 'Entry list' : Error in element #1 : Error in field 'Mutation list' : Error in element #0 : Error in field 'input' : must use `int_value`"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "sum/MutateRows a valid entry, then SetCell on aggregate": [
+    {
+      "Call": "MutateRows",
+      "Status": {
+        "Code": "OK"
+      },
+      "Entries": [
+        {
+          "Code": "InvalidArgument",
+          "Message": "Error while mutating the row 'probe#\u003crun\u003e#sum/MutateRows a valid entry, then SetCell on aggregate#first' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+        },
+        {
+          "Code": "InvalidArgument",
+          "Message": "Error while mutating the row 'probe#\u003crun\u003e#sum/MutateRows a valid entry, then SetCell on aggregate#second' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+        }
+      ]
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "sum/MutateRows valid entries": [
+    {
+      "Call": "MutateRows",
+      "Status": {
+        "Code": "OK"
+      },
+      "Entries": [
+        {
+          "Code": "OK"
+        },
+        {
+          "Code": "OK"
+        }
+      ]
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "sum/ReadModifyWriteRow append on aggregate": [
+    {
+      "Call": "ReadModifyWrite",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#sum/ReadModifyWriteRow append on aggregate' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "sum/ReadModifyWriteRow append on empty aggregate": [
+    {
+      "Call": "ReadModifyWrite",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#sum/ReadModifyWriteRow append on empty aggregate' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "sum/ReadModifyWriteRow increment on aggregate": [
+    {
+      "Call": "ReadModifyWrite",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#sum/ReadModifyWriteRow increment on aggregate' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "sum/ReadModifyWriteRow increment on empty aggregate": [
+    {
+      "Call": "ReadModifyWrite",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#sum/ReadModifyWriteRow increment on empty aggregate' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      }
+    }
+  ],
+  "sum/ReadModifyWriteRow increment on plain, then on aggregate": [
+    {
+      "Call": "ReadModifyWrite",
+      "Status": {
+        "Code": "InvalidArgument",
+        "Message": "Error while mutating the row 'probe#\u003crun\u003e#sum/ReadModifyWriteRow increment on plain, then on aggregate' (projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity) : Column family type mismatch"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    }
+  ],
+  "sum/row write, then a second row write": [
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:createdAt",
+          "TS": 222000,
+          "Value": "00000000000000de"
+        },
+        {
+          "Column": "plain:expiresAt",
+          "TS": 123000,
+          "Value": "0000000000000315"
+        },
+        {
+          "Column": "plain:flag",
+          "TS": 789000,
+          "Value": "0000000000000001"
+        },
+        {
+          "Column": "plain:labels",
+          "TS": 123000,
+          "Value": "5b2264656661756c74225d"
+        },
+        {
+          "Column": "plain:updatedAt",
+          "TS": 123000,
+          "Value": "000000000000007b"
+        },
+        {
+          "Column": "plain:version",
+          "TS": 1000,
+          "Value": "0000000000000001"
+        },
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "00000000000001c8"
+        }
+      ]
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "OK"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "OK"
+      },
+      "Cells": [
+        {
+          "Column": "plain:createdAt",
+          "TS": 222000,
+          "Value": "00000000000000de"
+        },
+        {
+          "Column": "plain:expiresAt",
+          "TS": 123000,
+          "Value": "0000000000000315"
+        },
+        {
+          "Column": "plain:flag",
+          "TS": 789000,
+          "Value": "0000000000000001"
+        },
+        {
+          "Column": "plain:labels",
+          "TS": 123000,
+          "Value": "5b2264656661756c74225d"
+        },
+        {
+          "Column": "plain:updatedAt",
+          "TS": 456000,
+          "Value": "00000000000001c8"
+        },
+        {
+          "Column": "plain:updatedAt",
+          "TS": 123000,
+          "Value": "000000000000007b"
+        },
+        {
+          "Column": "plain:version",
+          "TS": 1000,
+          "Value": "0000000000000001"
+        },
+        {
+          "Column": "sum:c",
+          "TS": 1000,
+          "Value": "000000000000046e"
+        }
+      ]
+    }
+  ]
+}
