@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"cloud.google.com/go/bigtable/admin/apiv2/adminpb"
 	btpb "cloud.google.com/go/bigtable/apiv2/bigtablepb"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/grpc/codes"
@@ -15,6 +16,9 @@ import (
 )
 
 const testRunID = "0123456789ab"
+
+// The families of a table that CreateTable makes with no Families.
+var oneVersion = map[string]*adminpb.ColumnFamily{"cf": {GcRule: &adminpb.GcRule{Rule: &adminpb.GcRule_MaxNumVersions{MaxNumVersions: 1}}}}
 
 func startGate(t *testing.T) (context.Context, Target) {
 	t.Helper()
@@ -162,7 +166,7 @@ func TestRunDeletesTheTableItCreated(t *testing.T) {
 
 	want := []Result{
 		{Call: "CreateTable", Status: Status{Code: codes.OK}},
-		{Call: "GetTable", Status: Status{Code: codes.OK}, Table: &TableView{RowKeySchema: schema}},
+		{Call: "GetTable", Status: Status{Code: codes.OK}, Table: &TableView{ColumnFamilies: oneVersion, RowKeySchema: schema}},
 	}
 	if d := cmp.Diff(want, got, protocmp.Transform()); d != "" {
 		t.Errorf("Run (-want +got):\n%s", d)
@@ -212,9 +216,9 @@ func TestRunSetsAndClearsTheRowKeySchema(t *testing.T) {
 
 	want := []Result{
 		{Call: "SetRowKeySchema", Status: Status{Code: codes.OK}},
-		{Call: "GetTable", Status: Status{Code: codes.OK}, Table: &TableView{RowKeySchema: schema}},
+		{Call: "GetTable", Status: Status{Code: codes.OK}, Table: &TableView{ColumnFamilies: oneVersion, RowKeySchema: schema}},
 		{Call: "SetRowKeySchema", Status: Status{Code: codes.OK}},
-		{Call: "GetTable", Status: Status{Code: codes.OK}, Table: &TableView{}},
+		{Call: "GetTable", Status: Status{Code: codes.OK}, Table: &TableView{ColumnFamilies: oneVersion}},
 	}
 	if d := cmp.Diff(want, got, protocmp.Transform()); d != "" {
 		t.Errorf("Run (-want +got):\n%s", d)

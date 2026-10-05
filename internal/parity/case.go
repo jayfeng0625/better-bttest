@@ -59,8 +59,12 @@ type ReadModifyWrite struct {
 	Rules     []*btpb.ReadModifyWriteRule
 }
 
-// CreateTable with one family, cf, that keeps one version. A Schema of nil creates the table with no row key schema.
-type CreateTable struct{ Schema *adminpb.Type_Struct }
+// CreateTable with Families, or with one family, cf, that keeps one version when Families is nil. A Schema of nil
+// creates the table with no row key schema.
+type CreateTable struct {
+	Schema   *adminpb.Type_Struct
+	Families map[string]*adminpb.ColumnFamily
+}
 
 // UpdateTable with the mask row_key_schema. A Schema of nil clears it.
 type SetRowKeySchema struct {
@@ -71,8 +75,10 @@ type SetRowKeySchema struct {
 // UpdateTable with the mask deletion_protection.
 type SetDeletionProtection struct{ On bool }
 
-// ModifyColumnFamilies that creates the family cf2.
-type ModifyColumnFamilies struct{}
+// ModifyColumnFamilies with the modifications Mods, or one that creates the family cf2 when Mods is nil.
+type ModifyColumnFamilies struct {
+	Mods []*adminpb.ModifyColumnFamiliesRequest_Modification
+}
 
 // DropRowRange of every row, with its own deadline, past the case's. Production rejects a deadline under 2 minutes.
 type DropRowRange struct{ Deadline time.Duration }
@@ -179,6 +185,22 @@ func Delimited(delimiter string, fields ...string) *adminpb.Type_Struct {
 		}}})
 	}
 	return s
+}
+
+func CreateFamily(id string, cf *adminpb.ColumnFamily) *adminpb.ModifyColumnFamiliesRequest_Modification {
+	return &adminpb.ModifyColumnFamiliesRequest_Modification{Id: id, Mod: &adminpb.ModifyColumnFamiliesRequest_Modification_Create{Create: cf}}
+}
+
+func UpdateFamily(id string, cf *adminpb.ColumnFamily) *adminpb.ModifyColumnFamiliesRequest_Modification {
+	return &adminpb.ModifyColumnFamiliesRequest_Modification{Id: id, Mod: &adminpb.ModifyColumnFamiliesRequest_Modification_Update{Update: cf}}
+}
+
+// WithEmptyGCRules gives each of fs an empty GC rule, one with no rule in it, and returns fs.
+func WithEmptyGCRules(fs map[string]*adminpb.ColumnFamily) map[string]*adminpb.ColumnFamily {
+	for _, f := range fs {
+		f.GcRule = &adminpb.GcRule{}
+	}
+	return fs
 }
 
 func DeleteFromColumn(f Family) *btpb.Mutation {

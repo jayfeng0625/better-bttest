@@ -9,28 +9,25 @@ import (
 	"cloud.google.com/go/bigtable/admin/apiv2/adminpb"
 )
 
-// Cases is every parity case, in run order. Each aggregate case runs once per aggregate family, named
-// "<family>/<name>".
+// Cases is every parity case, in run order. Each merge case runs once per aggregate family, and each other aggregate
+// case once, on the Sum family. An aggregate case is named "<family>/<name>".
 func Cases() []Case {
 	var cases []Case
 	for _, agg := range Aggregates {
-		for _, c := range AggregateCases(agg) {
-			c.Name = string(agg) + "/" + c.Name
-			cases = append(cases, c)
-		}
+		cases = append(cases, named(agg, MergeCases(agg))...)
 	}
-	return slices.Concat(cases, PlainCases, TableCases())
+	return slices.Concat(cases, named(Sum, AggregateCases(Sum)), PlainCases, TableCases())
 }
 
-// AggregateCases are data cases on the aggregate family: how each write merges, and which mutations, rules, and
-// inputs the family accepts.
-func AggregateCases(agg Family) []Case {
-	setupAgg := []Call{Mutate(AddToCell(agg, Int(456)))}
-	setupPlain := []Call{Mutate(SetCell(Plain, BE(456)))}
-	setupBoth := []Call{Mutate(AddToCell(agg, Int(456)), SetCell(Plain, BE(456)))}
-	threeBytes := BE(456)[5:]
-	nineBytes := append([]byte{0}, BE(456)...)
+func named(agg Family, cases []Case) []Case {
+	for i := range cases {
+		cases[i].Name = string(agg) + "/" + cases[i].Name
+	}
+	return cases
+}
 
+// MergeCases are data cases whose results depend on how the aggregate family merges a write into a cell.
+func MergeCases(agg Family) []Case {
 	return []Case{
 		// An application's write and read paths.
 		{
@@ -57,21 +54,6 @@ func AggregateCases(agg Family) []Case {
 			},
 		},
 		{
-			Name: "DeleteFromColumn on the aggregate family, then AddToCell",
-			Calls: []Call{
-				Mutate(AddToCell(agg, Int(456))), Read,
-				Mutate(DeleteFromColumn(agg)), Read,
-				Mutate(AddToCell(agg, Int(678))), Read,
-			},
-		},
-		{
-			Name: "AddToCell at two timestamps",
-			Calls: []Call{
-				Mutate(AddToCell(agg, Int(456))), Read,
-				Mutate(AddToCell(agg, Int(123), At(2000))), Read,
-			},
-		},
-		{
 			Name: "MergeToCell merges at one timestamp",
 			Calls: []Call{
 				Mutate(MergeToCell(agg, Bytes(BE(456)))), Read,
@@ -91,6 +73,41 @@ func AggregateCases(agg Family) []Case {
 			Calls: []Call{
 				Mutate(MergeToCell(agg, Bytes(BE(-3)))), Read,
 				Mutate(MergeToCell(agg, Bytes(BE(5)))), Read,
+			},
+		},
+
+		// A NULL input merges as 0, which crashes Google's stock emulator.
+		{
+			Name:  "AddToCell with no input on 456",
+			Setup: []Call{Mutate(AddToCell(agg, Int(456)))},
+			Calls: []Call{Mutate(AddToCell(agg, NoInput)), Read},
+		},
+	}
+}
+
+// AggregateCases are data cases on the aggregate family whose results are the same on every aggregator: which
+// mutations, rules, and inputs the family accepts.
+func AggregateCases(agg Family) []Case {
+	setupAgg := []Call{Mutate(AddToCell(agg, Int(456)))}
+	setupPlain := []Call{Mutate(SetCell(Plain, BE(456)))}
+	setupBoth := []Call{Mutate(AddToCell(agg, Int(456)), SetCell(Plain, BE(456)))}
+	threeBytes := BE(456)[5:]
+	nineBytes := append([]byte{0}, BE(456)...)
+
+	return []Case{
+		{
+			Name: "DeleteFromColumn on the aggregate family, then AddToCell",
+			Calls: []Call{
+				Mutate(AddToCell(agg, Int(456))), Read,
+				Mutate(DeleteFromColumn(agg)), Read,
+				Mutate(AddToCell(agg, Int(678))), Read,
+			},
+		},
+		{
+			Name: "AddToCell at two timestamps",
+			Calls: []Call{
+				Mutate(AddToCell(agg, Int(456))), Read,
+				Mutate(AddToCell(agg, Int(123), At(2000))), Read,
 			},
 		},
 
@@ -228,7 +245,6 @@ func AggregateCases(agg Family) []Case {
 		// NULL inputs: no input at all, or an input with no kind. They crash Google's stock emulator.
 		{Name: "AddToCell with no input on an empty cell", Calls: []Call{Mutate(AddToCell(agg, NoInput)), Read}},
 		{Name: "AddToCell with an empty input on an empty cell", Calls: []Call{Mutate(AddToCell(agg, EmptyInput)), Read}},
-		{Name: "AddToCell with no input on 456", Setup: setupAgg, Calls: []Call{Mutate(AddToCell(agg, NoInput)), Read}},
 		{Name: "MergeToCell with no input on an empty cell", Calls: []Call{Mutate(MergeToCell(agg, NoInput)), Read}},
 		{Name: "MergeToCell with an empty input on an empty cell", Calls: []Call{Mutate(MergeToCell(agg, EmptyInput)), Read}},
 		{Name: "MergeToCell with no input on 456", Setup: setupAgg, Calls: []Call{Mutate(MergeToCell(agg, NoInput)), Read}},
@@ -262,42 +278,64 @@ type labelled struct {
 // TableCases are cases on the case's table: row key schemas, writes whose keys do not fit one, and calls on a table
 // that does not exist.
 func TableCases() []Case {
-	schemas := []labelled{
-		{"four fields", fourFields},
-		{"a different delimiter", Delimited("|", "a", "b", "c", "d")},
-		{"one field", Delimited("#", "a")},
-		{"no fields", Delimited("#")},
-		{"no encoding", &adminpb.Type_Struct{}},
-	}
-	starts := []labelled{
-		{"a table with four fields", fourFields},
-		{"a table with no schema", nil},
-	}
+	four := labelled{"four fields", fourFields}
+	noEncoding := labelled{"no encoding", &adminpb.Type_Struct{}}
+	noSchema := labelled{"no schema", nil}
 
 	var cases []Case
-	for _, s := range schemas {
+	for _, s := range []labelled{four, {"no fields", Delimited("#")}, noEncoding} {
 		cases = append(cases, Case{
 			Name:  "CreateTable with a row key schema with " + s.label,
 			Calls: []Call{CreateTable{Schema: s.schema}, GetTable{}},
 		})
 	}
-	// UpdateTable without ignore_warnings, then with it. The update with no schema clears the field.
-	for _, s := range append(schemas, labelled{"no schema", nil}) {
-		for _, start := range starts {
-			cases = append(cases, Case{
-				Name:  "UpdateTable row_key_schema with " + s.label + ", on " + start.label,
-				Setup: []Call{CreateTable{Schema: start.schema}},
-				Calls: []Call{
-					SetRowKeySchema{Schema: s.schema}, GetTable{},
-					SetRowKeySchema{Schema: s.schema, IgnoreWarnings: true}, GetTable{},
-				},
-			})
-		}
+	// UpdateTable without ignore_warnings, then with it, once for each outcome that production gives: a change in
+	// place, the same schema, a first schema, a schema with no encoding, a clear, and a clear of no schema. The update
+	// with no schema clears the field.
+	updates := []struct{ to, on labelled }{
+		{labelled{"one field", Delimited("#", "a")}, four},
+		{four, four},
+		{four, noSchema},
+		{noEncoding, four},
+		{noSchema, four},
+		{noSchema, noSchema},
+	}
+	for _, u := range updates {
+		cases = append(cases, Case{
+			Name:  "UpdateTable row_key_schema with " + u.to.label + ", on a table with " + u.on.label,
+			Setup: []Call{CreateTable{Schema: u.on.schema}},
+			Calls: []Call{
+				SetRowKeySchema{Schema: u.to.schema}, GetTable{},
+				SetRowKeySchema{Schema: u.to.schema, IgnoreWarnings: true}, GetTable{},
+			},
+		})
 	}
 
 	cell := Mutations(SetCell("cf", []byte("v"), Col("q")))
 	write := func(key Row) MutateRow { return MutateRow{CaseTable: true, Row: key, Mutations: cell} }
+	emptyRule := &adminpb.ColumnFamily{GcRule: &adminpb.GcRule{}}
 	return append(cases,
+		Case{
+			Name:  "CreateTable with the parity table's families",
+			Calls: []Call{CreateTable{Families: families()}, GetTable{}},
+		},
+		Case{
+			Name:  "CreateTable with the parity table's families, each with an empty GC rule",
+			Calls: []Call{CreateTable{Families: WithEmptyGCRules(families())}, GetTable{}},
+		},
+		Case{
+			Name:  "ModifyColumnFamilies with an empty GC rule",
+			Setup: []Call{CreateTable{}},
+			Calls: []Call{
+				ModifyColumnFamilies{Mods: []*adminpb.ModifyColumnFamiliesRequest_Modification{
+					CreateFamily(string(Plain), emptyRule),
+					CreateFamily(string(Sum), WithEmptyGCRules(families())[string(Sum)]),
+				}},
+				GetTable{},
+				ModifyColumnFamilies{Mods: []*adminpb.ModifyColumnFamiliesRequest_Modification{UpdateFamily("cf", emptyRule)}},
+				GetTable{},
+			},
+		},
 		Case{
 			Name:  "UpdateTable row_key_schema on a protected table",
 			Setup: []Call{CreateTable{}, SetDeletionProtection{On: true}},

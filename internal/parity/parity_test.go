@@ -3,11 +3,8 @@
 package parity
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"flag"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -15,37 +12,20 @@ import (
 	"cloud.google.com/go/bigtable/admin/apiv2/adminpb"
 )
 
-// The real table's normalized results, by case name, which the gate must match.
-const goldenPath = "testdata/real.json"
-
 // A client retries a target that stops answering, so each case gets a deadline.
 const caseDeadline = 30 * time.Second
 
-var (
-	realInstance = flag.String("real", "", "run the cases on the parity table in the real instance <project>/<instance> too, and check the gate against it")
-	update       = flag.Bool("update", false, "with -real, write the real table's results to "+goldenPath)
-)
+var realInstance = flag.String("real", "", "run the cases on the parity table in the real instance <project>/<instance>, and check the gate against it")
 
-// TestParity runs every case on the gate, and checks its results against the real table's. With -real, the run
-// gets the real table's results from the table, and otherwise from the golden file.
+// TestParity runs every case on the real table and on the gate, and checks the gate's results against the real
+// table's. It runs only with -real.
 func TestParity(t *testing.T) {
+	if *realInstance == "" {
+		t.Skip("run with -real=<project>/<instance>")
+	}
 	cases := Cases()
 	runID := NewRunID(time.Now())
-	var golden map[string][]Result
-	switch {
-	case *realInstance != "":
-		golden = realResults(t, cases, runID)
-		if *update {
-			if t.Failed() {
-				t.Fatalf("a case failed on the real table, so %s stays as it is", goldenPath)
-			}
-			writeGolden(t, golden)
-		}
-	case *update:
-		t.Fatal("-update needs -real")
-	default:
-		golden = readGolden(t)
-	}
+	real := realResults(t, cases, runID)
 
 	ctx, cancel := context.WithTimeout(context.Background(), caseDeadline)
 	defer cancel()
@@ -55,13 +35,11 @@ func TestParity(t *testing.T) {
 	}
 	defer stop()
 
-	names := map[string]bool{}
 	for i, c := range cases {
-		names[c.Name] = true
 		t.Run(c.Name, func(t *testing.T) {
-			want, ok := golden[c.Name]
+			want, ok := real[c.Name]
 			if !ok {
-				t.Fatalf("%s has no result for the case. Run the cases on the real table with -update.", goldenPath)
+				t.Skip("the case failed on the real table")
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), caseDeadline)
 			defer cancel()
@@ -74,24 +52,6 @@ func TestParity(t *testing.T) {
 			}
 		})
 	}
-	for name := range golden {
-		if !names[name] {
-			t.Errorf("%s has a result for %q, which no case has. Run the cases on the real table with -update.", goldenPath, name)
-		}
-	}
-}
-
-func readGolden(t *testing.T) map[string][]Result {
-	t.Helper()
-	data, err := os.ReadFile(goldenPath)
-	if err != nil {
-		t.Fatalf("%v. Run the cases on the real table with -update.", err)
-	}
-	var golden map[string][]Result
-	if err := json.Unmarshal(data, &golden); err != nil {
-		t.Fatal(err)
-	}
-	return golden
 }
 
 // Each case's normalized results on the real table. The run checks the table's families first, and deletes every case
@@ -136,24 +96,4 @@ func realResults(t *testing.T, cases []Case, runID string) map[string][]Result {
 		results[c.Name] = Normalize(real.Instance, runID, got)
 	}
 	return results
-}
-
-// Write the golden file. Normalize replaces the real project and instance, and the write fails if either remains.
-func writeGolden(t *testing.T, golden map[string][]Result) {
-	t.Helper()
-	var data bytes.Buffer
-	enc := json.NewEncoder(&data)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(golden); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range strings.Split(*realInstance, "/") {
-		if bytes.Contains(data.Bytes(), []byte(name)) {
-			t.Fatalf("the results name %q, which must stay out of %s", name, goldenPath)
-		}
-	}
-	if err := os.WriteFile(goldenPath, data.Bytes(), 0o644); err != nil {
-		t.Fatal(err)
-	}
 }

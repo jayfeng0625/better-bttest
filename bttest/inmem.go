@@ -2014,8 +2014,8 @@ func newColumnFamily(name string, order uint64, cf *btapb.ColumnFamily) *columnF
 	return &columnFamily{
 		name:      name,
 		order:     order,
-		gcRule:    cf.GcRule,
-		valueType: cf.ValueType,
+		gcRule:    storedGCRule(cf.GcRule),
+		valueType: storedValueType(cf.ValueType),
 		updateFn:  updateFn,
 		initFn: func(newVal []byte) []byte {
 			return newVal

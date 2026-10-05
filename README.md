@@ -26,7 +26,7 @@ You can also run the emulator in two other ways:
 Each entry links to the Bigtable docs for the feature.
 Where the docs do not say how production behaves, a parity case shows it.
 A parity case sends the same requests to a real table and to the emulator.
-The tests check the emulator against production's recorded results, as [Check behaviour against production](CONTRIBUTING.md#check-behaviour-against-production) describes.
+[Check behaviour against production](CONTRIBUTING.md#check-behaviour-against-production) says how to run the cases.
 
 - **[Intersection garbage collection rules](https://cloud.google.com/bigtable/docs/garbage-collection#combinations).**
   An intersection joins rules with AND.
