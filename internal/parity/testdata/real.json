@@ -1,4 +1,97 @@
 {
+  "Calls on a table that does not exist": [
+    {
+      "Call": "GetTable",
+      "Status": {
+        "Code": "NotFound",
+        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171"
+      }
+    },
+    {
+      "Call": "DeleteTable",
+      "Status": {
+        "Code": "NotFound",
+        "Message": "Failed to read: projects/{\u003cproject\u003e}/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171"
+      }
+    },
+    {
+      "Call": "SetDeletionProtection",
+      "Status": {
+        "Code": "NotFound",
+        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171"
+      }
+    },
+    {
+      "Call": "ModifyColumnFamilies",
+      "Status": {
+        "Code": "NotFound",
+        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171"
+      }
+    },
+    {
+      "Call": "DropRowRange",
+      "Status": {
+        "Code": "NotFound",
+        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171"
+      }
+    },
+    {
+      "Call": "GenerateConsistencyToken",
+      "Status": {
+        "Code": "NotFound",
+        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171"
+      }
+    },
+    {
+      "Call": "CheckConsistency",
+      "Status": {
+        "Code": "NotFound",
+        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171"
+      }
+    },
+    {
+      "Call": "ReadRow",
+      "Status": {
+        "Code": "NotFound",
+        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171"
+      }
+    },
+    {
+      "Call": "MutateRow",
+      "Status": {
+        "Code": "NotFound",
+        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171"
+      }
+    },
+    {
+      "Call": "MutateRows",
+      "Status": {
+        "Code": "NotFound",
+        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171"
+      }
+    },
+    {
+      "Call": "CheckAndMutate",
+      "Status": {
+        "Code": "NotFound",
+        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171"
+      }
+    },
+    {
+      "Call": "ReadModifyWrite",
+      "Status": {
+        "Code": "NotFound",
+        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171"
+      }
+    },
+    {
+      "Call": "SampleRowKeys",
+      "Status": {
+        "Code": "NotFound",
+        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t171"
+      }
+    }
+  ],
   "CreateTable with a row key schema with a different delimiter": [
     {
       "Call": "CreateTable",
@@ -142,7 +235,8 @@
     {
       "Call": "GetTable",
       "Status": {
-        "Code": "NotFound"
+        "Code": "NotFound",
+        "Message": "Not found: projects/\u003cproject\u003e/instances/\u003cinstance\u003e/tables/better-bttest-parity-\u003crun\u003e-t156"
       }
     }
   ],

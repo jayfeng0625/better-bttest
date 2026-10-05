@@ -48,6 +48,22 @@ func TestNormalizeReplacesTheInstance(t *testing.T) {
 	}
 }
 
+// Production's DeleteTable message names the project by its number, in braces.
+func TestNormalizeReplacesTheInstanceWithAProjectNumber(t *testing.T) {
+	results := []Result{{
+		Call:   "DeleteTable",
+		Status: Status{Code: codes.NotFound, Message: "Failed to read: projects/{123456789012}/instances/prod/tables/t"},
+	}}
+	want := []Result{{
+		Call:   "DeleteTable",
+		Status: Status{Code: codes.NotFound, Message: "Failed to read: projects/{<project>}/instances/<instance>/tables/t"},
+	}}
+
+	if d := cmp.Diff(want, Normalize(testInstance, testRunID, results)); d != "" {
+		t.Errorf("Normalize (-want +got):\n%s", d)
+	}
+}
+
 func TestNormalizeReplacesTheRunID(t *testing.T) {
 	results := []Result{{
 		Call:    "MutateRows",
@@ -110,23 +126,6 @@ func TestNormalizeTrimsTheStructEncodingMessage(t *testing.T) {
 	want := []Result{
 		{Call: "CreateTable", Status: Status{Code: codes.InvalidArgument, Message: "Missing encoding for STRUCT"}},
 		{Call: "SetRowKeySchema", Status: Status{Code: codes.InvalidArgument, Message: "Missing encoding for STRUCT"}},
-	}
-
-	if d := cmp.Diff(want, Normalize(testInstance, testRunID, results)); d != "" {
-		t.Errorf("Normalize (-want +got):\n%s", d)
-	}
-}
-
-// Production's message, and the emulator's, for a GetTable of a table that does not exist.
-func TestNormalizeKeepsOnlyTheCodeOfAMissingTable(t *testing.T) {
-	path := "projects/acme/instances/prod/tables/better-bttest-parity-0123456789ab-t1"
-	results := []Result{
-		{Call: "GetTable", Status: Status{Code: codes.NotFound, Message: "Not found: " + path}},
-		{Call: "GetTable", Status: Status{Code: codes.NotFound, Message: `table "` + path + `" not found`}},
-	}
-	want := []Result{
-		{Call: "GetTable", Status: Status{Code: codes.NotFound}},
-		{Call: "GetTable", Status: Status{Code: codes.NotFound}},
 	}
 
 	if d := cmp.Diff(want, Normalize(testInstance, testRunID, results)); d != "" {

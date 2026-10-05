@@ -19,7 +19,8 @@ type Case struct {
 }
 
 // A Call is one RPC. A data call goes to the parity table, where its rows are this case's rows, unless it sets
-// CaseTable. The admin calls and ReadRowKeys go to the case's table, which the run deletes when the case ends.
+// CaseTable, which sends it to the case's table, where its Row is the row key. The other calls go to the case's table,
+// which the run deletes when the case ends.
 type Call interface {
 	run(ctx context.Context, r *runner) (Result, error)
 }
@@ -34,20 +35,28 @@ type MutateRow struct {
 	Mutations []*btpb.Mutation
 }
 
-type MutateRows struct{ Entries []Entry }
+type MutateRows struct {
+	CaseTable bool
+	Entries   []Entry
+}
 
 type Entry struct {
 	Row       Row
 	Mutations []*btpb.Mutation
 }
 
-// CheckAndMutateRow on the case's main row, with no predicate, so a row with cells takes the true branch.
+// CheckAndMutateRow with no predicate, so a row with cells takes the true branch.
 type CheckAndMutate struct {
+	CaseTable   bool
+	Row         Row
 	True, False []*btpb.Mutation
 }
 
-// ReadModifyWriteRow on the case's main row.
-type ReadModifyWrite struct{ Rules []*btpb.ReadModifyWriteRule }
+type ReadModifyWrite struct {
+	CaseTable bool
+	Row       Row
+	Rules     []*btpb.ReadModifyWriteRule
+}
 
 // CreateTable with one family, cf, that keeps one version. A Schema of nil creates the table with no row key schema.
 type CreateTable struct{ Schema *adminpb.Type_Struct }
@@ -61,11 +70,32 @@ type SetRowKeySchema struct {
 // UpdateTable with the mask deletion_protection.
 type SetDeletionProtection struct{ On bool }
 
+// ModifyColumnFamilies that creates the family cf2.
+type ModifyColumnFamilies struct{}
+
+// DropRowRange of every row, with a deadline of dropRowRangeDeadline.
+type DropRowRange struct{}
+
+type DeleteTable struct{}
+
+// GenerateConsistencyToken. The result leaves out the token, which differs between calls.
+type GenerateConsistencyToken struct{}
+
+// CheckConsistency with a token that no GenerateConsistencyToken returned.
+type CheckConsistency struct{}
+
 // ReadRows of one row, keeping each cell's raw bytes.
-type ReadRow struct{ Row Row }
+type ReadRow struct {
+	CaseTable bool
+	Row       Row
+}
 
 // ReadRows over the case's table, keeping only the row keys.
 type ReadRowKeys struct{}
+
+// SampleRowKeys over the case's table. The result leaves out the sample, which depends on how the server splits the
+// table.
+type SampleRowKeys struct{}
 
 // GetTable with SCHEMA_VIEW.
 type GetTable struct{}

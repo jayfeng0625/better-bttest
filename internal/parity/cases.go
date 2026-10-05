@@ -18,7 +18,7 @@ func Cases() []Case {
 			cases = append(cases, c)
 		}
 	}
-	return slices.Concat(cases, PlainCases, RowKeySchemaCases())
+	return slices.Concat(cases, PlainCases, TableCases())
 }
 
 // AggregateCases are data cases on the aggregate family: how each write merges, and which mutations, rules, and
@@ -258,9 +258,9 @@ type labelled struct {
 	schema *adminpb.Type_Struct
 }
 
-// RowKeySchemaCases are table admin cases on row key schemas, and writes whose keys do not fit one. Each case
-// creates its own tables.
-func RowKeySchemaCases() []Case {
+// TableCases are cases on the case's table: row key schemas, writes whose keys do not fit one, and calls on a table
+// that does not exist.
+func TableCases() []Case {
 	schemas := []labelled{
 		{"four fields", fourFields},
 		{"a different delimiter", Delimited("|", "a", "b", "c", "d")},
@@ -310,6 +310,19 @@ func RowKeySchemaCases() []Case {
 			Name:  "Writes with keys that do not fit the row key schema",
 			Setup: []Call{CreateTable{Schema: fourFields}},
 			Calls: []Call{write("a#b#c#d#e"), write("a"), write("a#\xff\xfe#c#d"), ReadRowKeys{}},
+		},
+		Case{
+			Name: "Calls on a table that does not exist",
+			Calls: []Call{
+				GetTable{}, DeleteTable{}, SetDeletionProtection{}, ModifyColumnFamilies{}, DropRowRange{},
+				GenerateConsistencyToken{}, CheckConsistency{},
+				ReadRow{CaseTable: true, Row: "k"},
+				write("k"),
+				MutateRows{CaseTable: true, Entries: []Entry{{Row: "k", Mutations: Mutations(SetCell("cf", []byte("v"), Col("q")))}}},
+				CheckAndMutate{CaseTable: true, Row: "k", True: Mutations(SetCell("cf", []byte("v"), Col("q")))},
+				ReadModifyWrite{CaseTable: true, Row: "k", Rules: Rules(Increment("cf"))},
+				SampleRowKeys{},
+			},
 		},
 	)
 }

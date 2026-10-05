@@ -4,36 +4,41 @@ package parity
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
 	"cloud.google.com/go/bigtable"
 	"github.com/google/go-cmp/cmp"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/testing/protocmp"
 )
 
 // A time above this is the server's clock, as in a ReadModifyWriteRow cell. The cases write times far below it.
 const serverClockMicros = 1e15
 
-// The instance as the golden files name it, so the real project and instance stay out of the repo.
-const goldenInstance = "projects/<project>/instances/<instance>"
+// The instance as the golden files name it, so the real project and instance stay out of the repo. Production's
+// DeleteTable message names the project by its number, in braces.
+const (
+	goldenInstance         = "projects/<project>/instances/<instance>"
+	goldenNumberedInstance = "projects/{<project>}/instances/<instance>"
+)
 
 // Normalize returns results as the golden files keep them, with what differs between targets and runs replaced. Status
 // messages embed table paths, which carry the target's instance, and row keys and table names, which carry the run id.
 // A cell at the server's clock gets ServerTime, the time that SetCell takes for the server's clock. ReadRows leaves the
 // order of a row's families unspecified, so the cells sort by family, keeping their order within each.
 func Normalize(instance, runID string, results []Result) []Result {
+	_, instanceID, _ := strings.Cut(instance, "/instances/")
+	n := normalizer{
+		strings.NewReplacer(instance, goldenInstance, runID, "<run>"),
+		regexp.MustCompile(`projects/\{[^}]*\}/instances/` + regexp.QuoteMeta(instanceID) + `/`),
+	}
 	out := make([]Result, len(results))
 	for i, r := range results {
-		r.Status = normalizeStatus(instance, runID, r.Status)
-		// Production says "Not found: <table path>", and the emulator says "table \"<table path>\" not found".
-		if r.Call == "GetTable" && r.Status.Code == codes.NotFound {
-			r.Status.Message = ""
-		}
+		r.Status = n.status(r.Status)
 		r.Entries = slices.Clone(r.Entries)
 		for j, e := range r.Entries {
-			r.Entries[j] = normalizeStatus(instance, runID, e)
+			r.Entries[j] = n.status(e)
 		}
 		r.Cells = slices.Clone(r.Cells)
 		slices.SortStableFunc(r.Cells, func(a, b Cell) int { return strings.Compare(family(a), family(b)) })
@@ -55,8 +60,14 @@ func family(c Cell) string {
 // Production's message for a row key schema with no encoding continues with text that differs between calls.
 const structMessage = "Missing encoding for STRUCT"
 
-func normalizeStatus(instance, runID string, s Status) Status {
-	s.Message = strings.ReplaceAll(strings.ReplaceAll(s.Message, instance, goldenInstance), runID, "<run>")
+type normalizer struct {
+	replacer         *strings.Replacer
+	numberedInstance *regexp.Regexp
+}
+
+func (n normalizer) status(s Status) Status {
+	s.Message = n.replacer.Replace(s.Message)
+	s.Message = n.numberedInstance.ReplaceAllLiteralString(s.Message, goldenNumberedInstance+"/")
 	if strings.HasPrefix(s.Message, structMessage) {
 		s.Message = structMessage
 	}

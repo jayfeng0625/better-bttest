@@ -82,7 +82,7 @@ Each of its `Setup` calls must succeed, and the run compares the result of each 
 A read is a call too, so a case reads a row with `Read` or `ReadRow` where its results need the row's cells.
 The comments on the call types in `case.go` say what each call sends.
 
-Add the case to `AggregateCases` to run it once for each aggregate family, or to `PlainCases` or `RowKeySchemaCases`.
+Add the case to `AggregateCases` to run it once for each aggregate family, or to `PlainCases` or `TableCases`.
 Then record production's results with `-update`, and commit `testdata/real.json` with the case.
 If a case needs another family, add it to `families()` in `fixture.go` and to the real table.
 
