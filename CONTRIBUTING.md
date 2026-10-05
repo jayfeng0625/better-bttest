@@ -7,6 +7,7 @@ scripts/check.sh
 ```
 
 The script runs the same checks as CI: gofmt, the license headers, `go mod tidy`, the test value encoding, `go vet`, staticcheck, and the tests under the race detector.
+The tests include the parity cases, which check the emulator from this checkout against production's recorded results.
 CI runs it on the latest Go 1.26 patch release, with `GOTOOLCHAIN=local`.
 
 ## Change an upstream file
@@ -36,44 +37,54 @@ If the code encodes a value wrongly, a test that uses the same function encodes 
 
 ## Check behaviour against production
 
-A parity case sends the same requests to a real Bigtable table, to the emulator built from this checkout, and to Google's emulator, and then compares the results.
-`scripts/parity/run.sh` runs every parity case.
-The cases in `scripts/parity/table-cases.mjs` test table admin calls, so each case creates its own tables in the real table's instance, named `better-bttest-parity-<run id>-t<n>`.
-The script needs Docker and Google Cloud credentials, so CI does not run it.
-The credentials must be able to write to the table, and to create and delete tables in its instance.
-To set up the credentials, run `gcloud auth application-default login`.
+A parity case is a list of calls.
+A run makes the calls on a real Bigtable table and on the emulator from this checkout, and compares each call's result.
+The cases are in `internal/parity/cases.go`.
+Production's results are in `internal/parity/testdata/real.json`.
+With them, `go test ./internal/parity` checks the emulator against production with no credentials, and CI runs it.
 
-To check how production behaves, follow these steps:
+### Record production's results
 
-1. Create a table with these column families, each with the garbage collection rule `never`:
-   - an int64 MIN aggregate family
-   - an int64 MAX aggregate family
-   - an int64 Sum aggregate family
-   - a family with no value type
-2. Add a case to `scripts/parity/cases.mjs`, or to `scripts/parity/table-cases.mjs` for a table admin call.
-3. Run the script:
+Run the cases on a real instance with `-update`:
 
-   ```sh
-   PARITY_PROJECT=<project> PARITY_INSTANCE=<instance> PARITY_TABLE=<table> \
-   PARITY_MIN_FAMILY=<MIN family> PARITY_MAX_FAMILY=<MAX family> PARITY_SUM_FAMILY=<Sum family> \
-   PARITY_PLAIN_FAMILY=<plain family> \
-   scripts/parity/run.sh
-   ```
+```sh
+go test ./internal/parity -run 'TestParity$' -real=<project>/<instance> -update
+```
 
-For each case where an emulator gives a different result from the real table, the script prints a diff.
-Then it lists every case, and says for each emulator whether the case matched.
-Before it exits, it deletes the rows it wrote and the tables it created, even after a failure or an interrupt.
+The run uses Application Default Credentials. To set them up, run `gcloud auth application-default login`.
+The credentials must be able to write rows, and to create and delete tables, in the instance.
 
-The script exits with:
+The data cases write rows to the table `better-bttest-parity`.
+Create it with the families that `families()` in `internal/parity/fixture.go` defines.
+The run checks the table's families before it runs a case.
+A case that creates a table names it `better-bttest-parity-<run id>-t<n>`.
+The run checks the emulator against the new results, and writes them to `testdata/real.json`.
+Without `-update`, it checks the emulator against the table and leaves the file as it is.
+In the file, `<project>`, `<instance>`, and `<run>` replace the names that differ between runs.
+The run leaves the file as it is when a case fails on the real table, and stops before it writes a file that names the project or the instance.
+When the test ends, it deletes the rows that its cases wrote and the tables that they created, and fails if any remain.
+An interrupted run leaves its rows and tables, and a run that starts an hour or more later deletes them.
 
-- 0 when every case matches on this checkout's emulator.
-- 1 when a case differs on this checkout's emulator.
-  A difference on Google's emulator shows in the report, and does not change the exit code.
-- 2 when a `PARITY_*` variable is not set, or the script cannot use the login or the table.
-- The failed step's code when a step such as `npm ci` or `docker build` fails.
-- 130 on Ctrl-C or SIGTERM.
+### Compare Google's emulator
 
-If the script cannot delete its rows or tables, it exits with 1, whatever the code would have been.
+```sh
+go test ./internal/parity -run TestStock -v -stock
+```
+
+The run starts Google's stock emulator in Docker, and logs each case whose results differ from production's.
+A difference does not fail the test.
+A case that stops the emulator logs its panic, and the next case gets a fresh emulator.
+
+### Add a parity case
+
+A case is a `Case` in `internal/parity/cases.go`.
+Each of its `Setup` calls must succeed, and the run compares the result of each of its `Calls`.
+A read is a call too, so a case reads a row with `Read` or `ReadRow` where its results need the row's cells.
+The comments on the call types in `case.go` say what each call sends.
+
+Add the case to `AggregateCases` to run it once for each aggregate family, or to `PlainCases` or `TableCases`.
+Then record production's results with `-update`, and commit `testdata/real.json` with the case.
+If a case needs another family, add it to `families()` in `fixture.go` and to the real table.
 
 ## Sync with upstream
 
