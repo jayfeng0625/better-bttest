@@ -5,8 +5,6 @@ package parity
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"os"
@@ -32,7 +30,7 @@ var (
 // gets the real table's results from the table, and otherwise from the golden file.
 func TestParity(t *testing.T) {
 	cases := Cases()
-	runID := newRunID(t)
+	runID := NewRunID(time.Now())
 	var golden map[string][]Result
 	switch {
 	case *realInstance != "":
@@ -83,15 +81,6 @@ func TestParity(t *testing.T) {
 	}
 }
 
-func newRunID(t *testing.T) string {
-	t.Helper()
-	b := make([]byte, 6)
-	if _, err := rand.Read(b); err != nil {
-		t.Fatal(err)
-	}
-	return hex.EncodeToString(b)
-}
-
 func readGolden(t *testing.T) map[string][]Result {
 	t.Helper()
 	data, err := os.ReadFile(goldenPath)
@@ -130,7 +119,7 @@ func realResults(t *testing.T, cases []Case, runID string) map[string][]Result {
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		if err := Cleanup(ctx, real); err != nil {
+		if err := Cleanup(ctx, real, runID); err != nil {
 			t.Error(err)
 		}
 	})

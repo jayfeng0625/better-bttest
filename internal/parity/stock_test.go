@@ -29,7 +29,7 @@ func TestStock(t *testing.T) {
 		t.Skip("run with -stock")
 	}
 	golden := readGolden(t)
-	runID := newRunID(t)
+	runID := NewRunID(time.Now())
 	label := runLabel + "=" + runID
 	t.Cleanup(func() { removeContainers(t, label) })
 

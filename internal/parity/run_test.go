@@ -167,7 +167,7 @@ func TestRunDeletesTheTableItCreated(t *testing.T) {
 	if d := cmp.Diff(want, got, protocmp.Transform()); d != "" {
 		t.Errorf("Run (-want +got):\n%s", d)
 	}
-	if tables, err := caseTables(ctx, target); err != nil || len(tables) > 0 {
+	if tables, err := caseTables(ctx, target, func(string) bool { return true }); err != nil || len(tables) > 0 {
 		t.Errorf("case tables after the case = %v, %v, want none", tables, err)
 	}
 }
@@ -188,7 +188,7 @@ func TestRunDeletesAProtectedTable(t *testing.T) {
 	if len(got) != 1 || got[0].Table == nil || !got[0].Table.DeletionProtection {
 		t.Fatalf("Run = %+v, want a GetTable of a protected table", got)
 	}
-	if tables, err := caseTables(ctx, target); err != nil || len(tables) > 0 {
+	if tables, err := caseTables(ctx, target, func(string) bool { return true }); err != nil || len(tables) > 0 {
 		t.Errorf("case tables after the case = %v, %v, want none", tables, err)
 	}
 }

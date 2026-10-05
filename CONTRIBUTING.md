@@ -68,10 +68,8 @@ The run checks the emulator against the new results, and writes them to `testdat
 Without `-update`, it checks the emulator against the table and leaves the file as it is.
 In the file, `<project>`, `<instance>`, and `<run>` replace the names that differ between runs.
 The run leaves the file as it is when a case fails on the real table, and stops before it writes a file that names the project or the instance.
-When the test ends, it deletes every row that the cases wrote and every table that they created, from any run.
-It fails if any remain.
-Two runs at the same time therefore delete each other's rows and tables.
-An interrupted run leaves its rows and tables for the next run to delete.
+When the test ends, it deletes the rows that its cases wrote and the tables that they created, and fails if any remain.
+An interrupted run leaves its rows and tables, and a run that starts an hour or more later deletes them.
 
 ### Compare Google's emulator
 
