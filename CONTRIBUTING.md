@@ -72,7 +72,9 @@ Each of its `Setup` calls must succeed, and the run compares the result of each 
 A read is a call too, so a case reads a row with `Read` or `ReadRow` where its results need the row's cells.
 The comments on the call types in `case.go` say what each call sends.
 
-Add the case to `AggregateCases` to run it once for each aggregate family, or to `PlainCases` or `TableCases`.
+Add the case to `MergeCases` when its results depend on how the family merges a write, so that it runs once for each aggregate family.
+Add any other case on an aggregate family to `AggregateCases`, which runs once, on the Sum family.
+Add the rest to `PlainCases` or `TableCases`.
 Then run the cases on a real instance.
 If a case needs another family, add it to `families()` in `fixture.go` and to the real table.
 
