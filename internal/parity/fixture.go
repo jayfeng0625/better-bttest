@@ -4,8 +4,13 @@ package parity
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 
 	"cloud.google.com/go/bigtable/admin/apiv2/adminpb"
+	"github.com/google/go-cmp/cmp"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/testing/protocmp"
 )
 
 // A Family is one of the parity table's families. The run checks the real table's families, and creates each
@@ -21,80 +26,36 @@ const (
 
 var Aggregates = []Family{Sum, Min, Max}
 
-// Each family's aggregator, or "" for a family with no value type. The emulators collect garbage every second or so
-// and production does it lazily, so every family has GC rule never and keeps every version.
-var families = []struct {
-	name       Family
-	aggregator string
-}{
-	{Sum, "sum"},
-	{Min, "min"},
-	{Max, "max"},
-	{Plain, ""},
+// The parity table's families: an int64 aggregate family for each aggregator, and a family with no value type. The
+// emulators collect garbage every second or so and production does it lazily, so every family has GC rule never and
+// keeps every version.
+func families() map[string]*adminpb.ColumnFamily {
+	aggregate := func(a *adminpb.Type_Aggregate) *adminpb.ColumnFamily {
+		a.InputType = &adminpb.Type{Kind: &adminpb.Type_Int64Type{Int64Type: &adminpb.Type_Int64{
+			Encoding: &adminpb.Type_Int64_Encoding{Encoding: &adminpb.Type_Int64_Encoding_BigEndianBytes_{}},
+		}}}
+		return &adminpb.ColumnFamily{ValueType: &adminpb.Type{Kind: &adminpb.Type_AggregateType{AggregateType: a}}}
+	}
+	return map[string]*adminpb.ColumnFamily{
+		string(Sum):   aggregate(&adminpb.Type_Aggregate{Aggregator: &adminpb.Type_Aggregate_Sum_{}}),
+		string(Min):   aggregate(&adminpb.Type_Aggregate{Aggregator: &adminpb.Type_Aggregate_Min_{}}),
+		string(Max):   aggregate(&adminpb.Type_Aggregate{Aggregator: &adminpb.Type_Aggregate_Max_{}}),
+		string(Plain): {},
+	}
 }
 
-func describe(aggregator string) string {
-	if aggregator == "" {
-		return "a family with no value type"
-	}
-	return fmt.Sprintf("an int64 %s aggregate family", aggregator)
-}
-
-// What a family from GetTable is, in describe's words where it can be.
-func describeFamily(f *adminpb.ColumnFamily) string {
-	switch {
-	case f == nil:
-		return "no family"
-	case f.GcRule != nil:
-		return "a family with a GC rule"
-	case f.ValueType == nil:
-		return describe("")
-	}
-	agg := f.ValueType.GetAggregateType()
-	if agg.GetInputType().GetInt64Type() == nil {
-		return "a family with another value type"
-	}
-	switch agg.Aggregator.(type) {
-	case *adminpb.Type_Aggregate_Sum_:
-		return describe("sum")
-	case *adminpb.Type_Aggregate_Min_:
-		return describe("min")
-	case *adminpb.Type_Aggregate_Max_:
-		return describe("max")
-	}
-	return "a family with another value type"
-}
-
-func columnFamilies() map[string]*adminpb.ColumnFamily {
-	out := map[string]*adminpb.ColumnFamily{}
-	for _, f := range families {
-		cf := &adminpb.ColumnFamily{}
-		if f.aggregator != "" {
-			agg := &adminpb.Type_Aggregate{InputType: &adminpb.Type{Kind: &adminpb.Type_Int64Type{Int64Type: &adminpb.Type_Int64{
-				Encoding: &adminpb.Type_Int64_Encoding{Encoding: &adminpb.Type_Int64_Encoding_BigEndianBytes_{}},
-			}}}}
-			switch f.aggregator {
-			case "sum":
-				agg.Aggregator = &adminpb.Type_Aggregate_Sum_{}
-			case "min":
-				agg.Aggregator = &adminpb.Type_Aggregate_Min_{}
-			case "max":
-				agg.Aggregator = &adminpb.Type_Aggregate_Max_{}
-			}
-			cf.ValueType = &adminpb.Type{Kind: &adminpb.Type_AggregateType{AggregateType: agg}}
-		}
-		out[string(f.name)] = cf
-	}
-	return out
-}
-
-// SchemaProblems returns each way the families from GetTable differ from the parity table's.
+// SchemaProblems returns a diff for each family from GetTable that differs from the parity table's, in family order.
+// GetTable adds each aggregate's state type, which the diff leaves out.
 func SchemaProblems(got map[string]*adminpb.ColumnFamily) []string {
 	var problems []string
-	for _, f := range families {
-		want := describe(f.aggregator)
-		if actual := describeFamily(got[string(f.name)]); actual != want {
-			problems = append(problems, fmt.Sprintf("%s must be %s with GC rule never, got %s", f.name, want, actual))
+	want := families()
+	for _, name := range slices.Sorted(maps.Keys(want)) {
+		g := proto.CloneOf(got[name])
+		if agg := g.GetValueType().GetAggregateType(); agg != nil {
+			agg.StateType = nil
+		}
+		if d := cmp.Diff(want[name], g, protocmp.Transform()); d != "" {
+			problems = append(problems, fmt.Sprintf("%s (-want +got):\n%s", name, d))
 		}
 	}
 	return problems

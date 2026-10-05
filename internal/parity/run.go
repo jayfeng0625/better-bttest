@@ -160,12 +160,17 @@ func (c ReadRow) run(ctx context.Context, r *runner) (Result, error) {
 	return Result{Cells: cells}, nil
 }
 
-// The key of each row, in the order ReadRows returns them. A chunk names its row only when the row starts, and a row
-// that the server resets after a reset_row starts again with the same key.
 func (ReadRowKeys) run(ctx context.Context, r *runner) (Result, error) {
-	stream, err := r.target.Data.ReadRows(ctx, &btpb.ReadRowsRequest{TableName: r.tablePath()})
+	keys, err := readKeys(ctx, r.target, &btpb.ReadRowsRequest{TableName: r.tablePath()})
+	return Result{Keys: keys}, err
+}
+
+// The key of each row that the request reads, in order. A chunk names its row only when the row starts, and a row that
+// the server resets after a reset_row starts again with the same key.
+func readKeys(ctx context.Context, t Target, req *btpb.ReadRowsRequest) ([]Hex, error) {
+	stream, err := t.Data.ReadRows(ctx, req)
 	if err != nil {
-		return Result{}, err
+		return nil, err
 	}
 	var keys []Hex
 	err = recvAll(stream, func(resp *btpb.ReadRowsResponse) {
@@ -176,9 +181,9 @@ func (ReadRowKeys) run(ctx context.Context, r *runner) (Result, error) {
 		}
 	})
 	if err != nil {
-		return Result{}, err
+		return nil, err
 	}
-	return Result{Keys: keys}, nil
+	return keys, nil
 }
 
 func (c CreateTable) run(ctx context.Context, r *runner) (Result, error) {

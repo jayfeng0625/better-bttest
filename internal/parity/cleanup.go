@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -54,9 +55,7 @@ func Cleanup(ctx context.Context, t Target, runID string) error {
 		return errors.Join(append(errs, err)...)
 	}
 	for _, id := range tables {
-		if err := t.deleteTable(ctx, id); err != nil {
-			errs = append(errs, err)
-		}
+		errs = append(errs, t.deleteTable(ctx, id))
 	}
 
 	leftRows, err := caseRows(ctx, t, swept)
@@ -74,8 +73,8 @@ func Cleanup(ctx context.Context, t Target, runID string) error {
 }
 
 // The keys of the case rows on the parity table whose run id is of.
-func caseRows(ctx context.Context, t Target, of func(runID string) bool) ([][]byte, error) {
-	stream, err := t.Data.ReadRows(ctx, &btpb.ReadRowsRequest{
+func caseRows(ctx context.Context, t Target, of func(runID string) bool) ([]Hex, error) {
+	keys, err := readKeys(ctx, t, &btpb.ReadRowsRequest{
 		TableName: t.tablePath(parityTable),
 		Rows: &btpb.RowSet{RowRanges: []*btpb.RowRange{{
 			StartKey: &btpb.RowRange_StartKeyClosed{StartKeyClosed: []byte(rowPrefix)},
@@ -86,24 +85,13 @@ func caseRows(ctx context.Context, t Target, of func(runID string) bool) ([][]by
 			{Filter: &btpb.RowFilter_StripValueTransformer{StripValueTransformer: true}},
 		}}}},
 	})
-	if err != nil {
-		return nil, err
-	}
-	var keys [][]byte
-	err = recvAll(stream, func(resp *btpb.ReadRowsResponse) {
-		for _, ch := range resp.Chunks {
-			if m := caseRowKey.FindSubmatch(ch.RowKey); m != nil && of(string(m[1])) {
-				keys = append(keys, ch.RowKey)
-			}
-		}
-	})
-	if err != nil {
-		return nil, err
-	}
-	return keys, nil
+	return slices.DeleteFunc(keys, func(key Hex) bool {
+		m := caseRowKey.FindSubmatch(key)
+		return m == nil || !of(string(m[1]))
+	}), err
 }
 
-func deleteRows(ctx context.Context, t Target, keys [][]byte) error {
+func deleteRows(ctx context.Context, t Target, keys []Hex) error {
 	req := &btpb.MutateRowsRequest{TableName: t.tablePath(parityTable)}
 	for _, key := range keys {
 		req.Entries = append(req.Entries, &btpb.MutateRowsRequest_Entry{RowKey: key, Mutations: Mutations(DeleteFromRow())})

@@ -55,13 +55,7 @@ The run uses Application Default Credentials. To set them up, run `gcloud auth a
 The credentials must be able to write rows, and to create and delete tables, in the instance.
 
 The data cases write rows to the table `better-bttest-parity`.
-Create it with the families that `families` in `internal/parity/fixture.go` lists, each with the garbage collection rule `never`:
-
-- `sum`, an int64 Sum aggregate family
-- `min`, an int64 MIN aggregate family
-- `max`, an int64 MAX aggregate family
-- `plain`, a family with no value type
-
+Create it with the families that `families()` in `internal/parity/fixture.go` defines.
 The run checks the table's families before it runs a case.
 A case that creates a table names it `better-bttest-parity-<run id>-t<n>`.
 The run checks the emulator against the new results, and writes them to `testdata/real.json`.
@@ -90,7 +84,7 @@ The comments on the call types in `case.go` say what each call sends.
 
 Add the case to `AggregateCases` to run it once for each aggregate family, or to `PlainCases` or `RowKeySchemaCases`.
 Then record production's results with `-update`, and commit `testdata/real.json` with the case.
-If a case needs another family, add it to `families` in `fixture.go` and to the real table.
+If a case needs another family, add it to `families()` in `fixture.go` and to the real table.
 
 ## Sync with upstream
 

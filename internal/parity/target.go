@@ -101,7 +101,7 @@ func emulatorTarget(conn *grpc.ClientConn) Target {
 
 func createParityTable(ctx context.Context, t Target) error {
 	_, err := t.Admin.CreateTable(ctx, &adminpb.CreateTableRequest{
-		Parent: t.Instance, TableId: parityTable, Table: &adminpb.Table{ColumnFamilies: columnFamilies()},
+		Parent: t.Instance, TableId: parityTable, Table: &adminpb.Table{ColumnFamilies: families()},
 	})
 	if err != nil {
 		return fmt.Errorf("create the parity table: %w", err)

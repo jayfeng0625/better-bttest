@@ -53,7 +53,7 @@ func TestCleanupDeletesTheRunsAndStaleRunsData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := [][]byte{[]byte(rowPrefix + other + "#case")}; !cmp.Equal(rows, want) {
+	if want := []Hex{Hex(rowPrefix + other + "#case")}; !cmp.Equal(rows, want) {
 		t.Errorf("case rows after the cleanup = %q, want %q", rows, want)
 	}
 	tables, err := caseTables(ctx, target, everyRun)
