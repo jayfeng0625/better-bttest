@@ -117,6 +117,23 @@ func TestNormalizeTrimsTheStructEncodingMessage(t *testing.T) {
 	}
 }
 
+// Production's message, and the emulator's, for a GetTable of a table that does not exist.
+func TestNormalizeKeepsOnlyTheCodeOfAMissingTable(t *testing.T) {
+	path := "projects/acme/instances/prod/tables/better-bttest-parity-0123456789ab-t1"
+	results := []Result{
+		{Call: "GetTable", Status: Status{Code: codes.NotFound, Message: "Not found: " + path}},
+		{Call: "GetTable", Status: Status{Code: codes.NotFound, Message: `table "` + path + `" not found`}},
+	}
+	want := []Result{
+		{Call: "GetTable", Status: Status{Code: codes.NotFound}},
+		{Call: "GetTable", Status: Status{Code: codes.NotFound}},
+	}
+
+	if d := cmp.Diff(want, Normalize(testInstance, testRunID, results)); d != "" {
+		t.Errorf("Normalize (-want +got):\n%s", d)
+	}
+}
+
 func TestDiffReportsADifferentNumberOfCalls(t *testing.T) {
 	want := []Result{{Call: "MutateRow"}, {Call: "ReadRow"}}
 	got := []Result{{Call: "MutateRow"}}

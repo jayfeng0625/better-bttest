@@ -54,110 +54,82 @@ type runner struct {
 	created      bool   // whether the case has called CreateTable
 }
 
-func (r *runner) tablePath() string { return r.target.tablePath(r.table) }
-
-func (r *runner) rowOn(caseTable bool, row Row) (tableName string, key []byte) {
-	if caseTable {
-		return r.tablePath(), []byte(row)
-	}
-	if row == "" {
-		return r.target.tablePath(parityTable), []byte(r.rowKeyPrefix)
-	}
-	return r.target.tablePath(parityTable), []byte(r.rowKeyPrefix + "#" + string(row))
-}
-
-func statusOf(err error) Status {
-	s := status.Convert(err)
-	return Status{Code: s.Code(), Message: s.Message()}
-}
-
 func (r *runner) call(ctx context.Context, call Call) Result {
-	res := Result{Call: reflect.TypeOf(call).Name()}
-	var err error
-	switch c := call.(type) {
-	case MutateRow:
-		table, key := r.rowOn(c.CaseTable, c.Row)
-		_, err = r.target.Data.MutateRow(ctx, &btpb.MutateRowRequest{TableName: table, RowKey: key, Mutations: c.Mutations})
-	case MutateRows:
-		res.Entries, err = r.mutateRows(ctx, c.Entries)
-	case CheckAndMutate:
-		table, key := r.rowOn(false, c.Row)
-		var resp *btpb.CheckAndMutateRowResponse
-		resp, err = r.target.Data.CheckAndMutateRow(ctx, &btpb.CheckAndMutateRowRequest{
-			TableName: table, RowKey: key, TrueMutations: c.True, FalseMutations: c.False,
-		})
-		if err == nil {
-			res.Matched = &resp.PredicateMatched
-		}
-	case ReadModifyWrite:
-		table, key := r.rowOn(false, c.Row)
-		_, err = r.target.Data.ReadModifyWriteRow(ctx, &btpb.ReadModifyWriteRowRequest{TableName: table, RowKey: key, Rules: c.Rules})
-	case ReadRow:
-		res.Cells, err = r.readRow(ctx, c.CaseTable, c.Row)
-	case ReadRowKeys:
-		res.Keys, err = r.readRowKeys(ctx)
-	case CreateTable:
-		r.created = true
-		_, err = r.target.Admin.CreateTable(ctx, &adminpb.CreateTableRequest{
-			Parent: r.target.Instance, TableId: r.table,
-			Table: &adminpb.Table{
-				ColumnFamilies: map[string]*adminpb.ColumnFamily{"cf": {GcRule: &adminpb.GcRule{Rule: &adminpb.GcRule_MaxNumVersions{MaxNumVersions: 1}}}},
-				RowKeySchema:   c.Schema,
-			},
-		})
-	case SetRowKeySchema:
-		err = r.target.updateTable(ctx, &adminpb.Table{Name: r.tablePath(), RowKeySchema: c.Schema}, "row_key_schema", c.IgnoreWarnings)
-	case SetDeletionProtection:
-		err = r.target.updateTable(ctx, &adminpb.Table{Name: r.tablePath(), DeletionProtection: c.On}, "deletion_protection", false)
-	case GetTable:
-		var tbl *adminpb.Table
-		tbl, err = r.target.Admin.GetTable(ctx, &adminpb.GetTableRequest{Name: r.tablePath(), View: adminpb.Table_SCHEMA_VIEW})
-		if err == nil {
-			res.Table = &TableView{RowKeySchema: tbl.RowKeySchema, DeletionProtection: tbl.DeletionProtection}
-		}
-		// Production says "Not found: <table path>", and the emulator says "table \"<table path>\" not found".
-		if status.Code(err) == codes.NotFound {
-			res.Status = Status{Code: codes.NotFound}
-			return res
-		}
-	default:
-		panic(fmt.Sprintf("parity: no run for %T", call))
-	}
-	res.Status = statusOf(err)
+	res, err := call.run(ctx, r)
+	res.Call = reflect.TypeOf(call).Name()
+	s := status.Convert(err)
+	res.Status = Status{Code: s.Code(), Message: s.Message()}
 	return res
 }
 
+func (r *runner) tablePath() string { return r.target.tablePath(r.table) }
+
+func (r *runner) parityTablePath() string { return r.target.tablePath(parityTable) }
+
+// The key of the case's row on the parity table.
+func (r *runner) parityRow(row Row) []byte {
+	if row == "" {
+		return []byte(r.rowKeyPrefix)
+	}
+	return []byte(r.rowKeyPrefix + "#" + string(row))
+}
+
+func (c MutateRow) run(ctx context.Context, r *runner) (Result, error) {
+	req := &btpb.MutateRowRequest{TableName: r.parityTablePath(), RowKey: r.parityRow(c.Row), Mutations: c.Mutations}
+	if c.CaseTable {
+		req.TableName, req.RowKey = r.tablePath(), []byte(c.Row)
+	}
+	_, err := r.target.Data.MutateRow(ctx, req)
+	return Result{}, err
+}
+
 // Each entry's status, in entry order. The stream can return the entries in any order.
-func (r *runner) mutateRows(ctx context.Context, entries []Entry) ([]Status, error) {
-	req := &btpb.MutateRowsRequest{}
-	for _, e := range entries {
-		var key []byte
-		req.TableName, key = r.rowOn(false, e.Row)
-		req.Entries = append(req.Entries, &btpb.MutateRowsRequest_Entry{RowKey: key, Mutations: e.Mutations})
+func (c MutateRows) run(ctx context.Context, r *runner) (Result, error) {
+	req := &btpb.MutateRowsRequest{TableName: r.parityTablePath()}
+	for _, e := range c.Entries {
+		req.Entries = append(req.Entries, &btpb.MutateRowsRequest_Entry{RowKey: r.parityRow(e.Row), Mutations: e.Mutations})
 	}
 	stream, err := r.target.Data.MutateRows(ctx, req)
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
-	statuses := make([]Status, len(entries))
+	entries := make([]Status, len(c.Entries))
 	err = recvAll(stream, func(resp *btpb.MutateRowsResponse) {
 		for _, e := range resp.Entries {
-			statuses[e.Index] = Status{Code: codes.Code(e.Status.GetCode()), Message: e.Status.GetMessage()}
+			entries[e.Index] = Status{Code: codes.Code(e.Status.GetCode()), Message: e.Status.GetMessage()}
 		}
 	})
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
-	return statuses, nil
+	return Result{Entries: entries}, nil
+}
+
+func (c CheckAndMutate) run(ctx context.Context, r *runner) (Result, error) {
+	resp, err := r.target.Data.CheckAndMutateRow(ctx, &btpb.CheckAndMutateRowRequest{
+		TableName: r.parityTablePath(), RowKey: r.parityRow(""), TrueMutations: c.True, FalseMutations: c.False,
+	})
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{Matched: &resp.PredicateMatched}, nil
+}
+
+func (c ReadModifyWrite) run(ctx context.Context, r *runner) (Result, error) {
+	_, err := r.target.Data.ReadModifyWriteRow(ctx, &btpb.ReadModifyWriteRowRequest{
+		TableName: r.parityTablePath(), RowKey: r.parityRow(""), Rules: c.Rules,
+	})
+	return Result{}, err
 }
 
 // The row's cells as raw bytes. A chunk with a value_size continues in the next chunk, and any other chunk ends its
 // cell. A chunk that names no family or qualifier keeps the previous cell's.
-func (r *runner) readRow(ctx context.Context, caseTable bool, row Row) ([]Cell, error) {
-	tableName, key := r.rowOn(caseTable, row)
-	stream, err := r.target.Data.ReadRows(ctx, &btpb.ReadRowsRequest{TableName: tableName, Rows: &btpb.RowSet{RowKeys: [][]byte{key}}})
+func (c ReadRow) run(ctx context.Context, r *runner) (Result, error) {
+	stream, err := r.target.Data.ReadRows(ctx, &btpb.ReadRowsRequest{
+		TableName: r.parityTablePath(), Rows: &btpb.RowSet{RowKeys: [][]byte{r.parityRow(c.Row)}},
+	})
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
 	var cells []Cell
 	var family, qualifier string
@@ -183,17 +155,17 @@ func (r *runner) readRow(ctx context.Context, caseTable bool, row Row) ([]Cell, 
 		}
 	})
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
-	return cells, nil
+	return Result{Cells: cells}, nil
 }
 
-// The key of each row in the case's table, in the order ReadRows returns them. A chunk names its row only when the row
-// starts, and a row that the server resets after a reset_row starts again with the same key.
-func (r *runner) readRowKeys(ctx context.Context) ([]Hex, error) {
+// The key of each row, in the order ReadRows returns them. A chunk names its row only when the row starts, and a row
+// that the server resets after a reset_row starts again with the same key.
+func (ReadRowKeys) run(ctx context.Context, r *runner) (Result, error) {
 	stream, err := r.target.Data.ReadRows(ctx, &btpb.ReadRowsRequest{TableName: r.tablePath()})
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
 	var keys []Hex
 	err = recvAll(stream, func(resp *btpb.ReadRowsResponse) {
@@ -204,9 +176,37 @@ func (r *runner) readRowKeys(ctx context.Context) ([]Hex, error) {
 		}
 	})
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
-	return keys, nil
+	return Result{Keys: keys}, nil
+}
+
+func (c CreateTable) run(ctx context.Context, r *runner) (Result, error) {
+	r.created = true
+	_, err := r.target.Admin.CreateTable(ctx, &adminpb.CreateTableRequest{
+		Parent: r.target.Instance, TableId: r.table,
+		Table: &adminpb.Table{
+			ColumnFamilies: map[string]*adminpb.ColumnFamily{"cf": {GcRule: &adminpb.GcRule{Rule: &adminpb.GcRule_MaxNumVersions{MaxNumVersions: 1}}}},
+			RowKeySchema:   c.Schema,
+		},
+	})
+	return Result{}, err
+}
+
+func (c SetRowKeySchema) run(ctx context.Context, r *runner) (Result, error) {
+	return Result{}, r.target.updateTable(ctx, &adminpb.Table{Name: r.tablePath(), RowKeySchema: c.Schema}, "row_key_schema", c.IgnoreWarnings)
+}
+
+func (c SetDeletionProtection) run(ctx context.Context, r *runner) (Result, error) {
+	return Result{}, r.target.updateTable(ctx, &adminpb.Table{Name: r.tablePath(), DeletionProtection: c.On}, "deletion_protection", false)
+}
+
+func (GetTable) run(ctx context.Context, r *runner) (Result, error) {
+	tbl, err := r.target.Admin.GetTable(ctx, &adminpb.GetTableRequest{Name: r.tablePath(), View: adminpb.Table_SCHEMA_VIEW})
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{Table: &TableView{RowKeySchema: tbl.RowKeySchema, DeletionProtection: tbl.DeletionProtection}}, nil
 }
 
 // Pass each response on the stream to f, until the stream ends.

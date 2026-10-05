@@ -9,6 +9,7 @@ import (
 
 	"cloud.google.com/go/bigtable"
 	"github.com/google/go-cmp/cmp"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/testing/protocmp"
 )
 
@@ -26,6 +27,10 @@ func Normalize(instance, runID string, results []Result) []Result {
 	out := make([]Result, len(results))
 	for i, r := range results {
 		r.Status = normalizeStatus(instance, runID, r.Status)
+		// Production says "Not found: <table path>", and the emulator says "table \"<table path>\" not found".
+		if r.Call == "GetTable" && r.Status.Code == codes.NotFound {
+			r.Status.Message = ""
+		}
 		r.Entries = slices.Clone(r.Entries)
 		for j, e := range r.Entries {
 			r.Entries[j] = normalizeStatus(instance, runID, e)

@@ -3,6 +3,7 @@
 package parity
 
 import (
+	"context"
 	"encoding/binary"
 
 	"cloud.google.com/go/bigtable/admin/apiv2/adminpb"
@@ -18,8 +19,10 @@ type Case struct {
 }
 
 // A Call is one RPC. A data call goes to the parity table, where its rows are this case's rows, unless it sets
-// CaseTable. The admin calls go to the case's table, which the run deletes when the case ends.
-type Call interface{ isCall() }
+// CaseTable. The admin calls and ReadRowKeys go to the case's table, which the run deletes when the case ends.
+type Call interface {
+	run(ctx context.Context, r *runner) (Result, error)
+}
 
 // A Row names a row. On the parity table the run prefixes it with the run id and the case name. On the case's table it
 // is the row key. The zero Row is the case's main row.
@@ -38,16 +41,13 @@ type Entry struct {
 	Mutations []*btpb.Mutation
 }
 
-// CheckAndMutateRow with no predicate, so a row with cells takes the true branch.
+// CheckAndMutateRow on the case's main row, with no predicate, so a row with cells takes the true branch.
 type CheckAndMutate struct {
-	Row         Row
 	True, False []*btpb.Mutation
 }
 
-type ReadModifyWrite struct {
-	Row   Row
-	Rules []*btpb.ReadModifyWriteRule
-}
+// ReadModifyWriteRow on the case's main row.
+type ReadModifyWrite struct{ Rules []*btpb.ReadModifyWriteRule }
 
 // CreateTable with one family, cf, that keeps one version. A Schema of nil creates the table with no row key schema.
 type CreateTable struct{ Schema *adminpb.Type_Struct }
@@ -62,27 +62,13 @@ type SetRowKeySchema struct {
 type SetDeletionProtection struct{ On bool }
 
 // ReadRows of one row, keeping each cell's raw bytes.
-type ReadRow struct {
-	CaseTable bool
-	Row       Row
-}
+type ReadRow struct{ Row Row }
 
 // ReadRows over the case's table, keeping only the row keys.
 type ReadRowKeys struct{}
 
 // GetTable with SCHEMA_VIEW.
 type GetTable struct{}
-
-func (MutateRow) isCall()             {}
-func (MutateRows) isCall()            {}
-func (CheckAndMutate) isCall()        {}
-func (ReadModifyWrite) isCall()       {}
-func (CreateTable) isCall()           {}
-func (SetRowKeySchema) isCall()       {}
-func (SetDeletionProtection) isCall() {}
-func (ReadRow) isCall()               {}
-func (ReadRowKeys) isCall()           {}
-func (GetTable) isCall()              {}
 
 // Builders for mutations at column c and 1000 µs, unless an option says otherwise.
 

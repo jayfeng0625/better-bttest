@@ -221,20 +221,6 @@ func TestRunSetsAndClearsTheRowKeySchema(t *testing.T) {
 	}
 }
 
-func TestRunKeepsOnlyTheCodeOfAMissingTable(t *testing.T) {
-	ctx, target := startGate(t)
-	c := Case{Name: "missing", Calls: []Call{GetTable{}}}
-
-	got, err := Run(ctx, target, testRunID, 1, c)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if want := []Result{{Call: "GetTable", Status: Status{Code: codes.NotFound}}}; !cmp.Equal(want, got) {
-		t.Errorf("Run = %+v, want %+v", got, want)
-	}
-}
-
 func TestRunWritesExactKeysOnACaseTable(t *testing.T) {
 	ctx, target := startGate(t)
 	write := func(key Row) MutateRow {
@@ -243,7 +229,7 @@ func TestRunWritesExactKeysOnACaseTable(t *testing.T) {
 	c := Case{
 		Name:  "keys",
 		Setup: []Call{CreateTable{}},
-		Calls: []Call{write("b"), write("a\xff"), ReadRow{CaseTable: true, Row: "b"}, ReadRowKeys{}},
+		Calls: []Call{write("b"), write("a\xff"), ReadRowKeys{}},
 	}
 
 	got, err := Run(ctx, target, testRunID, 1, c)
@@ -255,7 +241,6 @@ func TestRunWritesExactKeysOnACaseTable(t *testing.T) {
 	want := []Result{
 		{Call: "MutateRow", Status: ok},
 		{Call: "MutateRow", Status: ok},
-		{Call: "ReadRow", Status: ok, Cells: []Cell{{Column: "cf:c", TS: 1000, Value: []byte("v")}}},
 		{Call: "ReadRowKeys", Status: ok, Keys: []Hex{Hex("a\xff"), Hex("b")}},
 	}
 	if d := cmp.Diff(want, got); d != "" {
