@@ -16,23 +16,23 @@ import (
 // A time above this is the server's clock, as in a ReadModifyWriteRow cell. The cases write times far below it.
 const serverClockMicros = 1e15
 
-// The instance as the golden files name it, so the real project and instance stay out of the repo. Production's
-// DeleteTable message names the project by its number, in braces.
+// The instance as Normalize names it, the same on every target. Production's DeleteTable message names the project by
+// its number, in braces.
 const (
-	goldenInstance         = "projects/<project>/instances/<instance>"
-	goldenNumberedInstance = "projects/{<project>}/instances/<instance>"
+	placeholderInstance         = "projects/<project>/instances/<instance>"
+	placeholderNumberedInstance = "projects/{<project>}/instances/<instance>"
 )
 
 var numberedInstance = regexp.MustCompile(`projects/\{[^}]*\}/instances/[^/]+`)
 
-// Normalize returns results as the golden files keep them, with what differs between targets and runs replaced. Status
+// Normalize returns results with what differs between targets and runs replaced. Status
 // messages embed table paths, which carry the target's instance, and row keys and table names, which carry the run id.
 // A cell at the server's clock gets ServerTime, the time that SetCell takes for the server's clock. ReadRows leaves the
 // order of a row's families unspecified, so the cells sort by family, keeping their order within each.
 func Normalize(instance, runID string, results []Result) []Result {
-	replacer := strings.NewReplacer(instance, goldenInstance, runID, "<run>")
+	replacer := strings.NewReplacer(instance, placeholderInstance, runID, "<run>")
 	status := func(s Status) Status {
-		s.Message = numberedInstance.ReplaceAllLiteralString(replacer.Replace(s.Message), goldenNumberedInstance)
+		s.Message = numberedInstance.ReplaceAllLiteralString(replacer.Replace(s.Message), placeholderNumberedInstance)
 		if strings.HasPrefix(s.Message, structMessage) {
 			s.Message = structMessage
 		}

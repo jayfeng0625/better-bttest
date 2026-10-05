@@ -32,7 +32,7 @@ func TestDiffNamesTheCallThatDiffers(t *testing.T) {
 
 const testInstance = "projects/acme/instances/prod"
 
-// The real project and instance stay out of the golden files.
+// Each target's instance becomes the same placeholder.
 func TestNormalizeReplacesTheInstance(t *testing.T) {
 	results := []Result{{
 		Call:   "MutateRow",

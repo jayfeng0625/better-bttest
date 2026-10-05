@@ -19,17 +19,18 @@ const runLabel = "better-bttest-parity.run"
 
 var stockCommand = []string{"gcloud", "beta", "emulators", "bigtable", "start", "--host-port=0.0.0.0:8086"}
 
-var stock = flag.Bool("stock", false, "run the cases on Google's stock emulator in Docker, and report how it differs from "+goldenPath)
+var stock = flag.Bool("stock", false, "with -real, run the cases on Google's stock emulator in Docker too, and report how it differs from the real table")
 
 // TestStock runs every case on Google's stock emulator, and logs each case whose results differ from the real table's.
 // A difference does not fail the test. A case that stops the emulator logs its panic, and the next case gets a fresh
 // emulator.
 func TestStock(t *testing.T) {
-	if !*stock {
-		t.Skip("run with -stock")
+	if !*stock || *realInstance == "" {
+		t.Skip("run with -stock -real=<project>/<instance>")
 	}
-	golden := readGolden(t)
+	cases := Cases()
 	runID := NewRunID(time.Now())
+	real := realResults(t, cases, runID)
 	label := runLabel + "=" + runID
 	t.Cleanup(func() { removeContainers(t, label) })
 
@@ -46,7 +47,11 @@ func TestStock(t *testing.T) {
 	defer func() { stop() }()
 
 	var differs, exits []string
-	for i, c := range Cases() {
+	for i, c := range cases {
+		want, ok := real[c.Name]
+		if !ok {
+			continue
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), caseDeadline)
 		got, err := Run(ctx, emulator.Target, runID, i+1, c)
 		cancel()
@@ -62,13 +67,13 @@ func TestStock(t *testing.T) {
 			differs = append(differs, c.Name)
 			continue
 		}
-		if d := Diff(golden[c.Name], Normalize(emulator.Instance, runID, got)); d != "" {
+		if d := Diff(want, Normalize(emulator.Instance, runID, got)); d != "" {
 			t.Logf("%s differs from the real table:\n%s", c.Name, d)
 			differs = append(differs, c.Name)
 		}
 	}
-	matched := len(golden) - len(differs) - len(exits)
-	t.Logf("stock matches %d of %d cases. %d differ, and %d stop the emulator.", matched, len(golden), len(differs), len(exits))
+	matched := len(real) - len(differs) - len(exits)
+	t.Logf("stock matches %d of %d cases. %d differ, and %d stop the emulator.", matched, len(real), len(differs), len(exits))
 	if len(exits) > 0 {
 		t.Log("Cases that stop it:\n" + strings.Join(exits, "\n"))
 	}
