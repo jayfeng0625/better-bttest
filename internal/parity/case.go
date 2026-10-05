@@ -17,18 +17,16 @@ type Case struct {
 	Calls []Call
 }
 
-// A Call is one RPC. A call with no Table goes to the parity table, and its rows are this case's rows there. A call
-// with a Table goes to a table that this case creates, and the run deletes the case's tables when it ends.
+// A Call is one RPC. A data call goes to the parity table, where its rows are this case's rows, unless it sets
+// CaseTable. The admin calls go to the case's table, which the run deletes when the case ends.
 type Call interface{ isCall() }
 
-// A Row names a row. On the parity table the run prefixes it with the run id and the case name. On a case's table it
+// A Row names a row. On the parity table the run prefixes it with the run id and the case name. On the case's table it
 // is the row key. The zero Row is the case's main row.
 type Row string
 
-// Writes.
-
 type MutateRow struct {
-	Table     string
+	CaseTable bool
 	Row       Row
 	Mutations []*btpb.Mutation
 }
@@ -51,40 +49,29 @@ type ReadModifyWrite struct {
 	Rules []*btpb.ReadModifyWriteRule
 }
 
-// Table admin.
-
 // CreateTable with one family, cf, that keeps one version. A Schema of nil creates the table with no row key schema.
-type CreateTable struct {
-	Table  string
-	Schema *adminpb.Type_Struct
-}
+type CreateTable struct{ Schema *adminpb.Type_Struct }
 
 // UpdateTable with the mask row_key_schema. A Schema of nil clears it.
 type SetRowKeySchema struct {
-	Table          string
 	Schema         *adminpb.Type_Struct
 	IgnoreWarnings bool
 }
 
 // UpdateTable with the mask deletion_protection.
-type SetDeletionProtection struct {
-	Table string
-	On    bool
-}
-
-// Reads.
+type SetDeletionProtection struct{ On bool }
 
 // ReadRows of one row, keeping each cell's raw bytes.
 type ReadRow struct {
-	Table string
-	Row   Row
+	CaseTable bool
+	Row       Row
 }
 
-// ReadRows over the whole table, keeping only the row keys.
-type ReadRowKeys struct{ Table string }
+// ReadRows over the case's table, keeping only the row keys.
+type ReadRowKeys struct{}
 
 // GetTable with SCHEMA_VIEW.
-type GetTable struct{ Table string }
+type GetTable struct{}
 
 func (MutateRow) isCall()             {}
 func (MutateRows) isCall()            {}
@@ -202,8 +189,6 @@ func Append(f Family) *btpb.ReadModifyWriteRule {
 	return &btpb.ReadModifyWriteRule{FamilyName: string(f), ColumnQualifier: []byte("c"), Rule: &btpb.ReadModifyWriteRule_AppendValue{AppendValue: []byte("x")}}
 }
 
-// Mutations is a list of mutations, for the fields that take one.
 func Mutations(ms ...*btpb.Mutation) []*btpb.Mutation { return ms }
 
-// Rules is a list of ReadModifyWriteRow rules.
 func Rules(rs ...*btpb.ReadModifyWriteRule) []*btpb.ReadModifyWriteRule { return rs }

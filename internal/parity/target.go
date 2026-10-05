@@ -36,10 +36,9 @@ const parityTable = "better-bttest-parity"
 
 func (t Target) tablePath(id string) string { return t.Instance + "/tables/" + id }
 
-// How often wait asks after an operation that is not done.
+// How often a poll asks again, for an operation that is not done or an emulator that does not answer yet.
 const pollInterval = 200 * time.Millisecond
 
-// Wait for the operation to finish, and return its error. The context bounds the wait.
 func (t Target) wait(ctx context.Context, op *longrunningpb.Operation) error {
 	for !op.Done {
 		select {
@@ -55,7 +54,6 @@ func (t Target) wait(ctx context.Context, op *longrunningpb.Operation) error {
 	return status.ErrorProto(op.GetError())
 }
 
-// UpdateTable with the one field in its mask, once its operation is done.
 func (t Target) updateTable(ctx context.Context, tbl *adminpb.Table, field string, ignoreWarnings bool) error {
 	op, err := t.Admin.UpdateTable(ctx, &adminpb.UpdateTableRequest{
 		Table: tbl, UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{field}}, IgnoreWarnings: ignoreWarnings,
@@ -84,19 +82,31 @@ func StartGate(ctx context.Context) (Target, func(), error) {
 		conn.Close()
 		srv.Close()
 	}
-	t := Target{
+	t := emulatorTarget(conn)
+	if err := createParityTable(ctx, t); err != nil {
+		stop()
+		return Target{}, nil, err
+	}
+	return t, stop, nil
+}
+
+func emulatorTarget(conn *grpc.ClientConn) Target {
+	return Target{
 		Data:       btpb.NewBigtableClient(conn),
 		Admin:      adminpb.NewBigtableTableAdminClient(conn),
 		Operations: longrunningpb.NewOperationsClient(conn),
 		Instance:   "projects/parity/instances/parity",
 	}
-	if _, err := t.Admin.CreateTable(ctx, &adminpb.CreateTableRequest{
+}
+
+func createParityTable(ctx context.Context, t Target) error {
+	_, err := t.Admin.CreateTable(ctx, &adminpb.CreateTableRequest{
 		Parent: t.Instance, TableId: parityTable, Table: &adminpb.Table{ColumnFamilies: columnFamilies()},
-	}); err != nil {
-		stop()
-		return Target{}, nil, fmt.Errorf("create the parity table: %w", err)
+	})
+	if err != nil {
+		return fmt.Errorf("create the parity table: %w", err)
 	}
-	return t, stop, nil
+	return nil
 }
 
 // DialReal connects to the real Bigtable with Application Default Credentials. The instance is
@@ -153,12 +163,7 @@ func StartContainer(ctx context.Context, image string, command []string, label s
 		conn.Close()
 		remove()
 	}
-	c := Container{ID: id, Target: Target{
-		Data:       btpb.NewBigtableClient(conn),
-		Admin:      adminpb.NewBigtableTableAdminClient(conn),
-		Operations: longrunningpb.NewOperationsClient(conn),
-		Instance:   "projects/parity/instances/parity",
-	}}
+	c := Container{ID: id, Target: emulatorTarget(conn)}
 	for {
 		_, err := c.Admin.ListTables(ctx, &adminpb.ListTablesRequest{Parent: c.Instance})
 		if err == nil {
@@ -171,11 +176,9 @@ func StartContainer(ctx context.Context, image string, command []string, label s
 		case <-time.After(pollInterval):
 		}
 	}
-	if _, err := c.Admin.CreateTable(ctx, &adminpb.CreateTableRequest{
-		Parent: c.Instance, TableId: parityTable, Table: &adminpb.Table{ColumnFamilies: columnFamilies()},
-	}); err != nil {
+	if err := createParityTable(ctx, c.Target); err != nil {
 		stop()
-		return Container{}, nil, fmt.Errorf("create the parity table: %w", err)
+		return Container{}, nil, err
 	}
 	return c, stop, nil
 }

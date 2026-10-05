@@ -43,7 +43,7 @@ func TestNormalizeReplacesTheInstance(t *testing.T) {
 		Status: Status{Code: codes.InvalidArgument, Message: "row 'k' (projects/<project>/instances/<instance>/tables/better-bttest-parity) : bad"},
 	}}
 
-	if d := cmp.Diff(want, Normalize(testInstance, "0123456789ab", results)); d != "" {
+	if d := cmp.Diff(want, Normalize(testInstance, testRunID, results)); d != "" {
 		t.Errorf("Normalize (-want +got):\n%s", d)
 	}
 }
@@ -60,7 +60,7 @@ func TestNormalizeReplacesTheRunID(t *testing.T) {
 		Entries: []Status{{Code: codes.InvalidArgument, Message: "row probe#<run>#sum/x"}},
 	}}
 
-	if d := cmp.Diff(want, Normalize(testInstance, "0123456789ab", results)); d != "" {
+	if d := cmp.Diff(want, Normalize(testInstance, testRunID, results)); d != "" {
 		t.Errorf("Normalize (-want +got):\n%s", d)
 	}
 }
@@ -75,7 +75,7 @@ func TestNormalizeMarksServerClockTimes(t *testing.T) {
 		{Column: "sum:d", TS: -1, Value: []byte{2}},
 	}}}
 
-	if d := cmp.Diff(want, Normalize(testInstance, "0123456789ab", results)); d != "" {
+	if d := cmp.Diff(want, Normalize(testInstance, testRunID, results)); d != "" {
 		t.Errorf("Normalize (-want +got):\n%s", d)
 	}
 }
@@ -96,7 +96,7 @@ func TestNormalizeOrdersFamiliesAndKeepsTheOrderWithinEach(t *testing.T) {
 		{Column: "sum:c", TS: 1000},
 	}}}
 
-	if d := cmp.Diff(want, Normalize(testInstance, "0123456789ab", results)); d != "" {
+	if d := cmp.Diff(want, Normalize(testInstance, testRunID, results)); d != "" {
 		t.Errorf("Normalize (-want +got):\n%s", d)
 	}
 }
@@ -112,7 +112,7 @@ func TestNormalizeTrimsTheStructEncodingMessage(t *testing.T) {
 		{Call: "SetRowKeySchema", Status: Status{Code: codes.InvalidArgument, Message: "Missing encoding for STRUCT"}},
 	}
 
-	if d := cmp.Diff(want, Normalize(testInstance, "0123456789ab", results)); d != "" {
+	if d := cmp.Diff(want, Normalize(testInstance, testRunID, results)); d != "" {
 		t.Errorf("Normalize (-want +got):\n%s", d)
 	}
 }

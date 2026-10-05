@@ -21,7 +21,8 @@ const (
 
 var Aggregates = []Family{Sum, Min, Max}
 
-// Each family's aggregator, or "" for a family with no value type. Every family has GC rule never.
+// Each family's aggregator, or "" for a family with no value type. The emulators collect garbage every second or so
+// and production does it lazily, so every family has GC rule never and keeps every version.
 var families = []struct {
 	name       Family
 	aggregator string
@@ -64,7 +65,6 @@ func describeFamily(f *adminpb.ColumnFamily) string {
 	return "a family with another value type"
 }
 
-// The families that CreateTable takes for the parity table.
 func columnFamilies() map[string]*adminpb.ColumnFamily {
 	out := map[string]*adminpb.ColumnFamily{}
 	for _, f := range families {

@@ -22,16 +22,19 @@ const rowPrefix = "probe#"
 const tablePrefix = parityTable + "-"
 
 // Run makes the case's calls on the target, and returns each of Calls' results. The ordinal is the case's place in
-// the run, which names its tables, so every target gives a case the same table names. Run deletes the case's tables
+// the run, which names its table, so every target gives a case the same table name. Run deletes the case's table
 // before it returns.
 func Run(ctx context.Context, t Target, runID string, ordinal int, c Case) (results []Result, err error) {
 	r := &runner{
 		target:       t,
 		rowKeyPrefix: rowPrefix + runID + "#" + c.Name,
-		tablePrefix:  fmt.Sprintf("%s%s-t%d", tablePrefix, runID, ordinal),
-		tables:       map[string]string{},
+		table:        fmt.Sprintf("%s%s-t%d", tablePrefix, runID, ordinal),
 	}
-	defer func() { err = errors.Join(err, r.deleteTables(ctx)) }()
+	defer func() {
+		if r.created {
+			err = errors.Join(err, t.deleteTable(ctx, r.table))
+		}
+	}()
 	for i, call := range c.Setup {
 		if res := r.call(ctx, call); res.Status.Code != codes.OK {
 			return nil, fmt.Errorf("setup call %d %s: %s: %s", i, res.Call, res.Status.Code, res.Status.Message)
@@ -47,56 +50,20 @@ func Run(ctx context.Context, t Target, runID string, ordinal int, c Case) (resu
 type runner struct {
 	target       Target
 	rowKeyPrefix string
-	tablePrefix  string
-	// Each table label's id, and the labels in the order the case first named them.
-	tables map[string]string
-	labels []string
+	table        string // the case's table's id
+	created      bool   // whether the case has called CreateTable
 }
 
-// The id of the case's table with the label. The first label gets the run's name for the case, and each later label
-// adds its place.
-func (r *runner) tableID(label string) string {
-	if id, ok := r.tables[label]; ok {
-		return id
-	}
-	id := r.tablePrefix
-	if n := len(r.labels); n > 0 {
-		id += fmt.Sprintf("-%d", n+1)
-	}
-	r.tables[label] = id
-	r.labels = append(r.labels, label)
-	return id
-}
+func (r *runner) tablePath() string { return r.target.tablePath(r.table) }
 
-func (r *runner) tablePath(label string) string { return r.target.tablePath(r.tableID(label)) }
-
-// Where a data call goes: the case's row on the parity table when it names no table, or the exact key on a case's
-// table when it does.
-func (r *runner) rowOn(table string, row Row) (tableName string, key []byte) {
-	if table != "" {
-		return r.tablePath(table), []byte(row)
+func (r *runner) rowOn(caseTable bool, row Row) (tableName string, key []byte) {
+	if caseTable {
+		return r.tablePath(), []byte(row)
 	}
 	if row == "" {
 		return r.target.tablePath(parityTable), []byte(r.rowKeyPrefix)
 	}
 	return r.target.tablePath(parityTable), []byte(r.rowKeyPrefix + "#" + string(row))
-}
-
-// Delete the case's tables, clearing deletion protection first. A table the case never created is not found.
-func (r *runner) deleteTables(ctx context.Context) error {
-	var errs []error
-	for _, label := range r.labels {
-		path := r.target.tablePath(r.tables[label])
-		if err := r.target.updateTable(ctx, &adminpb.Table{Name: path}, "deletion_protection", false); status.Code(err) == codes.NotFound {
-			continue
-		} else if err != nil {
-			errs = append(errs, fmt.Errorf("clear deletion protection on %s: %w", path, err))
-		}
-		if _, err := r.target.Admin.DeleteTable(ctx, &adminpb.DeleteTableRequest{Name: path}); err != nil && status.Code(err) != codes.NotFound {
-			errs = append(errs, fmt.Errorf("delete %s: %w", path, err))
-		}
-	}
-	return errors.Join(errs...)
 }
 
 func statusOf(err error) Status {
@@ -109,12 +76,12 @@ func (r *runner) call(ctx context.Context, call Call) Result {
 	var err error
 	switch c := call.(type) {
 	case MutateRow:
-		table, key := r.rowOn(c.Table, c.Row)
+		table, key := r.rowOn(c.CaseTable, c.Row)
 		_, err = r.target.Data.MutateRow(ctx, &btpb.MutateRowRequest{TableName: table, RowKey: key, Mutations: c.Mutations})
 	case MutateRows:
 		res.Entries, err = r.mutateRows(ctx, c.Entries)
 	case CheckAndMutate:
-		table, key := r.rowOn("", c.Row)
+		table, key := r.rowOn(false, c.Row)
 		var resp *btpb.CheckAndMutateRowResponse
 		resp, err = r.target.Data.CheckAndMutateRow(ctx, &btpb.CheckAndMutateRowRequest{
 			TableName: table, RowKey: key, TrueMutations: c.True, FalseMutations: c.False,
@@ -123,31 +90,32 @@ func (r *runner) call(ctx context.Context, call Call) Result {
 			res.Matched = &resp.PredicateMatched
 		}
 	case ReadModifyWrite:
-		table, key := r.rowOn("", c.Row)
+		table, key := r.rowOn(false, c.Row)
 		_, err = r.target.Data.ReadModifyWriteRow(ctx, &btpb.ReadModifyWriteRowRequest{TableName: table, RowKey: key, Rules: c.Rules})
 	case ReadRow:
-		res.Cells, err = r.readRow(ctx, c.Table, c.Row)
+		res.Cells, err = r.readRow(ctx, c.CaseTable, c.Row)
 	case ReadRowKeys:
-		res.Keys, err = r.readRowKeys(ctx, c.Table)
+		res.Keys, err = r.readRowKeys(ctx)
 	case CreateTable:
+		r.created = true
 		_, err = r.target.Admin.CreateTable(ctx, &adminpb.CreateTableRequest{
-			Parent: r.target.Instance, TableId: r.tableID(c.Table),
+			Parent: r.target.Instance, TableId: r.table,
 			Table: &adminpb.Table{
 				ColumnFamilies: map[string]*adminpb.ColumnFamily{"cf": {GcRule: &adminpb.GcRule{Rule: &adminpb.GcRule_MaxNumVersions{MaxNumVersions: 1}}}},
 				RowKeySchema:   c.Schema,
 			},
 		})
 	case SetRowKeySchema:
-		err = r.target.updateTable(ctx, &adminpb.Table{Name: r.tablePath(c.Table), RowKeySchema: c.Schema}, "row_key_schema", c.IgnoreWarnings)
+		err = r.target.updateTable(ctx, &adminpb.Table{Name: r.tablePath(), RowKeySchema: c.Schema}, "row_key_schema", c.IgnoreWarnings)
 	case SetDeletionProtection:
-		err = r.target.updateTable(ctx, &adminpb.Table{Name: r.tablePath(c.Table), DeletionProtection: c.On}, "deletion_protection", false)
+		err = r.target.updateTable(ctx, &adminpb.Table{Name: r.tablePath(), DeletionProtection: c.On}, "deletion_protection", false)
 	case GetTable:
 		var tbl *adminpb.Table
-		tbl, err = r.target.Admin.GetTable(ctx, &adminpb.GetTableRequest{Name: r.tablePath(c.Table), View: adminpb.Table_SCHEMA_VIEW})
+		tbl, err = r.target.Admin.GetTable(ctx, &adminpb.GetTableRequest{Name: r.tablePath(), View: adminpb.Table_SCHEMA_VIEW})
 		if err == nil {
 			res.Table = &TableView{RowKeySchema: tbl.RowKeySchema, DeletionProtection: tbl.DeletionProtection}
 		}
-		// Production's NotFound message differs from upstream's.
+		// Production says "Not found: <table path>", and the emulator says "table \"<table path>\" not found".
 		if status.Code(err) == codes.NotFound {
 			res.Status = Status{Code: codes.NotFound}
 			return res
@@ -164,7 +132,7 @@ func (r *runner) mutateRows(ctx context.Context, entries []Entry) ([]Status, err
 	req := &btpb.MutateRowsRequest{}
 	for _, e := range entries {
 		var key []byte
-		req.TableName, key = r.rowOn("", e.Row)
+		req.TableName, key = r.rowOn(false, e.Row)
 		req.Entries = append(req.Entries, &btpb.MutateRowsRequest_Entry{RowKey: key, Mutations: e.Mutations})
 	}
 	stream, err := r.target.Data.MutateRows(ctx, req)
@@ -172,24 +140,21 @@ func (r *runner) mutateRows(ctx context.Context, entries []Entry) ([]Status, err
 		return nil, err
 	}
 	statuses := make([]Status, len(entries))
-	for {
-		resp, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			return statuses, nil
-		}
-		if err != nil {
-			return nil, err
-		}
+	err = recvAll(stream, func(resp *btpb.MutateRowsResponse) {
 		for _, e := range resp.Entries {
 			statuses[e.Index] = Status{Code: codes.Code(e.Status.GetCode()), Message: e.Status.GetMessage()}
 		}
+	})
+	if err != nil {
+		return nil, err
 	}
+	return statuses, nil
 }
 
 // The row's cells as raw bytes. A chunk with a value_size continues in the next chunk, and any other chunk ends its
 // cell. A chunk that names no family or qualifier keeps the previous cell's.
-func (r *runner) readRow(ctx context.Context, table string, row Row) ([]Cell, error) {
-	tableName, key := r.rowOn(table, row)
+func (r *runner) readRow(ctx context.Context, caseTable bool, row Row) ([]Cell, error) {
+	tableName, key := r.rowOn(caseTable, row)
 	stream, err := r.target.Data.ReadRows(ctx, &btpb.ReadRowsRequest{TableName: tableName, Rows: &btpb.RowSet{RowKeys: [][]byte{key}}})
 	if err != nil {
 		return nil, err
@@ -197,14 +162,7 @@ func (r *runner) readRow(ctx context.Context, table string, row Row) ([]Cell, er
 	var cells []Cell
 	var family, qualifier string
 	continuing := false
-	for {
-		resp, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			return cells, nil
-		}
-		if err != nil {
-			return nil, err
-		}
+	err = recvAll(stream, func(resp *btpb.ReadRowsResponse) {
 		for _, ch := range resp.Chunks {
 			if ch.GetResetRow() {
 				cells, continuing = nil, false
@@ -223,29 +181,44 @@ func (r *runner) readRow(ctx context.Context, table string, row Row) ([]Cell, er
 			last.Value = append(last.Value, ch.Value...)
 			continuing = ch.ValueSize > 0
 		}
+	})
+	if err != nil {
+		return nil, err
 	}
+	return cells, nil
 }
 
 // The key of each row in the case's table, in the order ReadRows returns them. A chunk names its row only when the row
 // starts, and a row that the server resets after a reset_row starts again with the same key.
-func (r *runner) readRowKeys(ctx context.Context, table string) ([]Hex, error) {
-	stream, err := r.target.Data.ReadRows(ctx, &btpb.ReadRowsRequest{TableName: r.tablePath(table)})
+func (r *runner) readRowKeys(ctx context.Context) ([]Hex, error) {
+	stream, err := r.target.Data.ReadRows(ctx, &btpb.ReadRowsRequest{TableName: r.tablePath()})
 	if err != nil {
 		return nil, err
 	}
 	var keys []Hex
-	for {
-		resp, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			return keys, nil
-		}
-		if err != nil {
-			return nil, err
-		}
+	err = recvAll(stream, func(resp *btpb.ReadRowsResponse) {
 		for _, ch := range resp.Chunks {
 			if len(ch.RowKey) > 0 && (len(keys) == 0 || string(keys[len(keys)-1]) != string(ch.RowKey)) {
 				keys = append(keys, ch.RowKey)
 			}
 		}
+	})
+	if err != nil {
+		return nil, err
+	}
+	return keys, nil
+}
+
+// Pass each response on the stream to f, until the stream ends.
+func recvAll[T any](stream interface{ Recv() (T, error) }, f func(T)) error {
+	for {
+		resp, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		f(resp)
 	}
 }

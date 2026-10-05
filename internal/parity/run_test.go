@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"cloud.google.com/go/bigtable/admin/apiv2/adminpb"
 	btpb "cloud.google.com/go/bigtable/apiv2/bigtablepb"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/grpc/codes"
@@ -17,7 +16,6 @@ import (
 
 const testRunID = "0123456789ab"
 
-// The gate emulator, in-process, with the parity table, and a context that bounds each test.
 func startGate(t *testing.T) (context.Context, Target) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -30,7 +28,7 @@ func startGate(t *testing.T) (context.Context, Target) {
 	return ctx, target
 }
 
-func TestRunMergesWritesAndReadsTheRow(t *testing.T) {
+func TestRunReadsTheMergedRow(t *testing.T) {
 	ctx, target := startGate(t)
 	c := Case{Name: "merge", Calls: []Call{
 		Mutate(AddToCell(Sum, Int(456))),
@@ -98,7 +96,7 @@ func TestRunRecordsEachMutateRowsEntryInOrder(t *testing.T) {
 	if len(got) != 2 || got[0].Status.Code != codes.OK || len(got[0].Entries) != 2 {
 		t.Fatalf("Run = %+v, want an OK MutateRows with two entries, then the read", got)
 	}
-	for i, row := range []string{"#batch#first'", "#batch#second'"} {
+	for i, row := range []string{"#batch#first", "#batch#second"} {
 		if e := got[0].Entries[i]; e.Code != codes.InvalidArgument || !strings.Contains(e.Message, row) {
 			t.Errorf("entry %d = %+v, want InvalidArgument naming %s", i, e, row)
 		}
@@ -147,15 +145,15 @@ func TestRunAppliesReadModifyWrite(t *testing.T) {
 	if len(got) != 2 || !cmp.Equal(got[0], Result{Call: "ReadModifyWrite", Status: Status{Code: codes.OK}}) || len(got[1].Cells) != 2 {
 		t.Fatalf("Run = %+v, want an OK ReadModifyWrite, then a read of two cells", got)
 	}
-	if latest := got[1].Cells[0]; latest.TS < 1e15 || !cmp.Equal(latest.Value, Hex(BE(6))) {
+	if latest := got[1].Cells[0]; latest.TS < serverClockMicros || !cmp.Equal(latest.Value, Hex(BE(6))) {
 		t.Errorf("latest cell = %+v, want 6 at the server's clock", latest)
 	}
 }
 
-func TestRunCreatesAndReadsATableThenDeletesIt(t *testing.T) {
+func TestRunDeletesTheTableItCreated(t *testing.T) {
 	ctx, target := startGate(t)
 	schema := Delimited("#", "a", "b")
-	c := Case{Name: "table", Calls: []Call{CreateTable{Table: "t", Schema: schema}, GetTable{Table: "t"}}}
+	c := Case{Name: "table", Calls: []Call{CreateTable{Schema: schema}, GetTable{}}}
 
 	got, err := Run(ctx, target, testRunID, 1, c)
 	if err != nil {
@@ -169,30 +167,17 @@ func TestRunCreatesAndReadsATableThenDeletesIt(t *testing.T) {
 	if d := cmp.Diff(want, got, protocmp.Transform()); d != "" {
 		t.Errorf("Run (-want +got):\n%s", d)
 	}
-	if tables := tableIDs(ctx, t, target); !cmp.Equal(tables, []string{parityTable}) {
-		t.Errorf("tables after the case = %v, want only the parity table", tables)
+	if tables, err := caseTables(ctx, target); err != nil || len(tables) > 0 {
+		t.Errorf("case tables after the case = %v, %v, want none", tables, err)
 	}
-}
-
-func tableIDs(ctx context.Context, t *testing.T, target Target) []string {
-	t.Helper()
-	resp, err := target.Admin.ListTables(ctx, &adminpb.ListTablesRequest{Parent: target.Instance})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var ids []string
-	for _, tbl := range resp.Tables {
-		ids = append(ids, strings.TrimPrefix(tbl.Name, target.Instance+"/tables/"))
-	}
-	return ids
 }
 
 func TestRunDeletesAProtectedTable(t *testing.T) {
 	ctx, target := startGate(t)
 	c := Case{
 		Name:  "protected",
-		Setup: []Call{CreateTable{Table: "t"}, SetDeletionProtection{Table: "t", On: true}},
-		Calls: []Call{GetTable{Table: "t"}},
+		Setup: []Call{CreateTable{}, SetDeletionProtection{On: true}},
+		Calls: []Call{GetTable{}},
 	}
 
 	got, err := Run(ctx, target, testRunID, 1, c)
@@ -203,8 +188,8 @@ func TestRunDeletesAProtectedTable(t *testing.T) {
 	if len(got) != 1 || got[0].Table == nil || !got[0].Table.DeletionProtection {
 		t.Fatalf("Run = %+v, want a GetTable of a protected table", got)
 	}
-	if tables := tableIDs(ctx, t, target); !cmp.Equal(tables, []string{parityTable}) {
-		t.Errorf("tables after the case = %v, want only the parity table", tables)
+	if tables, err := caseTables(ctx, target); err != nil || len(tables) > 0 {
+		t.Errorf("case tables after the case = %v, %v, want none", tables, err)
 	}
 }
 
@@ -213,10 +198,10 @@ func TestRunSetsAndClearsTheRowKeySchema(t *testing.T) {
 	schema := Delimited("#", "a")
 	c := Case{
 		Name:  "row key schema",
-		Setup: []Call{CreateTable{Table: "t"}},
+		Setup: []Call{CreateTable{}},
 		Calls: []Call{
-			SetRowKeySchema{Table: "t", Schema: schema}, GetTable{Table: "t"},
-			SetRowKeySchema{Table: "t", IgnoreWarnings: true}, GetTable{Table: "t"},
+			SetRowKeySchema{Schema: schema}, GetTable{},
+			SetRowKeySchema{IgnoreWarnings: true}, GetTable{},
 		},
 	}
 
@@ -238,7 +223,7 @@ func TestRunSetsAndClearsTheRowKeySchema(t *testing.T) {
 
 func TestRunKeepsOnlyTheCodeOfAMissingTable(t *testing.T) {
 	ctx, target := startGate(t)
-	c := Case{Name: "missing", Calls: []Call{GetTable{Table: "t"}}}
+	c := Case{Name: "missing", Calls: []Call{GetTable{}}}
 
 	got, err := Run(ctx, target, testRunID, 1, c)
 	if err != nil {
@@ -253,12 +238,12 @@ func TestRunKeepsOnlyTheCodeOfAMissingTable(t *testing.T) {
 func TestRunWritesExactKeysOnACaseTable(t *testing.T) {
 	ctx, target := startGate(t)
 	write := func(key Row) MutateRow {
-		return MutateRow{Table: "t", Row: key, Mutations: []*btpb.Mutation{SetCell("cf", []byte("v"))}}
+		return MutateRow{CaseTable: true, Row: key, Mutations: []*btpb.Mutation{SetCell("cf", []byte("v"))}}
 	}
 	c := Case{
 		Name:  "keys",
-		Setup: []Call{CreateTable{Table: "t"}},
-		Calls: []Call{write("b"), write("a\xff"), ReadRow{Table: "t", Row: "b"}, ReadRowKeys{Table: "t"}},
+		Setup: []Call{CreateTable{}},
+		Calls: []Call{write("b"), write("a\xff"), ReadRow{CaseTable: true, Row: "b"}, ReadRowKeys{}},
 	}
 
 	got, err := Run(ctx, target, testRunID, 1, c)

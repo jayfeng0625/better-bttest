@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"regexp"
 	"strings"
 
@@ -19,7 +18,7 @@ import (
 // The rows and tables of any run, so that a cleanup also removes what an interrupted run left.
 var (
 	caseRowKey  = regexp.MustCompile(`^` + rowPrefix + `[0-9a-f]{12}#`)
-	caseTableID = regexp.MustCompile(`^` + tablePrefix + `[0-9a-f]{12}-t[0-9]+(-[0-9]+)?$`)
+	caseTableID = regexp.MustCompile(`^` + tablePrefix + `[0-9a-f]{12}-t[0-9]+$`)
 )
 
 // Cleanup deletes every row that the cases wrote to the parity table and every table they created, from any run.
@@ -38,13 +37,8 @@ func Cleanup(ctx context.Context, t Target) error {
 		return errors.Join(append(errs, err)...)
 	}
 	for _, id := range tables {
-		path := t.tablePath(id)
-		if err := t.updateTable(ctx, &adminpb.Table{Name: path}, "deletion_protection", false); err != nil {
-			errs = append(errs, fmt.Errorf("clear deletion protection on %s: %w", id, err))
-			continue
-		}
-		if _, err := t.Admin.DeleteTable(ctx, &adminpb.DeleteTableRequest{Name: path}); err != nil {
-			errs = append(errs, fmt.Errorf("delete %s: %w", id, err))
+		if err := t.deleteTable(ctx, id); err != nil {
+			errs = append(errs, err)
 		}
 	}
 
@@ -62,7 +56,6 @@ func Cleanup(ctx context.Context, t Target) error {
 	return errors.Join(errs...)
 }
 
-// The keys of the case rows on the parity table.
 func caseRows(ctx context.Context, t Target) ([][]byte, error) {
 	stream, err := t.Data.ReadRows(ctx, &btpb.ReadRowsRequest{
 		TableName: t.tablePath(parityTable),
@@ -79,20 +72,17 @@ func caseRows(ctx context.Context, t Target) ([][]byte, error) {
 		return nil, err
 	}
 	var keys [][]byte
-	for {
-		resp, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			return keys, nil
-		}
-		if err != nil {
-			return nil, err
-		}
+	err = recvAll(stream, func(resp *btpb.ReadRowsResponse) {
 		for _, ch := range resp.Chunks {
 			if caseRowKey.Match(ch.RowKey) {
 				keys = append(keys, ch.RowKey)
 			}
 		}
+	})
+	if err != nil {
+		return nil, err
 	}
+	return keys, nil
 }
 
 func deleteRows(ctx context.Context, t Target, keys [][]byte) error {
@@ -104,23 +94,17 @@ func deleteRows(ctx context.Context, t Target, keys [][]byte) error {
 	if err != nil {
 		return err
 	}
-	for {
-		resp, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
+	var errs []error
+	err = recvAll(stream, func(resp *btpb.MutateRowsResponse) {
 		for _, e := range resp.Entries {
-			if code := codes.Code(e.Status.GetCode()); code != codes.OK {
-				return fmt.Errorf("delete row %q: %w", keys[e.Index], status.ErrorProto(e.Status))
+			if codes.Code(e.Status.GetCode()) != codes.OK {
+				errs = append(errs, fmt.Errorf("delete row %q: %w", keys[e.Index], status.ErrorProto(e.Status)))
 			}
 		}
-	}
+	})
+	return errors.Join(append(errs, err)...)
 }
 
-// The ids of the tables the cases created.
 func caseTables(ctx context.Context, t Target) ([]string, error) {
 	req := &adminpb.ListTablesRequest{Parent: t.Instance, View: adminpb.Table_NAME_ONLY}
 	var ids []string
@@ -130,7 +114,7 @@ func caseTables(ctx context.Context, t Target) ([]string, error) {
 			return nil, err
 		}
 		for _, tbl := range resp.Tables {
-			if id := strings.TrimPrefix(tbl.Name, t.Instance+"/tables/"); caseTableID.MatchString(id) {
+			if id := strings.TrimPrefix(tbl.Name, t.tablePath("")); caseTableID.MatchString(id) {
 				ids = append(ids, id)
 			}
 		}
@@ -139,4 +123,19 @@ func caseTables(ctx context.Context, t Target) ([]string, error) {
 		}
 		req.PageToken = resp.NextPageToken
 	}
+}
+
+// Delete the table, clearing deletion protection first, since a case that stops partway can leave its table protected.
+// A table that is not found is already deleted.
+func (t Target) deleteTable(ctx context.Context, id string) error {
+	path := t.tablePath(id)
+	if err := t.updateTable(ctx, &adminpb.Table{Name: path}, "deletion_protection", false); status.Code(err) == codes.NotFound {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("clear deletion protection on %s: %w", id, err)
+	}
+	if _, err := t.Admin.DeleteTable(ctx, &adminpb.DeleteTableRequest{Name: path}); err != nil && status.Code(err) != codes.NotFound {
+		return fmt.Errorf("delete %s: %w", id, err)
+	}
+	return nil
 }

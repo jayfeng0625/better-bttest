@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"cloud.google.com/go/bigtable"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/protobuf/testing/protocmp"
 )
@@ -19,8 +20,8 @@ const goldenInstance = "projects/<project>/instances/<instance>"
 
 // Normalize returns results as the golden files keep them, with what differs between targets and runs replaced. Status
 // messages embed table paths, which carry the target's instance, and row keys and table names, which carry the run id.
-// A cell at the server's clock gets -1, the time that SetCell takes for the server's clock. ReadRows leaves the order of
-// a row's families unspecified, so the cells sort by family, keeping their order within each.
+// A cell at the server's clock gets ServerTime, the time that SetCell takes for the server's clock. ReadRows leaves the
+// order of a row's families unspecified, so the cells sort by family, keeping their order within each.
 func Normalize(instance, runID string, results []Result) []Result {
 	out := make([]Result, len(results))
 	for i, r := range results {
@@ -33,7 +34,7 @@ func Normalize(instance, runID string, results []Result) []Result {
 		slices.SortStableFunc(r.Cells, func(a, b Cell) int { return strings.Compare(family(a), family(b)) })
 		for j, c := range r.Cells {
 			if c.TS > serverClockMicros {
-				r.Cells[j].TS = -1
+				r.Cells[j].TS = int64(bigtable.ServerTime)
 			}
 		}
 		out[i] = r

@@ -37,9 +37,11 @@ If the code encodes a value wrongly, a test that uses the same function encodes 
 
 ## Check behaviour against production
 
-A parity case is a list of calls that a run makes on a real Bigtable table and on the emulator from this checkout, and the run compares each call's result.
+A parity case is a list of calls.
+A run makes the calls on a real Bigtable table and on the emulator from this checkout, and compares each call's result.
 The cases are in `internal/parity/cases.go`.
-Production's results are in `internal/parity/testdata/real.json`, so `go test ./internal/parity` checks the emulator against production with no credentials, and CI runs it.
+Production's results are in `internal/parity/testdata/real.json`.
+With them, `go test ./internal/parity` checks the emulator against production with no credentials, and CI runs it.
 
 ### Record production's results
 
@@ -50,10 +52,10 @@ go test ./internal/parity -run 'TestParity$' -real=<project>/<instance> -update
 ```
 
 The run uses Application Default Credentials. To set them up, run `gcloud auth application-default login`.
-The credentials must be able to write to the table `better-bttest-parity` in the instance, and to create and delete tables there.
+The credentials must be able to write rows, and to create and delete tables, in the instance.
 
-The data cases write rows to `better-bttest-parity`.
-Create the table with the families that `families` in `internal/parity/fixture.go` lists, each with the garbage collection rule `never`:
+The data cases write rows to the table `better-bttest-parity`.
+Create it with the families that `families` in `internal/parity/fixture.go` lists, each with the garbage collection rule `never`:
 
 - `sum`, an int64 Sum aggregate family
 - `min`, an int64 MIN aggregate family
@@ -61,11 +63,14 @@ Create the table with the families that `families` in `internal/parity/fixture.g
 - `plain`, a family with no value type
 
 The run checks the table's families before it runs a case.
-A case that creates tables names them `better-bttest-parity-<run id>-t<n>`, in the table's instance.
+A case that creates a table names it `better-bttest-parity-<run id>-t<n>`.
 The run checks the emulator against the new results, and writes them to `testdata/real.json`.
 Without `-update`, it checks the emulator against the table and leaves the file as it is.
-The file writes `<project>`, `<instance>`, and `<run>` for the names that differ between runs, and the run stops before it writes a file that names the project or the instance.
-When the test ends, it deletes every row that the cases wrote and every table that they created, from any run, and fails if any remain.
+In the file, `<project>`, `<instance>`, and `<run>` replace the names that differ between runs.
+The run leaves the file as it is when a case fails on the real table, and stops before it writes a file that names the project or the instance.
+When the test ends, it deletes every row that the cases wrote and every table that they created, from any run.
+It fails if any remain.
+Two runs at the same time therefore delete each other's rows and tables.
 An interrupted run leaves its rows and tables for the next run to delete.
 
 ### Compare Google's emulator
@@ -87,7 +92,7 @@ The comments on the call types in `case.go` say what each call sends.
 
 Add the case to `AggregateCases` to run it once for each aggregate family, or to `PlainCases` or `RowKeySchemaCases`.
 Then record production's results with `-update`, and commit `testdata/real.json` with the case.
-A case that needs another family adds it to `families` in `fixture.go`, and to the real table.
+If a case needs another family, add it to `families` in `fixture.go` and to the real table.
 
 ## Sync with upstream
 

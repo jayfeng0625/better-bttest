@@ -277,7 +277,7 @@ func RowKeySchemaCases() []Case {
 	for _, s := range schemas {
 		cases = append(cases, Case{
 			Name:  "CreateTable with a row key schema with " + s.label,
-			Calls: []Call{CreateTable{Table: "t", Schema: s.schema}, GetTable{Table: "t"}},
+			Calls: []Call{CreateTable{Schema: s.schema}, GetTable{}},
 		})
 	}
 	// UpdateTable without ignore_warnings, then with it. The update with no schema clears the field.
@@ -285,31 +285,31 @@ func RowKeySchemaCases() []Case {
 		for _, start := range starts {
 			cases = append(cases, Case{
 				Name:  "UpdateTable row_key_schema with " + s.label + ", on " + start.label,
-				Setup: []Call{CreateTable{Table: "t", Schema: start.schema}},
+				Setup: []Call{CreateTable{Schema: start.schema}},
 				Calls: []Call{
-					SetRowKeySchema{Table: "t", Schema: s.schema}, GetTable{Table: "t"},
-					SetRowKeySchema{Table: "t", Schema: s.schema, IgnoreWarnings: true}, GetTable{Table: "t"},
+					SetRowKeySchema{Schema: s.schema}, GetTable{},
+					SetRowKeySchema{Schema: s.schema, IgnoreWarnings: true}, GetTable{},
 				},
 			})
 		}
 	}
 
 	write := func(key Row) MutateRow {
-		return MutateRow{Table: "t", Row: key, Mutations: Mutations(SetCell("cf", []byte("v"), Col("q")))}
+		return MutateRow{CaseTable: true, Row: key, Mutations: Mutations(SetCell("cf", []byte("v"), Col("q")))}
 	}
 	return append(cases,
 		Case{
 			Name:  "UpdateTable row_key_schema on a protected table",
-			Setup: []Call{CreateTable{Table: "t"}, SetDeletionProtection{Table: "t", On: true}},
+			Setup: []Call{CreateTable{}, SetDeletionProtection{On: true}},
 			Calls: []Call{
-				SetRowKeySchema{Table: "t", Schema: fourFields}, GetTable{Table: "t"},
-				SetRowKeySchema{Table: "t", IgnoreWarnings: true}, GetTable{Table: "t"},
+				SetRowKeySchema{Schema: fourFields}, GetTable{},
+				SetRowKeySchema{IgnoreWarnings: true}, GetTable{},
 			},
 		},
 		Case{
 			Name:  "Writes with keys that do not fit the row key schema",
-			Setup: []Call{CreateTable{Table: "t", Schema: fourFields}},
-			Calls: []Call{write("a#b#c#d#e"), write("a"), write("a#\xff\xfe#c#d"), ReadRowKeys{Table: "t"}},
+			Setup: []Call{CreateTable{Schema: fourFields}},
+			Calls: []Call{write("a#b#c#d#e"), write("a"), write("a#\xff\xfe#c#d"), ReadRowKeys{}},
 		},
 	)
 }
