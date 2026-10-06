@@ -23,6 +23,8 @@ type Query struct {
 	Columns []Column
 	// Table is the table the query reads.
 	Table string
+	// View is the materialized view the query reads, or empty.
+	View string
 	// Families are the families the query reads.
 	Families []string
 
@@ -545,7 +547,7 @@ func (c *compiler) tableScan(s *gsql.ResolvedTableScan) (scan, error) {
 		return nil, internal(err)
 	}
 	if v := c.views[name]; v != nil {
-		return c.viewScan(s, v)
+		return c.viewScan(name, s, v)
 	}
 	tbl := c.tables[name]
 	c.q.Table = name

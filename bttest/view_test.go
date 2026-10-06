@@ -339,3 +339,26 @@ func TestDeleteTableFailsWhileAViewReadsIt(t *testing.T) {
 		t.Errorf("DeleteTable after the view is gone: %v", err)
 	}
 }
+
+func TestViewExecuteFailsOnceTheViewIsDeleted(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newViewFixture(ctx, t, totalsRows)
+	f.createView(ctx, t, "v_expired", expiredViewQuery)
+	ps, err := f.client.PrepareStatement(ctx, "SELECT rowKey FROM v_expired", nil)
+	if err != nil {
+		t.Fatalf("PrepareStatement: %v", err)
+	}
+	if err := f.iadmin.DeleteMaterializedView(ctx, "i", "v_expired"); err != nil {
+		t.Fatalf("DeleteMaterializedView: %v", err)
+	}
+
+	bs, err := ps.Bind(nil)
+	if err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
+	err = bs.Execute(ctx, func(bigtable.ResultRow) bool { return true })
+
+	// Production names the project by number and the view's replica by cluster. The emulator has the project ID and
+	// no cluster, so it writes the ID in the number's slot and names its one cluster after the instance.
+	wantStatus(t, err, codes.NotFound, "Failed to read: projects/{p}/instances/i/clusters/i-c1/materializedViews/v_expired : MaterializedViewsReplicas(p,i,i-c1,v_expired) : Failed to read: projects/{p}/instances/i/clusters/i-c1/materializedViews/v_expired")
+}

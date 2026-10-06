@@ -107,9 +107,36 @@ func (s *server) GetMaterializedView(ctx context.Context, req *btapb.GetMaterial
 	return proto.Clone(v.mv).(*btapb.MaterializedView), nil
 }
 
-// viewNotFound is the error for a view that does not exist. Production's message is unmeasured.
+// viewNotFound is the error for a view that does not exist.
 func viewNotFound(name string) error {
-	return status.Errorf(codes.NotFound, "materialized view %q not found", name)
+	return status.Errorf(codes.NotFound, "Failed to read: %s", numberedProject(name))
+}
+
+// viewReplica fails a read of a deleted view as production does when the view's replica is gone. The emulator has
+// no cluster, so it names one after the instance.
+func (s *server) viewReplica(instance, id string) error {
+	s.views.mu.Lock()
+	defer s.views.mu.Unlock()
+	if _, ok := s.views.views[instance+"/materializedViews/"+id]; ok {
+		return nil
+	}
+	project, instanceID := projectInstance(instance)
+	cluster := instanceID + "-c1"
+	replica := numberedProject(instance) + "/clusters/" + cluster + "/materializedViews/" + id
+	return status.Errorf(codes.NotFound, "Failed to read: %s : MaterializedViewsReplicas(%s,%s,%s,%s) : Failed to read: %s", replica, project, instanceID, cluster, id, replica)
+}
+
+// projectInstance splits an instance name into its project and instance IDs.
+func projectInstance(instance string) (project, id string) {
+	parts := strings.Split(instance, "/")
+	return parts[1], parts[3]
+}
+
+// numberedProject writes a resource name as production writes it in a read error, with the project in braces.
+// Production puts the project number there. The emulator has only the project ID, so it writes the ID.
+func numberedProject(name string) string {
+	project, rest, _ := strings.Cut(strings.TrimPrefix(name, "projects/"), "/")
+	return "projects/{" + project + "}/" + rest
 }
 
 // ListMaterializedViews returns the instance's views in name order, in one page.

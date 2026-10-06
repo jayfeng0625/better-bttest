@@ -82,7 +82,8 @@ func (e *env) addView(t Table, tables []Table) error {
 }
 
 // viewScan compiles a scan of a view. A query over a view depends on the view's source table and families.
-func (c *compiler) viewScan(s *gsql.ResolvedTableScan, v *Query) (scan, error) {
+func (c *compiler) viewScan(name string, s *gsql.ResolvedTableScan, v *Query) (scan, error) {
+	c.q.View = name
 	c.q.Table = v.Table
 	c.q.Families = append(c.q.Families, v.Families...)
 	cols, err := scanColumns(s)
