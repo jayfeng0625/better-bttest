@@ -107,7 +107,7 @@ func function(name string, xs []expr, ts []Type, consts []*Value) expr {
 			x, y := a[0].Int, a[1].Int
 			r := x - y
 			if (y > 0 && r > x) || (y < 0 && r < x) {
-				// The message is an assumption: no production overflow of - was recorded.
+				// The message is an assumption. Production recorded no overflow of INT64 subtraction.
 				return Value{}, status.Errorf(codes.OutOfRange, "int64 overflow: %d - %d", x, y)
 			}
 			return Value{Int: r}, nil
@@ -122,7 +122,7 @@ func function(name string, xs []expr, ts []Type, consts []*Value) expr {
 			case y == 0:
 				return Value{}, status.Error(codes.OutOfRange, "division by zero: DIV")
 			case x == math.MinInt64 && y == -1:
-				// The message is an assumption: no production overflow of DIV was recorded.
+				// The message is an assumption. Production recorded no overflow of DIV.
 				return Value{}, status.Errorf(codes.OutOfRange, "int64 overflow: DIV(%d, %d)", x, y)
 			}
 			return Value{Int: x / y}, nil

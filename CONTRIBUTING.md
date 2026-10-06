@@ -82,7 +82,7 @@ A SQL case's calls are `PrepareQuery` and `ExecuteQuery`, and `Query(sql, params
 `{table}` in the SQL stands for the case's table. Write it in backquotes, because GoogleSQL does not parse the table id unquoted.
 A SQL case starts its `Setup` with `sqlFixture()`, which creates the table and writes the six rows that the queries read.
 Add SQL cases to `SQLCases` in `internal/parity/sqlcases.go`.
-A case for GROUP BY, UNNEST, or a function that the totals query calls goes in `TotalsCases` in `internal/parity/totalscases.go`.
+A case for GROUP BY, UNNEST, or a function that `totalsQuery` calls goes in `TotalsCases` in `internal/parity/totalscases.go`.
 
 ## Sync with upstream
 

@@ -68,7 +68,7 @@ Two more changes have nothing to match in production:
 
 ## Not supported yet
 
-- SQL beyond the constructs listed above, such as `LEFT JOIN`, `COUNT(expr)`, and `OFFSET`.
+- SQL beyond the constructs listed above, such as `LEFT JOIN`, `COUNT(expr)`, and `LIMIT` with `OFFSET`.
 - A runtime SQL error's second line, `(while evaluating <expression>)`.
 - Materialized views.
 - HyperLogLog (HLL) aggregate families.

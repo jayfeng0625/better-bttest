@@ -174,14 +174,18 @@ func TestSQLRuntimeErrorFailsExecuteAsProductionDoes(t *testing.T) {
 			}
 		})
 	}
+}
 
-	t.Run("SUM whose running sum stays in range", func(t *testing.T) {
-		got := f.query(ctx, t, "SELECT SUM(x) AS s FROM T, UNNEST([9223372036854775807, -5, 1]) AS x WHERE _key = 't6#p1#n#rowI'", nil, nil)
+func TestSQLSumReturnsATotalWhoseRunningSumStaysInRange(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+	f.createItemsTable(ctx, t, "T", runtimeErrorRows)
 
-		if diff := cmp.Diff([][]any{{i64(9223372036854775803)}}, got.rows); diff != "" {
-			t.Errorf("rows (-want +got):\n%s", diff)
-		}
-	})
+	got := f.query(ctx, t, "SELECT SUM(x) AS s FROM T, UNNEST([9223372036854775807, -5, 1]) AS x WHERE _key = 't6#p1#n#rowI'", nil, nil)
+
+	if diff := cmp.Diff([][]any{{i64(9223372036854775803)}}, got.rows); diff != "" {
+		t.Errorf("rows (-want +got):\n%s", diff)
+	}
 }
 
 func TestSQLGroupByArrayFormsOneGroupPerDistinctArray(t *testing.T) {
