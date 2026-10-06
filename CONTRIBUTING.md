@@ -61,7 +61,7 @@ The view cases run only with `-views`:
 go test ./internal/parity -run 'TestParity$' -real=<project>/<instance> -views -timeout 40m
 ```
 
-They create materialized views named `better-bttest-parity-<run id>-v<n>` on their case tables, and production takes one to two minutes to create each.
+They create materialized views named `better-bttest-parity-<run id>-v<n>` on their case tables, and production takes 1 to 2 minutes to create each.
 The run deletes each view before its table.
 
 ### Compare Google's emulator
@@ -96,7 +96,7 @@ A case for GROUP BY, UNNEST, or a function that `totalsQuery` calls goes in `Tot
 Each case has 30 s for its calls. Set the case's `Deadline` when its calls take longer on production, as a family drop does.
 
 A view case creates its view with `CreateView`, and `{view}` in its SQL stands for the view.
-`viewFixture(query)` writes the SQL fixture, then creates the view, so that the view's first refresh holds every row.
+`viewFixture(query)` writes the SQL fixture, then creates the view, so that the view holds every row.
 Add it to `ViewCases` in `internal/parity/viewcases.go`, which gives every view case `viewDeadline`.
 
 ## Sync with upstream

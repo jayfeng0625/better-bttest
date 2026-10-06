@@ -13,8 +13,8 @@ const viewDeadline = 5 * time.Minute
 // expiredViewQuery lists the rows whose marker is unset, keyed by the source key under an alias.
 const expiredViewQuery = "SELECT _key AS rowKey FROM `{table}` WHERE mark['marker'] IS NULL ORDER BY rowKey"
 
-// viewFixture is the SQL fixture with a view of query over it. The source rows are written before the create, so
-// that the view's initial backfill holds them, since production refreshes a view 3 to 6 s after a source write.
+// viewFixture writes the SQL fixture, then creates a view of query over it. Production refreshes a view 3 to 6 s
+// after a source write, so a case writes every source row before the create and reads a view that holds them.
 func viewFixture(query string) []Call {
 	return append(sqlFixture(), CreateView{Query: query})
 }

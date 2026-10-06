@@ -436,7 +436,6 @@ func TestViewExecuteFailsOnceTheViewIsDeleted(t *testing.T) {
 	wantStatus(t, err, codes.NotFound, "Failed to read: projects/{p}/instances/i/clusters/i-c1/materializedViews/v_expired : MaterializedViewsReplicas(p,i,i-c1,v_expired) : Failed to read: projects/{p}/instances/i/clusters/i-c1/materializedViews/v_expired")
 }
 
-// readView reads every row of the view through the Go client, as production's ReadRows returns them.
 func (f *viewFixture) readView(ctx context.Context, t *testing.T, id string) []bigtable.Row {
 	t.Helper()
 	var rows []bigtable.Row
@@ -530,5 +529,23 @@ func TestViewReadRowsLeavesOutNullCellsAndTheLoneKeyColumn(t *testing.T) {
 	wantByKey := []bigtable.Row{viewRow("t6#p1#n#rowI", bigtable.ReadItem{Column: "sz", Value: be(7)})}
 	if diff := cmp.Diff(wantByKey, byKey); diff != "" {
 		t.Errorf("ReadRows on the _key view (-want +got):\n%s", diff)
+	}
+}
+
+// Production takes the _key column unencoded only when it is the whole key. In a multi-part key it escapes the part
+// as it does any BYTES part, and stores every column as a cell.
+func TestViewReadRowsEscapesTheKeyColumnInsideAMultiPartKey(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newViewFixture(ctx, t, []itemRow{{key: "k", size: i64(3)}, {key: "k\x00\x00", size: i64(2)}})
+	f.createView(ctx, t, "v_bykeysize", "SELECT _key, TO_INT64(size['bytes']) AS sz FROM `items-prod` ORDER BY _key, sz")
+
+	got := f.readView(ctx, t, "v_bykeysize")
+
+	want := []bigtable.Row{
+		viewRow("k\x00\x01\x83", bigtable.ReadItem{Column: "_key", Value: []byte("k")}, bigtable.ReadItem{Column: "sz", Value: be(3)}),
+		viewRow("k\x00\xff\x00\xff\x00\x01\x82", bigtable.ReadItem{Column: "_key", Value: []byte("k\x00\x00")}, bigtable.ReadItem{Column: "sz", Value: be(2)}),
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("ReadRows on the multi-part _key view (-want +got):\n%s", diff)
 	}
 }

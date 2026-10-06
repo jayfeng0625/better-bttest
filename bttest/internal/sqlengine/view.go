@@ -16,7 +16,7 @@ import (
 )
 
 // keyPart is one part of a materialized view's row key: the slot that holds it, its kind, and whether it is an
-// output column named _key, which production takes as the key unencoded.
+// output column named _key that makes up the whole key, which production takes as the key unencoded.
 type keyPart struct {
 	id   int32
 	kind Kind
@@ -56,8 +56,8 @@ var (
 	volatile = map[string]bool{"current_timestamp": true, "rand": true, "generate_uuid": true, "current_date": true}
 )
 
-// viewFunctionRule fails a view's computed column that calls a volatile function, before the column's type is
-// checked, as production does.
+// viewFunctionRule fails a view's computed column that calls a volatile function before the engine checks the
+// column's type, as production does.
 func viewFunctionRule(cc *gsql.ResolvedComputedColumn) error {
 	e, err := cc.Expr()
 	if err != nil {
@@ -114,7 +114,7 @@ func PrepareView(sql string, tables []Table) (*Query, error) {
 		if j < 0 {
 			return nil, status.Errorf(codes.InvalidArgument, "every %s column must be selected in the final query", clause)
 		}
-		keys[i].raw = q.Columns[j].Name == "_key"
+		keys[i].raw = len(keys) == 1 && q.Columns[j].Name == "_key"
 	}
 	isKey := func(k keyPart) bool { return c.shape.keyIDs[k.id] }
 	if clause == "ORDER BY" && !slices.ContainsFunc(keys, isKey) {
