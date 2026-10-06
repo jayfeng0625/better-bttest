@@ -3,6 +3,7 @@
 package parity
 
 import (
+	"bytes"
 	"fmt"
 	"regexp"
 	"slices"
@@ -27,7 +28,7 @@ var numberedInstance = regexp.MustCompile(`projects/\{[^}]*\}/instances/[^/]+`)
 
 // Normalize returns results with what differs between targets and runs replaced. Status
 // messages embed table paths, which carry the target's instance, and row keys and table names, which carry the run id.
-// A status message ends before a "(while evaluating" line. A cell at the server's clock gets ServerTime, the time that SetCell takes for the server's clock. ReadRows leaves the
+// A cell at the server's clock gets ServerTime, the time that SetCell takes for the server's clock. ReadRows leaves the
 // order of a row's families unspecified, so the cells sort by family, keeping their order within each.
 func Normalize(instance, runID string, results []Result) []Result {
 	replacer := strings.NewReplacer(instance, placeholderInstance, runID, "<run>")
@@ -81,14 +82,15 @@ const structMessage = "Missing encoding for STRUCT"
 // stops at it.
 const evaluatingLine = "\n(while evaluating "
 
-// Diff returns each call whose result differs between want and got, or "" when every result matches.
+// Diff returns each call whose result differs between want and got, or "" when every result matches. It compares
+// bytes with bytes.Equal, because cmp compares a slice element by element, which took a minute on a 7.5 MiB result.
 func Diff(want, got []Result) string {
 	var b strings.Builder
 	if len(want) != len(got) {
 		fmt.Fprintf(&b, "want %d calls, got %d\n", len(want), len(got))
 	}
 	for i := range min(len(want), len(got)) {
-		if d := cmp.Diff(want[i], got[i], protocmp.Transform()); d != "" {
+		if d := cmp.Diff(want[i], got[i], protocmp.Transform(), cmp.Comparer(bytes.Equal)); d != "" {
 			fmt.Fprintf(&b, "call %d %s (-want +got):\n%s", i, want[i].Call, d)
 		}
 	}

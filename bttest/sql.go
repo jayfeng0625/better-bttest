@@ -219,7 +219,6 @@ func (s *server) familyDropped(pq *preparedQuery) bool {
 	return false
 }
 
-// instanceTable returns the instance's table with the given ID, or nil.
 func (s *server) instanceTable(instance, id string) *table {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -88,10 +88,12 @@ Then run the cases on a real instance.
 If a case needs another family, add it to `families()` in `fixture.go` and to the real table.
 
 A SQL case's calls are `PrepareQuery` and `ExecuteQuery`, and `Query(sql, params...)` returns both.
-`{table}` in the SQL stands for the case's table. Write it in backquotes, because GoogleSQL does not parse the table id unquoted.
+`{table}` in the SQL stands for the case's table. Write it in backquotes. The table id has a dashed part that starts with a digit, and GoogleSQL does not parse such a name unquoted.
 A SQL case starts its `Setup` with `sqlFixture()`, which creates the table and writes the six rows that the queries read.
 Add SQL cases to `SQLCases` in `internal/parity/sqlcases.go`.
 A case for GROUP BY, UNNEST, or a function that `totalsQuery` calls goes in `TotalsCases` in `internal/parity/totalscases.go`.
+
+Each case has 30 s for its calls. Set the case's `Deadline` when its calls take longer on production, as a family drop does.
 
 A view case creates its view with `CreateView`, and `{view}` in its SQL stands for the view.
 `viewFixture(query)` writes the SQL fixture, then creates the view, so that the view's first refresh holds every row.
