@@ -65,14 +65,19 @@ func fitFamilyTypes(muts []*btpb.Mutation, fs map[string]*columnFamily) bool {
 	return true
 }
 
-// mergeInputFits reports whether a MergeToCell input fits a Sum, MIN, or MAX family, whose values are int64s in 8
-// big-endian bytes. An empty input is NULL, and fits. Any input fits a family of another type.
-func mergeInputFits(input []byte, cf *columnFamily) bool {
-	switch cf.valueType.GetAggregateType().GetAggregator().(type) {
+// int64Aggregate reports whether t is a Sum, MIN, or MAX aggregate, whose values are int64s in 8 big-endian bytes.
+func int64Aggregate(t *btapb.Type) bool {
+	switch t.GetAggregateType().GetAggregator().(type) {
 	case *btapb.Type_Aggregate_Sum_, *btapb.Type_Aggregate_Min_, *btapb.Type_Aggregate_Max_:
-		return len(input) == 0 || len(input) == 8
+		return true
 	}
-	return true
+	return false
+}
+
+// mergeInputFits reports whether a MergeToCell input fits a family. An int64 aggregate takes 8 bytes, or an empty
+// input, which is NULL. Any input fits a family of another type.
+func mergeInputFits(input []byte, cf *columnFamily) bool {
+	return !int64Aggregate(cf.valueType) || len(input) == 0 || len(input) == 8
 }
 
 // rulesFitFamilyTypes reports whether every ReadModifyWriteRow rule targets a family with no aggregate type.
