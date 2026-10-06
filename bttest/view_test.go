@@ -411,3 +411,100 @@ func TestViewExecuteFailsOnceTheViewIsDeleted(t *testing.T) {
 	// no cluster, so it writes the ID in the number's slot and names its one cluster after the instance.
 	wantStatus(t, err, codes.NotFound, "Failed to read: projects/{p}/instances/i/clusters/i-c1/materializedViews/v_expired : MaterializedViewsReplicas(p,i,i-c1,v_expired) : Failed to read: projects/{p}/instances/i/clusters/i-c1/materializedViews/v_expired")
 }
+
+// readView reads every row of the view through the Go client, as production's ReadRows returns them.
+func (f *viewFixture) readView(ctx context.Context, t *testing.T, id string) []bigtable.Row {
+	t.Helper()
+	var rows []bigtable.Row
+	err := f.client.OpenMaterializedView(id).ReadRows(ctx, bigtable.InfiniteRange(""), func(r bigtable.Row) bool {
+		rows = append(rows, r)
+		return true
+	})
+	if err != nil {
+		t.Fatalf("ReadRows(%s): %v", id, err)
+	}
+	return rows
+}
+
+// viewRow is a view row as production's ReadRows returns it: one family, default, with an empty-qualifier cell
+// with no value, then a cell per stored column in qualifier order, all at timestamp 0.
+func viewRow(key string, cells ...bigtable.ReadItem) bigtable.Row {
+	items := []bigtable.ReadItem{{Row: key, Column: "default:"}}
+	for _, c := range cells {
+		c.Row, c.Column = key, "default:"+c.Column
+		items = append(items, c)
+	}
+	return bigtable.Row{"default": items}
+}
+
+func be(n int64) []byte { return binary.BigEndian.AppendUint64(nil, uint64(n)) }
+
+// Production stores a GROUP BY view's group columns in the key only, with the parts joined by \x00\x01, and its
+// aggregates as cells, an INT64 as 8 big-endian bytes.
+func TestViewReadRowsReturnsGroupedRowsAsCells(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newViewFixture(ctx, t, totalsRows)
+	f.createView(ctx, t, "v_totals", totalsQuery)
+
+	got := f.readView(ctx, t, "v_totals")
+
+	cells := func(items, bytes, groupItems int64) []bigtable.ReadItem {
+		return []bigtable.ReadItem{
+			{Column: "itemCount", Value: be(items)},
+			{Column: "tenantPartitionType_bytes", Value: be(bytes)},
+			{Column: "tenantPartitionType_itemCount", Value: be(groupItems)},
+		}
+	}
+	want := []bigtable.Row{
+		viewRow("t1\x00\x01\"b2\"\x00\x01p1\x00\x01n", cells(1, 0, 0)...),
+		viewRow("t1\x00\x01\"default\"\x00\x01p1\x00\x01n", cells(2, 0, 0)...),
+		viewRow("t1\x00\x01$\x00\x01p1\x00\x01b", cells(1, 70, 1)...),
+		viewRow("t1\x00\x01$\x00\x01p1\x00\x01n", cells(2, 150, 2)...),
+		viewRow("t2\x00\x01$\x00\x01p1\x00\x01n", cells(1, 10, 1)...),
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("ReadRows on the totals view (-want +got):\n%s", diff)
+	}
+}
+
+// An ORDER BY view keyed by an alias of _key keeps the source key as its row key and stores the column as a cell
+// too.
+func TestViewReadRowsReturnsOrderedRowsWithTheirKeyColumn(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newViewFixture(ctx, t, totalsRows)
+	f.createView(ctx, t, "v_expired", expiredViewQuery)
+
+	got := f.readView(ctx, t, "v_expired")
+
+	want := []bigtable.Row{
+		viewRow("t1#p1#n#rowB", bigtable.ReadItem{Column: "rowKey", Value: []byte("t1#p1#n#rowB")}),
+		viewRow("t2#p1#n#rowD", bigtable.ReadItem{Column: "rowKey", Value: []byte("t2#p1#n#rowD")}),
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("ReadRows on the expired view (-want +got):\n%s", diff)
+	}
+}
+
+// A NULL aggregate has no cell. A view keyed by the _key column alone keeps the raw key and stores no cell for it.
+func TestViewReadRowsLeavesOutNullCellsAndTheLoneKeyColumn(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newViewFixture(ctx, t, runtimeErrorRows)
+	f.createView(ctx, t, "v_sum", "SELECT SPLIT(_key, '#')[0] AS t, SUM(TO_INT64(size['bytes'])) AS s, COUNT(*) AS n FROM `items-prod` WHERE STARTS_WITH(_key, 't') GROUP BY t")
+	f.createView(ctx, t, "v_bykey", "SELECT _key, TO_INT64(size['bytes']) AS sz FROM `items-prod` WHERE STARTS_WITH(_key, 't6') ORDER BY _key")
+
+	sum := f.readView(ctx, t, "v_sum")
+	byKey := f.readView(ctx, t, "v_bykey")
+
+	wantSum := []bigtable.Row{
+		viewRow("t1", bigtable.ReadItem{Column: "n", Value: be(3)}, bigtable.ReadItem{Column: "s", Value: be(220)}),
+		viewRow("t6", bigtable.ReadItem{Column: "n", Value: be(1)}, bigtable.ReadItem{Column: "s", Value: be(7)}),
+		viewRow("t7", bigtable.ReadItem{Column: "n", Value: be(1)}),
+	}
+	if diff := cmp.Diff(wantSum, sum); diff != "" {
+		t.Errorf("ReadRows on the SUM view (-want +got):\n%s", diff)
+	}
+	wantByKey := []bigtable.Row{viewRow("t6#p1#n#rowI", bigtable.ReadItem{Column: "sz", Value: be(7)})}
+	if diff := cmp.Diff(wantByKey, byKey); diff != "" {
+		t.Errorf("ReadRows on the _key view (-want +got):\n%s", diff)
+	}
+}
