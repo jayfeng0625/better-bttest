@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 )
 
 // totalsQuery is the totals view's query as written, trailing commas included, on the case's table.
@@ -58,7 +59,7 @@ func TotalsCases() []Case {
 		sumCalls = append(sumCalls, Query(fmt.Sprintf("SELECT %s AS s FROM `{table}` WHERE STARTS_WITH(_key, 'sum#g%d#')", sum, i+1))...)
 	}
 	for _, sizes := range sumGroups {
-		sumCalls = append(sumCalls, Query(fmt.Sprintf("SELECT SUM(x) AS s FROM `{table}`, UNNEST(%s) AS x WHERE _key = 't1#p1#n#rowA'", arrayLiteral(sizes)))...)
+		sumCalls = append(sumCalls, Query(fmt.Sprintf("SELECT SUM(x) AS s FROM `{table}`, UNNEST(%s) AS x WHERE _key = 't1#p1#n#rowA'", strings.ReplaceAll(fmt.Sprint(sizes), " ", ", ")))...)
 	}
 
 	return []Case{
@@ -141,15 +142,4 @@ func TotalsCases() []Case {
 			),
 		},
 	}
-}
-
-func arrayLiteral(ns []int64) string {
-	s := "["
-	for i, n := range ns {
-		if i > 0 {
-			s += ", "
-		}
-		s += fmt.Sprint(n)
-	}
-	return s + "]"
 }
