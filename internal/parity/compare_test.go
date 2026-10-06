@@ -133,6 +133,28 @@ func TestNormalizeTrimsTheStructEncodingMessage(t *testing.T) {
 	}
 }
 
+// Production's messages, as two ExecuteQuery calls returned them on 2026-10-06.
+func TestNormalizeCutsTheWhileEvaluatingLine(t *testing.T) {
+	results := []Result{
+		{Call: "ExecuteQuery", Status: Status{
+			Code:    codes.InvalidArgument,
+			Message: "incorrect value size. expected: 8 bytes, actual: 11 bytes\n(while evaluating to_int64_big_endian(`$col3`))",
+		}},
+		{Call: "ExecuteQuery", Status: Status{
+			Code:    codes.OutOfRange,
+			Message: "Array index 9 is out of bounds\n(while evaluating split(_key, b\"#\")[offset(9)])",
+		}},
+	}
+	want := []Result{
+		{Call: "ExecuteQuery", Status: Status{Code: codes.InvalidArgument, Message: "incorrect value size. expected: 8 bytes, actual: 11 bytes"}},
+		{Call: "ExecuteQuery", Status: Status{Code: codes.OutOfRange, Message: "Array index 9 is out of bounds"}},
+	}
+
+	if d := cmp.Diff(want, Normalize(testInstance, testRunID, results)); d != "" {
+		t.Errorf("Normalize (-want +got):\n%s", d)
+	}
+}
+
 func TestDiffReportsADifferentNumberOfCalls(t *testing.T) {
 	want := []Result{{Call: "MutateRow"}, {Call: "ReadRow"}}
 	got := []Result{{Call: "MutateRow"}}
