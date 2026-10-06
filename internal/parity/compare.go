@@ -57,7 +57,6 @@ func Normalize(instance, runID string, results []Result) []Result {
 	return out
 }
 
-// The cells sorted by family, with server clock times marked.
 func cells(in []Cell) []Cell {
 	out := slices.Clone(in)
 	slices.SortStableFunc(out, func(a, b Cell) int { return strings.Compare(family(a), family(b)) })

@@ -45,7 +45,6 @@ var features = []gsql.LanguageFeature{
 // env is one analyzer setup. go-googlesql's AnalyzerOptions must not be shared across concurrent analyses, so
 // each Prepare builds its own.
 type env struct {
-	// views are the prepared queries of the views added to the catalog, by name.
 	views map[string]*Query
 	cat   *gsql.SimpleCatalog
 	opts  *gsql.AnalyzerOptions

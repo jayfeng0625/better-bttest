@@ -39,6 +39,9 @@ type viewClause struct {
 }
 
 func (vc *viewClause) add(ids []int32, kinds []Kind) {
+	if len(ids) == 0 {
+		return
+	}
 	vc.count++
 	vc.keys = make([]keyPart, len(ids))
 	for i, id := range ids {
@@ -88,7 +91,7 @@ func PrepareView(sql string, tables []Table) (*Query, error) {
 			sources = append(sources, t)
 		}
 	}
-	c := &compiler{view: true}
+	c := &compiler{view: true, shape: viewShape{keyIDs: map[int32]bool{}}}
 	q, err := prepare(sql, sources, nil, c)
 	if err != nil {
 		return nil, err
@@ -106,10 +109,12 @@ func PrepareView(sql string, tables []Table) (*Query, error) {
 	if keys == nil {
 		return nil, status.Error(codes.InvalidArgument, "queries must contain a GROUP BY or ORDER BY clause")
 	}
-	for _, k := range keys {
-		if !slices.Contains(q.outIDs, k.id) {
+	for i, k := range keys {
+		j := slices.Index(q.outIDs, k.id)
+		if j < 0 {
 			return nil, status.Errorf(codes.InvalidArgument, "every %s column must be selected in the final query", clause)
 		}
+		keys[i].raw = q.Columns[j].Name == "_key"
 	}
 	isKey := func(k keyPart) bool { return c.shape.keyIDs[k.id] }
 	if clause == "ORDER BY" && !slices.ContainsFunc(keys, isKey) {
@@ -119,16 +124,11 @@ func PrepareView(sql string, tables []Table) (*Query, error) {
 	if clause == "GROUP BY" && hint && !(len(keys) == 1 && isKey(keys[0])) {
 		return nil, status.Error(codes.InvalidArgument, "queries that provide a _key hint must only group by _key (and optionally _timestamp). Use a different column name if you want to create a composite key.")
 	}
-	for i, k := range keys {
+	for _, k := range keys {
 		switch k.kind {
 		case KindBytes, KindString, KindInt64:
 		default:
 			return nil, unsupported("a view key that is not BYTES, STRING or INT64")
-		}
-		for j, id := range q.outIDs {
-			if id == k.id && q.Columns[j].Name == "_key" {
-				keys[i].raw = true
-			}
 		}
 	}
 	q.keys = keys
@@ -141,7 +141,6 @@ func PrepareView(sql string, tables []Table) (*Query, error) {
 	return q, nil
 }
 
-// addView prepares a view's query and adds the view to the catalog as a table of its output columns.
 func (e *env) addView(t Table, tables []Table) error {
 	v, err := PrepareView(t.ViewQuery, tables)
 	if err != nil {
@@ -172,7 +171,6 @@ type viewScan struct {
 	cols []scanCol
 }
 
-// run reads the view's rows in key order.
 func (s *viewScan) run(x *execCtx, emit func([]Value) error) error {
 	return s.view.viewRows(x.ctx, x.src, func(_ []byte, out []Value) error {
 		row := make([]Value, x.nSlots)

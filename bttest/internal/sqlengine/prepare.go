@@ -43,7 +43,6 @@ func Prepare(sql string, tables []Table, params map[string]Type) (*Query, error)
 	return prepare(sql, tables, params, &compiler{})
 }
 
-// prepare analyzes and compiles sql with the compiler c, which records a view's shape.
 func prepare(sql string, tables []Table, params map[string]Type, c *compiler) (*Query, error) {
 	e, err := newEnv(params)
 	if err != nil {
@@ -183,9 +182,8 @@ type compiler struct {
 	tables map[string]*Table
 	views  map[string]*Query
 	q      *Query
-	// view marks a materialized view's query. The compiler then records the view's shape.
-	view  bool
-	shape viewShape
+	view   bool
+	shape  viewShape
 }
 
 // scanNames name the scans the engine does not support, by node kind.
@@ -325,7 +323,7 @@ func (c *compiler) computed(cols []*gsql.ResolvedComputedColumn) ([]int32, []Kin
 				return nil, nil, nil, err
 			}
 			if c.shape.keyIDs[refID] {
-				c.markKey(id)
+				c.shape.keyIDs[id] = true
 			}
 		}
 		x, err := c.expr(e)
@@ -337,23 +335,6 @@ func (c *compiler) computed(cols []*gsql.ResolvedComputedColumn) ([]int32, []Kin
 		exprs = append(exprs, x)
 	}
 	return ids, kinds, exprs, nil
-}
-
-// markKey records that a view's column id carries the source table's _key unmodified: the table's own _key column,
-// or a column computed as a plain reference to one.
-func (c *compiler) markKey(id int32) {
-	if c.shape.keyIDs == nil {
-		c.shape.keyIDs = map[int32]bool{}
-	}
-	c.shape.keyIDs[id] = true
-}
-
-// setViewKeys records a view's GROUP BY or ORDER BY clause and its key parts.
-func (c *compiler) setViewKeys(dst *viewClause, ids []int32, kinds []Kind) {
-	if !c.view || len(ids) == 0 {
-		return
-	}
-	dst.add(ids, kinds)
 }
 
 // arrayScan compiles a comma join or CROSS JOIN with UNNEST of one array.
@@ -427,7 +408,9 @@ func (c *compiler) aggregate(s *gsql.ResolvedAggregateScan) (scan, error) {
 	if a.groupIDs, kinds, a.groupExprs, err = c.computed(gb); err != nil {
 		return nil, err
 	}
-	c.setViewKeys(&c.shape.group, a.groupIDs, kinds)
+	if c.view {
+		c.shape.group.add(a.groupIDs, kinds)
+	}
 	al, err := s.AggregateList()
 	if err != nil {
 		return nil, internal(err)
@@ -567,7 +550,9 @@ func (c *compiler) orderBy(s *gsql.ResolvedOrderByScan) (scan, error) {
 		ids = append(ids, id)
 		kinds = append(kinds, t.Kind)
 	}
-	c.setViewKeys(&c.shape.order, ids, kinds)
+	if c.view {
+		c.shape.order.add(ids, kinds)
+	}
 	return o, nil
 }
 
@@ -593,7 +578,7 @@ func (c *compiler) tableScan(s *gsql.ResolvedTableScan) (scan, error) {
 	for _, sc := range cols {
 		tc := tableCol{id: sc.id}
 		if sc.index == 0 && c.view {
-			c.markKey(sc.id)
+			c.shape.keyIDs[sc.id] = true
 		}
 		if sc.index > 0 {
 			tc.family = &tbl.Families[sc.index-1]

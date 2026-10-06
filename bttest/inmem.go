@@ -280,7 +280,7 @@ func (s *server) DeleteTable(ctx context.Context, req *btapb.DeleteTableRequest)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.tables[req.Name]; !ok {
-		return nil, deleteTableNotFound(req.Name)
+		return nil, readNotFound(req.Name)
 	}
 	if s.tables[req.Name].isProtected {
 		return nil, status.Errorf(codes.FailedPrecondition, "table %q is protected from deletion", req.Name)
@@ -569,7 +569,9 @@ func (s *server) ReadRows(req *btpb.ReadRowsRequest, stream btpb.Bigtable_ReadRo
 		if tbl, err = s.viewTable(stream.Context(), req.MaterializedViewName); err != nil {
 			return err
 		}
-	} else if !ok {
+		ok = true
+	}
+	if !ok {
 		return tableNotFound(req.TableName)
 	}
 

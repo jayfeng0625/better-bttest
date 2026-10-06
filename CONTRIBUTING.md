@@ -97,7 +97,7 @@ Each case has 30 s for its calls. Set the case's `Deadline` when its calls take 
 
 A view case creates its view with `CreateView`, and `{view}` in its SQL stands for the view.
 `viewFixture(query)` writes the SQL fixture, then creates the view, so that the view's first refresh holds every row.
-Give a view case `Deadline: viewDeadline`, and add it to `ViewCases` in `internal/parity/viewcases.go`.
+Add it to `ViewCases` in `internal/parity/viewcases.go`, which gives every view case `viewDeadline`.
 
 ## Sync with upstream
 

@@ -20,7 +20,8 @@ func viewFixture(query string) []Call {
 }
 
 // ViewCases are the cases that create a materialized view on the case's table. TestParity runs them only with
-// -views.
+// -views. A case that reads a view ends with the admin calls that need a live view, so that the run creates as few
+// views as it can.
 func ViewCases() []Case {
 	const (
 		usage    = "SELECT tenantId, SUM(tenantPartitionType_itemCount) AS itemCount, SUM(tenantPartitionType_bytes) AS bytes FROM `{view}` WHERE labelId = '$'"
@@ -28,18 +29,17 @@ func ViewCases() []Case {
 		grouped  = "SELECT SPLIT(_key, '#')[0] AS t, COUNT(*) AS n FROM `{table}` GROUP BY t"
 	)
 	rejects := func(name string, queries ...string) Case {
-		c := Case{Name: name, Setup: sqlFixture(), Deadline: viewDeadline}
+		c := Case{Name: name, Setup: sqlFixture()}
 		for _, q := range queries {
 			c.Calls = append(c.Calls, CreateView{Query: q})
 		}
 		return c
 	}
 
-	return []Case{
+	cases := []Case{
 		{
-			Name:     "view of the totals query",
-			Setup:    viewFixture(totalsQuery),
-			Deadline: viewDeadline,
+			Name:  "view of the totals query, then DeleteTable under it",
+			Setup: viewFixture(totalsQuery),
 			Calls: slices.Concat(
 				[]Call{GetView{}, ReadView{}},
 				Query("SELECT * FROM `{view}`"),
@@ -51,12 +51,12 @@ func ViewCases() []Case {
 				Query("SELECT tenantId FROM `{view}` WHERE tenantId = 't2'"),
 				Query("SELECT tenantId FROM `{view}` WHERE tenantId = @t", StringParam("t", "t2")),
 				Query("SELECT * FROM `{view}` LIMIT 2"),
+				[]Call{DeleteTable{}, GetView{}, DeleteView{}, DeleteTable{}},
 			),
 		},
 		{
-			Name:     "view of the rows with no marker",
-			Setup:    viewFixture(expiredViewQuery),
-			Deadline: viewDeadline,
+			Name:  "view of the rows with no marker, then its deletion protection",
+			Setup: viewFixture(expiredViewQuery),
 			Calls: slices.Concat(
 				[]Call{ReadView{}},
 				Query("SELECT * FROM `{view}` WHERE rowKey >= b't1' AND rowKey < b't4'"),
@@ -65,19 +65,18 @@ func ViewCases() []Case {
 				Query("SELECT COUNT(*) AS n FROM `{view}` WHERE rowKey >= b't1' AND rowKey < b't4'"),
 				Query("SELECT * FROM `{view}`(with_history => TRUE)"),
 				Query("SELECT _timestamp FROM `{view}`"),
+				[]Call{SetViewDeletionProtection{On: true}, GetView{}, DeleteView{}, SetViewDeletionProtection{On: false}, DeleteView{}, GetView{}},
 			),
 		},
 		{
-			Name:     "view ordered by a size, then the key",
-			Setup:    viewFixture(bySizeID + " ORDER BY sz, rk"),
-			Deadline: viewDeadline,
-			Calls:    slices.Concat([]Call{ReadView{}}, Query("SELECT * FROM `{view}`")),
+			Name:  "view ordered by a size, then the key",
+			Setup: viewFixture(bySizeID + " ORDER BY sz, rk"),
+			Calls: slices.Concat([]Call{ReadView{}}, Query("SELECT * FROM `{view}`")),
 		},
 		{
-			Name:     "view keyed by the source key alone",
-			Setup:    viewFixture("SELECT _key, TO_INT64(size['bytes']) AS sz FROM `{table}` ORDER BY _key"),
-			Deadline: viewDeadline,
-			Calls:    slices.Concat([]Call{ReadView{}}, Query("SELECT * FROM `{view}`"), Query("SELECT sz FROM `{view}`")),
+			Name:  "view keyed by the source key alone",
+			Setup: viewFixture("SELECT _key, TO_INT64(size['bytes']) AS sz FROM `{table}` ORDER BY _key"),
+			Calls: slices.Concat([]Call{ReadView{}}, Query("SELECT * FROM `{view}`"), Query("SELECT sz FROM `{view}`")),
 		},
 		rejects("view create rejects nested or mixed GROUP BY and ORDER BY",
 			"SELECT t, n FROM ("+grouped+") ORDER BY n",
@@ -102,21 +101,12 @@ func ViewCases() []Case {
 			"SELECT SPLIT(_key, '#')[0] AS t, STRING_AGG(_key) AS ks, COUNT(*) AS n FROM `{table}` GROUP BY t",
 		),
 		{
-			Name:     "view admin calls on a view that does not exist",
-			Deadline: viewDeadline,
-			Calls:    []Call{GetView{}, SetViewDeletionProtection{On: true}, SetViewDeletionProtection{On: false}, DeleteView{}},
-		},
-		{
-			Name:     "view deletion protection",
-			Setup:    viewFixture(expiredViewQuery),
-			Deadline: viewDeadline,
-			Calls:    []Call{SetViewDeletionProtection{On: true}, GetView{}, DeleteView{}, SetViewDeletionProtection{On: false}, DeleteView{}, GetView{}},
-		},
-		{
-			Name:     "DeleteTable while a view reads the table",
-			Setup:    viewFixture("SELECT _key, COUNT(*) AS n FROM `{table}` GROUP BY _key"),
-			Deadline: viewDeadline,
-			Calls:    []Call{DeleteTable{}, GetView{}, DeleteView{}, DeleteTable{}},
+			Name:  "view admin calls on a view that does not exist",
+			Calls: []Call{GetView{}, SetViewDeletionProtection{On: true}, SetViewDeletionProtection{On: false}, DeleteView{}},
 		},
 	}
+	for i := range cases {
+		cases[i].Deadline = viewDeadline
+	}
+	return cases
 }

@@ -346,7 +346,7 @@ func TestViewLeavesOutRowWhoseAggregateArgumentFails(t *testing.T) {
 	ctx := sqlContext(t)
 	// TO_INT64 fails on a 3-byte labels cell after the row's group key evaluates. The row then adds no group and no count.
 	f := newViewFixture(ctx, t, []itemRow{
-		{key: "t1#a", labels: str(string(binary.BigEndian.AppendUint64(nil, 5)))},
+		{key: "t1#a", labels: str(string(be(5)))},
 		{key: "t1#b", labels: str("abc")},
 		{key: "t2#c", labels: str("abc")},
 	})

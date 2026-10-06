@@ -147,7 +147,6 @@ func caseTables(ctx context.Context, t Target, of func(runID string) bool) ([]st
 	}
 }
 
-// The ids of the case views whose run id is of.
 func caseViews(ctx context.Context, t Target, of func(runID string) bool) ([]string, error) {
 	req := &adminpb.ListMaterializedViewsRequest{Parent: t.Instance}
 	var ids []string

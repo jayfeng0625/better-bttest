@@ -38,15 +38,20 @@ const parityTable = "better-bttest-parity"
 func (t Target) tablePath(id string) string { return t.Instance + "/tables/" + id }
 func (t Target) viewPath(id string) string  { return t.Instance + "/materializedViews/" + id }
 
-// How often a poll asks again, for an operation that is not done or an emulator that does not answer yet.
-const pollInterval = 200 * time.Millisecond
+// How often a poll asks again, for an operation that is not done or an emulator that does not answer yet. A wait
+// on an operation doubles the interval each time, up to maxPollInterval, since a view create takes production 1 to 2
+// minutes.
+const (
+	pollInterval    = 200 * time.Millisecond
+	maxPollInterval = 5 * time.Second
+)
 
 func (t Target) wait(ctx context.Context, op *longrunningpb.Operation) error {
-	for !op.Done {
+	for interval := pollInterval; !op.Done; interval = min(2*interval, maxPollInterval) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(pollInterval):
+		case <-time.After(interval):
 		}
 		var err error
 		if op, err = t.Operations.GetOperation(ctx, &longrunningpb.GetOperationRequest{Name: op.Name}); err != nil {

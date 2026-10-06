@@ -67,11 +67,8 @@ func (s *server) viewTable(ctx context.Context, name string) (*table, error) {
 	err = q.ViewRows(ctx, &tableSource{s: s, instance: instance}, func(key []byte, cells []sqlengine.ViewCell) error {
 		r := newRow(string(key))
 		fam := r.getOrCreateFamily("default", 0)
-		fam.cellsByColumn("")
-		fam.cells[""] = []cell{{value: []byte{}}}
-		for _, c := range cells {
-			fam.cellsByColumn(c.Column)
-			fam.cells[c.Column] = []cell{{value: c.Value}}
+		for _, c := range append([]sqlengine.ViewCell{{}}, cells...) {
+			fam.cells[c.Column] = append(fam.cellsByColumn(c.Column), cell{value: c.Value})
 		}
 		tbl.rows.ReplaceOrInsert(r)
 		return nil
@@ -82,7 +79,6 @@ func (s *server) viewTable(ctx context.Context, name string) (*table, error) {
 	return tbl, nil
 }
 
-// sqlViews lists the instance's materialized views as SQL sees them.
 func (s *server) sqlViews(instance string) []sqlengine.Table {
 	prefix := instance + "/materializedViews/"
 	s.views.mu.Lock()
@@ -122,7 +118,6 @@ func (s *server) CreateMaterializedView(ctx context.Context, req *btapb.CreateMa
 	return doneOperation(mv)
 }
 
-// doneOperation returns a finished operation whose response is the view.
 func doneOperation(mv *btapb.MaterializedView) (*longrunning.Operation, error) {
 	res, err := anypb.New(mv)
 	if err != nil {
@@ -136,14 +131,9 @@ func (s *server) GetMaterializedView(ctx context.Context, req *btapb.GetMaterial
 	defer s.views.mu.Unlock()
 	v, ok := s.views.views[req.GetName()]
 	if !ok {
-		return nil, viewNotFound(req.GetName())
+		return nil, readNotFound(req.GetName())
 	}
 	return proto.Clone(v.mv).(*btapb.MaterializedView), nil
-}
-
-// viewNotFound is the error for a view that does not exist.
-func viewNotFound(name string) error {
-	return status.Errorf(codes.NotFound, "Failed to read: %s", numberedProject(name))
 }
 
 // viewReplica fails a read of a deleted view as production does when the view's replica is gone. The emulator has
@@ -160,17 +150,9 @@ func (s *server) viewReplica(instance, id string) error {
 	return status.Errorf(codes.NotFound, "Failed to read: %s : MaterializedViewsReplicas(%s,%s,%s,%s) : Failed to read: %s", replica, project, instanceID, cluster, id, replica)
 }
 
-// projectInstance splits an instance name into its project and instance IDs.
 func projectInstance(instance string) (project, id string) {
 	parts := strings.Split(instance, "/")
 	return parts[1], parts[3]
-}
-
-// numberedProject writes a resource name as production writes it in a read error, with the project in braces.
-// Production puts the project number there. The emulator has only the project ID, so it writes the ID.
-func numberedProject(name string) string {
-	project, rest, _ := strings.Cut(strings.TrimPrefix(name, "projects/"), "/")
-	return "projects/{" + project + "}/" + rest
 }
 
 // ListMaterializedViews returns the instance's views in name order, in one page.
@@ -193,7 +175,7 @@ func (s *server) DeleteMaterializedView(ctx context.Context, req *btapb.DeleteMa
 	defer s.views.mu.Unlock()
 	v, ok := s.views.views[req.GetName()]
 	if !ok {
-		return nil, viewNotFound(req.GetName())
+		return nil, readNotFound(req.GetName())
 	}
 	if v.mv.DeletionProtection {
 		return nil, status.Errorf(codes.FailedPrecondition, "Materialized View %s has deletion protection enabled.", req.GetName())
@@ -210,7 +192,7 @@ func (s *server) UpdateMaterializedView(ctx context.Context, req *btapb.UpdateMa
 	defer s.views.mu.Unlock()
 	v, ok := s.views.views[in.GetName()]
 	if !ok {
-		return nil, viewNotFound(in.GetName())
+		return nil, readNotFound(in.GetName())
 	}
 	mv := v.mv
 	paths := req.GetUpdateMask().GetPaths()

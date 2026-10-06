@@ -78,7 +78,6 @@ FROM (SELECT
 UNNEST(expand.labels) AS labelId
 GROUP BY tenantId, labelId, partitionId, rowType`
 
-// totalsRows are the rows the totals query tests seed.
 var totalsRows = []itemRow{
 	{key: "t1#p1#n#rowA", size: i64(100), labels: str(`["default","b2"]`), flag: true},
 	{key: "t1#p1#n#rowB", size: i64(50), labels: str(`["default"]`)},
@@ -86,7 +85,6 @@ var totalsRows = []itemRow{
 	{key: "t2#p1#n#rowD", size: i64(10), labels: str(`[]`), flagDeleted: true},
 }
 
-// totalsColumns and totalsTypes are the totals query's output schema.
 var (
 	totalsColumns = []string{"tenantId", "labelId", "partitionId", "rowType", "itemCount", "tenantPartitionType_bytes", "tenantPartitionType_itemCount"}
 	totalsTypes   = []bigtable.SQLType{
@@ -130,7 +128,6 @@ var runtimeErrorRows = []itemRow{
 	{key: "t7#p1#n#rowJ", labels: str("abcdefgh")},
 }
 
-// executeErr prepares and runs sql, and returns the number of rows it received and the execute error.
 func (f *sqlFixture) executeErr(ctx context.Context, t *testing.T, sql string) (int, error) {
 	t.Helper()
 	ps, err := f.client.PrepareStatement(ctx, sql, nil)

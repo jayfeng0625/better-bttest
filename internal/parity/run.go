@@ -41,15 +41,13 @@ func Run(ctx context.Context, t Target, runID string, ordinal int, c Case) (resu
 		view:         fmt.Sprintf("%s%s-v%d", tablePrefix, runID, ordinal),
 	}
 	defer func() {
-		if r.created || r.viewCreated {
-			ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), caseCleanupDeadline)
-			defer cancel()
-			if r.viewCreated {
-				err = errors.Join(err, t.deleteView(ctx, r.view))
-			}
-			if r.created {
-				err = errors.Join(err, t.deleteTable(ctx, r.table))
-			}
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), caseCleanupDeadline)
+		defer cancel()
+		if r.viewCreated {
+			err = errors.Join(err, t.deleteView(ctx, r.view))
+		}
+		if r.created {
+			err = errors.Join(err, t.deleteTable(ctx, r.table))
 		}
 	}()
 	for i, call := range c.Setup {
@@ -87,7 +85,6 @@ func (r *runner) call(ctx context.Context, call Call) Result {
 func (r *runner) tablePath() string { return r.target.tablePath(r.table) }
 func (r *runner) viewPath() string  { return r.target.viewPath(r.view) }
 
-// The SQL with the case's table and view ids in place of {table} and {view}.
 func (r *runner) sql(sql string) string {
 	return strings.NewReplacer("{table}", r.table, "{view}", r.view).Replace(sql)
 }
@@ -168,9 +165,10 @@ func (c ReadRow) run(ctx context.Context, r *runner) (Result, error) {
 	return Result{Cells: rows[0].Cells}, nil
 }
 
-// Each row that the request reads, with its cells as raw bytes. A chunk with a row key starts a row, a chunk with a
-// value_size continues in the next chunk, and any other chunk ends its cell. A chunk that names no family or
-// qualifier keeps the previous cell's. A reset_row drops the row's cells so far.
+// Each row that the request reads, with its cells as raw bytes. A chunk names its row only when the row starts, and
+// a row that the server resets after a reset_row starts again with the same key. A chunk with a value_size
+// continues in the next chunk, and any other chunk ends its cell. A chunk that names no family or qualifier keeps
+// the previous cell's.
 func readRows(ctx context.Context, t Target, req *btpb.ReadRowsRequest) ([]ViewRow, error) {
 	stream, err := t.Data.ReadRows(ctx, req)
 	if err != nil {
@@ -214,23 +212,15 @@ func (ReadRowKeys) run(ctx context.Context, r *runner) (Result, error) {
 	return Result{Keys: keys}, err
 }
 
-// The key of each row that the request reads, in order. A chunk names its row only when the row starts, and a row that
-// the server resets after a reset_row starts again with the same key.
+// The key of each row that the request reads, in order.
 func readKeys(ctx context.Context, t Target, req *btpb.ReadRowsRequest) ([]Hex, error) {
-	stream, err := t.Data.ReadRows(ctx, req)
+	rows, err := readRows(ctx, t, req)
 	if err != nil {
 		return nil, err
 	}
-	var keys []Hex
-	err = recvAll(stream, func(resp *btpb.ReadRowsResponse) {
-		for _, ch := range resp.Chunks {
-			if len(ch.RowKey) > 0 && (len(keys) == 0 || string(keys[len(keys)-1]) != string(ch.RowKey)) {
-				keys = append(keys, ch.RowKey)
-			}
-		}
-	})
-	if err != nil {
-		return nil, err
+	keys := make([]Hex, len(rows))
+	for i, row := range rows {
+		keys[i] = row.Key
 	}
 	return keys, nil
 }
