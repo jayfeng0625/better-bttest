@@ -305,7 +305,8 @@ func (c PrepareQuery) run(ctx context.Context, r *runner) (Result, error) {
 
 var errNoPreparedQuery = status.Error(codes.FailedPrecondition, "the case has no prepared query")
 
-// The rows, split from each batch's values by the prepared column count, and one line for each message.
+// ExecuteQuery returns the rows, split from each batch's values by the prepared column count, and one line for each
+// message.
 func (c ExecuteQuery) run(ctx context.Context, r *runner) (Result, error) {
 	if r.prepared == nil {
 		return Result{}, errNoPreparedQuery
