@@ -154,6 +154,22 @@ func TestViewCreateRejectsQueriesAsProductionDoes(t *testing.T) {
 			codes.InvalidArgument, "This query is not valid. Please ensure that all parts of the query are valid, as per the requirements listed at https://cloud.google.com/bigtable/docs/reference/sql/googlesql-reference-overview. In particular, the query must not use multiple GROUP BY or ORDER BY clauses.",
 		},
 		{
+			"ORDER BY without the key", "v_bad", "SELECT TO_INT64(size['bytes']) AS sz, _key AS rk FROM `items-prod` ORDER BY sz",
+			codes.InvalidArgument, "queries must select and order by the unmodified _key column from the source table",
+		},
+		{
+			"ORDER BY key not selected", "v_bad", "SELECT TO_INT64(size['bytes']) AS sz FROM `items-prod` ORDER BY sz, _key",
+			codes.InvalidArgument, "every ORDER BY column must be selected in the final query",
+		},
+		{
+			"ORDER BY expression not selected", "v_bad", "SELECT SPLIT(_key, '#')[0] AS t, _key AS rk FROM `items-prod` ORDER BY t, SPLIT(_key, '#')[1]",
+			codes.InvalidArgument, "every ORDER BY column must be selected in the final query",
+		},
+		{
+			"GROUP BY expression not selected", "v_bad", "SELECT COUNT(*) AS n FROM `items-prod` GROUP BY SPLIT(_key, '#')[0]",
+			codes.InvalidArgument, "every GROUP BY column must be selected in the final query",
+		},
+		{
 			"ANY_VALUE under a taken ID", "v_expired", "SELECT _key, ANY_VALUE(size['bytes']) AS sz, COUNT(*) AS n FROM `items-prod` GROUP BY _key",
 			codes.InvalidArgument, "Only stable functions are supported in materialized views (GoogleSQL:any_value is not stable)",
 		},
@@ -169,6 +185,25 @@ func TestViewCreateRejectsQueriesAsProductionDoes(t *testing.T) {
 	}
 	if _, err := f.iadmin.MaterializedViewInfo(ctx, "i", "v_bad"); status.Code(err) != codes.NotFound {
 		t.Errorf("MaterializedViewInfo(v_bad) error = %v, want NotFound", err)
+	}
+}
+
+func TestViewOrdersByAnAliasedKeyAfterAnotherColumn(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newViewFixture(ctx, t, totalsRows)
+	f.createView(ctx, t, "v_bysize", "SELECT TO_INT64(size['bytes']) AS sz, _key AS rk FROM `items-prod` ORDER BY sz, rk")
+
+	got := f.query(ctx, t, "SELECT * FROM v_bysize", nil, nil)
+
+	b := func(s string) []byte { return []byte(s) }
+	want := [][]any{
+		{i64(10), b("t2#p1#n#rowD")},
+		{i64(50), b("t1#p1#n#rowB")},
+		{i64(70), b("t1#p1#b#rowC")},
+		{i64(100), b("t1#p1#n#rowA")},
+	}
+	if diff := cmp.Diff(want, got.rows); diff != "" {
+		t.Errorf("rows (-want +got):\n%s", diff)
 	}
 }
 

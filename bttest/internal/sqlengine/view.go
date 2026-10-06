@@ -21,10 +21,12 @@ type keyPart struct {
 	raw  bool
 }
 
-// viewShape is what the compiler records of a view's query: its GROUP BY and ORDER BY clauses.
+// viewShape is what the compiler records of a view's query: its GROUP BY and ORDER BY clauses, and the columns that
+// carry the source table's _key unmodified.
 type viewShape struct {
-	group viewClause
-	order viewClause
+	group  viewClause
+	order  viewClause
+	keyIDs map[int32]bool
 }
 
 // viewClause records a view's GROUP BY or ORDER BY clauses: how many the query has, and the key parts of the
@@ -66,12 +68,21 @@ func PrepareView(sql string, tables []Table) (*Query, error) {
 	if c.shape.group.count > 1 || c.shape.order.count > 1 {
 		return nil, status.Error(codes.InvalidArgument, "This query is not valid. Please ensure that all parts of the query are valid, as per the requirements listed at https://cloud.google.com/bigtable/docs/reference/sql/googlesql-reference-overview. In particular, the query must not use multiple GROUP BY or ORDER BY clauses.")
 	}
-	keys := c.shape.group.keys
+	keys, clause := c.shape.group.keys, "GROUP BY"
 	if keys == nil {
-		keys = c.shape.order.keys
+		keys, clause = c.shape.order.keys, "ORDER BY"
 	}
 	if keys == nil {
 		return nil, status.Error(codes.InvalidArgument, "queries must contain a GROUP BY or ORDER BY clause")
+	}
+	for _, k := range keys {
+		if !slices.Contains(q.outIDs, k.id) {
+			return nil, status.Errorf(codes.InvalidArgument, "every %s column must be selected in the final query", clause)
+		}
+	}
+	isKey := func(k keyPart) bool { return c.shape.keyIDs[k.id] }
+	if clause == "ORDER BY" && !slices.ContainsFunc(keys, isKey) {
+		return nil, status.Error(codes.InvalidArgument, "queries must select and order by the unmodified _key column from the source table")
 	}
 	for i, k := range keys {
 		switch k.kind {

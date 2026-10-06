@@ -306,6 +306,19 @@ func (c *compiler) computed(cols []*gsql.ResolvedComputedColumn) ([]int32, []Kin
 		if err != nil {
 			return nil, nil, nil, internal(err)
 		}
+		if ref, ok := e.(*gsql.ResolvedColumnRef); ok && c.view {
+			col, err := ref.Column()
+			if err != nil {
+				return nil, nil, nil, internal(err)
+			}
+			refID, _, err := colInfo(col)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			if c.shape.keyIDs[refID] {
+				c.markKey(id)
+			}
+		}
 		x, err := c.expr(e)
 		if err != nil {
 			return nil, nil, nil, err
@@ -315,6 +328,15 @@ func (c *compiler) computed(cols []*gsql.ResolvedComputedColumn) ([]int32, []Kin
 		exprs = append(exprs, x)
 	}
 	return ids, kinds, exprs, nil
+}
+
+// markKey records that a view's column id carries the source table's _key unmodified: the table's own _key column,
+// or a column computed as a plain reference to one.
+func (c *compiler) markKey(id int32) {
+	if c.shape.keyIDs == nil {
+		c.shape.keyIDs = map[int32]bool{}
+	}
+	c.shape.keyIDs[id] = true
 }
 
 // setViewKeys records a view's GROUP BY or ORDER BY clause and its key parts.
@@ -553,6 +575,9 @@ func (c *compiler) tableScan(s *gsql.ResolvedTableScan) (scan, error) {
 	}
 	for _, sc := range cols {
 		tc := tableCol{id: sc.id}
+		if sc.index == 0 && c.view {
+			c.markKey(sc.id)
+		}
 		if sc.index > 0 {
 			tc.family = &tbl.Families[sc.index-1]
 			c.q.Families = append(c.q.Families, tc.family.Name)
