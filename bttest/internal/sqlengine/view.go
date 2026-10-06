@@ -46,8 +46,37 @@ func (vc *viewClause) add(ids []int32, kinds []Kind) {
 	}
 }
 
-// unstable names the aggregates production rejects in a view as not stable.
-var unstable = map[string]bool{"any_value": true}
+// unstable names the aggregates production rejects in a view as not stable, and volatile the scalar functions it
+// rejects as not immutable.
+var (
+	unstable = map[string]bool{"any_value": true, "array_agg": true, "string_agg": true}
+	volatile = map[string]bool{"current_timestamp": true, "rand": true, "generate_uuid": true, "current_date": true}
+)
+
+// viewFunctionRule fails a view's computed column that calls a volatile function, before the column's type is
+// checked, as production does.
+func viewFunctionRule(cc *gsql.ResolvedComputedColumn) error {
+	e, err := cc.Expr()
+	if err != nil {
+		return internal(err)
+	}
+	call, ok := e.(*gsql.ResolvedFunctionCall)
+	if !ok {
+		return nil
+	}
+	fn, err := call.Function()
+	if err != nil {
+		return internal(err)
+	}
+	name, err := fn.Name()
+	if err != nil {
+		return internal(err)
+	}
+	if volatile[name] {
+		return status.Errorf(codes.InvalidArgument, "Only immutable functions are supported in materialized views (GoogleSQL:%s is not immutable)", name)
+	}
+	return nil
+}
 
 // PrepareView analyzes and compiles a materialized view's query against the tables, and checks it against
 // production's view rules with production's messages. A view reads tables only, so a view over a view fails as a

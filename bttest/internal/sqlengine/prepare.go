@@ -70,6 +70,9 @@ func prepare(sql string, tables []Table, params map[string]Type, c *compiler) (*
 	if err != nil {
 		return nil, internal(err)
 	}
+	// A view checks its functions before its output types, as production does, so an output type the engine does
+	// not support fails the view only after its query compiles.
+	var typeErr error
 	for i := range n {
 		oc, err := qs.OutputColumnList2(i)
 		if err != nil {
@@ -85,7 +88,12 @@ func prepare(sql string, tables []Table, params map[string]Type, c *compiler) (*
 		}
 		id, t, err := colInfo(col)
 		if err != nil {
-			return nil, err
+			if !c.view {
+				return nil, err
+			}
+			if typeErr == nil {
+				typeErr = err
+			}
 		}
 		q.Columns = append(q.Columns, Column{Name: name, Type: t})
 		q.outIDs = append(q.outIDs, id)
@@ -97,6 +105,9 @@ func prepare(sql string, tables []Table, params map[string]Type, c *compiler) (*
 	c.tables, c.views, c.q = byName, e.views, q
 	if q.root, err = c.scan(root); err != nil {
 		return nil, err
+	}
+	if typeErr != nil {
+		return nil, typeErr
 	}
 	return q, nil
 }
@@ -295,6 +306,11 @@ func (c *compiler) computed(cols []*gsql.ResolvedComputedColumn) ([]int32, []Kin
 	var kinds []Kind
 	var exprs []expr
 	for _, cc := range cols {
+		if c.view {
+			if err := viewFunctionRule(cc); err != nil {
+				return nil, nil, nil, err
+			}
+		}
 		id, t, e, err := computedColumn(cc)
 		if err != nil {
 			return nil, nil, nil, err
