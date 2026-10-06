@@ -216,6 +216,9 @@ func (s *server) CreateTable(ctx context.Context, req *btapb.CreateTableRequest)
 	default:
 		return nil, status.Errorf(codes.InvalidArgument, "unknown timestamp granularity %v", g)
 	}
+	if err := validateRowKeySchema(req.GetTable().GetRowKeySchema()); err != nil {
+		return nil, err
+	}
 
 	s.mu.Lock()
 	if _, ok := s.tables[tbl]; ok {
@@ -231,6 +234,7 @@ func (s *server) CreateTable(ctx context.Context, req *btapb.CreateTableRequest)
 		ColumnFamilies:     req.GetTable().GetColumnFamilies(),
 		Granularity:        t.granularity,
 		DeletionProtection: req.GetTable().GetDeletionProtection(),
+		RowKeySchema:       req.GetTable().GetRowKeySchema(),
 	}, nil
 }
 
@@ -260,7 +264,7 @@ func (s *server) GetTable(ctx context.Context, req *btapb.GetTableRequest) (*bta
 	tblIns, ok := s.tables[tbl]
 	s.mu.Unlock()
 	if !ok {
-		return nil, status.Errorf(codes.NotFound, "table %q not found", tbl)
+		return nil, tableNotFound(tbl)
 	}
 
 	return &btapb.Table{
@@ -268,6 +272,7 @@ func (s *server) GetTable(ctx context.Context, req *btapb.GetTableRequest) (*bta
 		ColumnFamilies:     toColumnFamilies(tblIns.columnFamilies()),
 		Granularity:        tblIns.granularity,
 		DeletionProtection: tblIns.isProtected,
+		RowKeySchema:       tblIns.getRowKeySchema(),
 	}, nil
 }
 
@@ -275,7 +280,7 @@ func (s *server) DeleteTable(ctx context.Context, req *btapb.DeleteTableRequest)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.tables[req.Name]; !ok {
-		return nil, status.Errorf(codes.NotFound, "table %q not found", req.Name)
+		return nil, deleteTableNotFound(req.Name)
 	}
 	if s.tables[req.Name].isProtected {
 		return nil, status.Errorf(codes.FailedPrecondition, "table %q is protected from deletion", req.Name)
@@ -303,12 +308,14 @@ func (s *server) UpdateTable(ctx context.Context, req *btapb.UpdateTableRequest)
 
 	tbl, ok := s.tables[req.GetTable().GetName()]
 	if !ok {
-		return nil, status.Errorf(codes.NotFound, "table %q not found", req.GetTable().GetName())
+		return nil, tableNotFound(req.GetTable().GetName())
 	}
 	tbl.mu.Lock()
 	defer tbl.mu.Unlock()
 
-	tbl.isProtected = req.GetTable().GetDeletionProtection()
+	if err := tbl.applyUpdate(req); err != nil {
+		return nil, err
+	}
 
 	res := &longrunning.Operation_Response{}
 	lro := &longrunning.Operation{
@@ -352,7 +359,7 @@ func (s *server) ModifyColumnFamilies(ctx context.Context, req *btapb.ModifyColu
 	tbl, ok := s.tables[req.Name]
 	s.mu.Unlock()
 	if !ok {
-		return nil, status.Errorf(codes.NotFound, "table %q not found", req.Name)
+		return nil, tableNotFound(req.Name)
 	}
 
 	tbl.mu.Lock()
@@ -441,11 +448,14 @@ func (s *server) ModifyColumnFamilies(ctx context.Context, req *btapb.ModifyColu
 }
 
 func (s *server) DropRowRange(ctx context.Context, req *btapb.DropRowRangeRequest) (*emptypb.Empty, error) {
+	if err := checkDropRowRangeDeadline(ctx, req.Name); err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	tbl, ok := s.tables[req.Name]
 	s.mu.Unlock()
 	if !ok {
-		return nil, status.Errorf(codes.NotFound, "table %q not found", req.Name)
+		return nil, tableNotFound(req.Name)
 	}
 
 	tbl.mu.Lock()
@@ -483,7 +493,7 @@ func (s *server) GenerateConsistencyToken(ctx context.Context, req *btapb.Genera
 	// Check that the table exists.
 	_, ok := s.tables[req.Name]
 	if !ok {
-		return nil, status.Errorf(codes.NotFound, "table %q not found", req.Name)
+		return nil, tableNotFound(req.Name)
 	}
 
 	return &btapb.GenerateConsistencyTokenResponse{
@@ -495,7 +505,7 @@ func (s *server) CheckConsistency(ctx context.Context, req *btapb.CheckConsisten
 	// Check that the table exists.
 	_, ok := s.tables[req.Name]
 	if !ok {
-		return nil, status.Errorf(codes.NotFound, "table %q not found", req.Name)
+		return nil, tableNotFound(req.Name)
 	}
 
 	// Check this is the right token.
@@ -555,7 +565,7 @@ func (s *server) ReadRows(req *btpb.ReadRowsRequest, stream btpb.Bigtable_ReadRo
 	tbl, ok := s.tables[req.TableName]
 	s.mu.Unlock()
 	if !ok {
-		return status.Errorf(codes.NotFound, "table %q not found", req.TableName)
+		return tableNotFound(req.TableName)
 	}
 
 	if err := validateRowRanges(req); err != nil {
@@ -1088,7 +1098,7 @@ func (s *server) MutateRow(ctx context.Context, req *btpb.MutateRowRequest) (*bt
 	tbl, ok := s.tables[req.TableName]
 	s.mu.Unlock()
 	if !ok {
-		return nil, status.Errorf(codes.NotFound, "table %q not found", req.TableName)
+		return nil, tableNotFound(req.TableName)
 	}
 	fs := tbl.columnFamilies()
 	if !fitFamilyTypes(req.Mutations, fs) {
@@ -1124,7 +1134,7 @@ func (s *server) MutateRows(req *btpb.MutateRowsRequest, stream btpb.Bigtable_Mu
 	tbl, ok := s.tables[req.TableName]
 	s.mu.Unlock()
 	if !ok {
-		return status.Errorf(codes.NotFound, "table %q not found", req.TableName)
+		return tableNotFound(req.TableName)
 	}
 	res := &btpb.MutateRowsResponse{Entries: make([]*btpb.MutateRowsResponse_Entry, len(req.Entries))}
 
@@ -1170,7 +1180,7 @@ func (s *server) CheckAndMutateRow(ctx context.Context, req *btpb.CheckAndMutate
 	tbl, ok := s.tables[req.TableName]
 	s.mu.Unlock()
 	if !ok {
-		return nil, status.Errorf(codes.NotFound, "table %q not found", req.TableName)
+		return nil, tableNotFound(req.TableName)
 	}
 	res := &btpb.CheckAndMutateRowResponse{}
 
@@ -1399,7 +1409,7 @@ func (s *server) ReadModifyWriteRow(ctx context.Context, req *btpb.ReadModifyWri
 	tbl, ok := s.tables[req.TableName]
 	s.mu.Unlock()
 	if !ok {
-		return nil, status.Errorf(codes.NotFound, "table %q not found", req.TableName)
+		return nil, tableNotFound(req.TableName)
 	}
 
 	fs := tbl.columnFamilies()
@@ -1499,7 +1509,7 @@ func (s *server) SampleRowKeys(req *btpb.SampleRowKeysRequest, stream btpb.Bigta
 	tbl, ok := s.tables[req.TableName]
 	s.mu.Unlock()
 	if !ok {
-		return status.Errorf(codes.NotFound, "table %q not found", req.TableName)
+		return tableNotFound(req.TableName)
 	}
 
 	tbl.mu.RLock()
@@ -1600,6 +1610,8 @@ type table struct {
 	partitions  []*btpb.RowRange                 // partitions used in change stream
 	isProtected bool                             // whether this table has deletion protection
 	granularity btapb.Table_TimestampGranularity // timestamp granularity accepted by this table
+
+	rowKeySchema *btapb.Type_Struct // structure of the row keys. Writes do not check it.
 }
 
 const btreeDegree = 16
@@ -1665,6 +1677,8 @@ func newTable(ctr *btapb.CreateTableRequest) *table {
 		partitions:  rowRanges,
 		isProtected: ctr.GetTable().GetDeletionProtection(),
 		granularity: normalizeGranularity(ctr.GetTable().GetGranularity()),
+
+		rowKeySchema: ctr.GetTable().GetRowKeySchema(),
 	}
 }
 
@@ -1997,8 +2011,8 @@ func newColumnFamily(name string, order uint64, cf *btapb.ColumnFamily) *columnF
 	return &columnFamily{
 		name:      name,
 		order:     order,
-		gcRule:    cf.GcRule,
-		valueType: cf.ValueType,
+		gcRule:    storedGCRule(cf.GcRule),
+		valueType: storedValueType(cf.ValueType),
 		updateFn:  updateFn,
 		initFn: func(newVal []byte) []byte {
 			return newVal

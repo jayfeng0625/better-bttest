@@ -175,8 +175,7 @@ type compiler struct {
 	shape viewShape
 }
 
-// scanNames name the scans the engine does not support, by node kind. aggregateError names an aggregate scan, and the
-// error for any other unsupported scan names its node kind.
+// scanNames name the scans the engine does not support, by node kind.
 var scanNames = map[string]string{
 	"JoinScan":         "JOIN",
 	"SetOperationScan": "set operations",
@@ -294,17 +293,9 @@ func (c *compiler) computed(cols []*gsql.ResolvedComputedColumn) ([]int32, []Kin
 	var kinds []Kind
 	var exprs []expr
 	for _, cc := range cols {
-		col, err := cc.Column()
-		if err != nil {
-			return nil, nil, nil, internal(err)
-		}
-		id, t, err := colInfo(col)
+		id, t, e, err := computedColumn(cc)
 		if err != nil {
 			return nil, nil, nil, err
-		}
-		e, err := cc.Expr()
-		if err != nil {
-			return nil, nil, nil, internal(err)
 		}
 		if ref, ok := e.(*gsql.ResolvedColumnRef); ok && c.view {
 			col, err := ref.Column()
@@ -437,18 +428,26 @@ func (c *compiler) aggregate(s *gsql.ResolvedAggregateScan) (scan, error) {
 	return a, nil
 }
 
-func (c *compiler) aggregateCall(cc *gsql.ResolvedComputedColumn) (aggSpec, error) {
+func computedColumn(cc *gsql.ResolvedComputedColumn) (int32, Type, gsql.ResolvedExprNode, error) {
 	col, err := cc.Column()
 	if err != nil {
-		return aggSpec{}, internal(err)
+		return 0, Type{}, nil, internal(err)
 	}
 	id, t, err := colInfo(col)
 	if err != nil {
-		return aggSpec{}, err
+		return 0, Type{}, nil, err
 	}
 	e, err := cc.Expr()
 	if err != nil {
-		return aggSpec{}, internal(err)
+		return 0, Type{}, nil, internal(err)
+	}
+	return id, t, e, nil
+}
+
+func (c *compiler) aggregateCall(cc *gsql.ResolvedComputedColumn) (aggSpec, error) {
+	id, t, e, err := computedColumn(cc)
+	if err != nil {
+		return aggSpec{}, err
 	}
 	call, ok := e.(*gsql.ResolvedAggregateFunctionCall)
 	if !ok {

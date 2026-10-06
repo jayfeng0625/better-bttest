@@ -285,7 +285,7 @@ func TestViewReadTakesLimitAndParameters(t *testing.T) {
 func TestViewLeavesOutSourceRowWhoseEvaluationFails(t *testing.T) {
 	ctx := sqlContext(t)
 	// t3#bad has two key parts, so SPLIT(_key, '#')[2] is out of range.
-	f := newViewFixture(ctx, t, append(slices.Clone(totalsRows), itemRow{key: "t3#bad", size: u64(1)}))
+	f := newViewFixture(ctx, t, append(slices.Clone(totalsRows), itemRow{key: "t3#bad", size: i64(1)}))
 	f.createView(ctx, t, "v_totals", totalsQuery)
 
 	got := f.query(ctx, t, "SELECT * FROM v_totals", nil, nil)

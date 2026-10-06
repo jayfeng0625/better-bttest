@@ -11,9 +11,9 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	btapb "cloud.google.com/go/bigtable/admin/apiv2/adminpb"
 	btpb "cloud.google.com/go/bigtable/apiv2/bigtablepb"
 	"github.com/google/btree"
 	"github.com/jayfeng0625/better-bttest/bttest/internal/sqlengine"
@@ -57,7 +57,7 @@ type preparedQuery struct {
 	params     map[string]sqlengine.Type
 	prepared   time.Time
 	// familyDropped is set on the first execute after a family the query reads is dropped.
-	familyDropped bool
+	familyDropped atomic.Bool
 }
 
 // newPreparedToken returns a new prepared_query: the prefix, the prepare time in big-endian Unix nanoseconds, and
@@ -140,12 +140,7 @@ func (s *server) sqlTables(instance string) []sqlengine.Table {
 	for name, tbl := range byName {
 		t := sqlengine.Table{Name: name}
 		for fam, cf := range tbl.columnFamilies() {
-			f := sqlengine.Family{Name: fam}
-			switch cf.valueType.GetAggregateType().GetAggregator().(type) {
-			case *btapb.Type_Aggregate_Sum_, *btapb.Type_Aggregate_Min_, *btapb.Type_Aggregate_Max_:
-				f.Int64 = true
-			}
-			t.Families = append(t.Families, f)
+			t.Families = append(t.Families, sqlengine.Family{Name: fam, Int64: int64Aggregate(cf.valueType)})
 		}
 		slices.SortFunc(t.Families, func(a, b sqlengine.Family) int { return strings.Compare(a.Name, b.Name) })
 		out = append(out, t)
@@ -207,10 +202,7 @@ func (s *server) preparedQuery(token []byte) (*preparedQuery, error) {
 // familyDropped reports whether a family the query reads has been dropped since prepare. Once it has, it stays
 // true.
 func (s *server) familyDropped(pq *preparedQuery) bool {
-	s.sql.mu.Lock()
-	dropped := pq.familyDropped
-	s.sql.mu.Unlock()
-	if dropped {
+	if pq.familyDropped.Load() {
 		return true
 	}
 	tbl := s.instanceTable(pq.instance, pq.query.Table)
@@ -220,9 +212,7 @@ func (s *server) familyDropped(pq *preparedQuery) bool {
 	fams := tbl.columnFamilies()
 	for _, f := range pq.query.Families {
 		if _, ok := fams[f]; !ok {
-			s.sql.mu.Lock()
-			pq.familyDropped = true
-			s.sql.mu.Unlock()
+			pq.familyDropped.Store(true)
 			return true
 		}
 	}

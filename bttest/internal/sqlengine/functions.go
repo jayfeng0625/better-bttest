@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -106,7 +107,7 @@ func function(name string, xs []expr, ts []Type, consts []*Value) expr {
 			x, y := a[0].Int, a[1].Int
 			r := x - y
 			if (y > 0 && r > x) || (y < 0 && r < x) {
-				// The message is an assumption: no production overflow of - was recorded.
+				// The message is an assumption. Production recorded no overflow of INT64 subtraction.
 				return Value{}, status.Errorf(codes.OutOfRange, "int64 overflow: %d - %d", x, y)
 			}
 			return Value{Int: r}, nil
@@ -121,7 +122,7 @@ func function(name string, xs []expr, ts []Type, consts []*Value) expr {
 			case y == 0:
 				return Value{}, status.Error(codes.OutOfRange, "division by zero: DIV")
 			case x == math.MinInt64 && y == -1:
-				// The message is an assumption: no production overflow of DIV was recorded.
+				// The message is an assumption. Production recorded no overflow of DIV.
 				return Value{}, status.Errorf(codes.OutOfRange, "int64 overflow: DIV(%d, %d)", x, y)
 			}
 			return Value{Int: x / y}, nil
@@ -138,7 +139,6 @@ func function(name string, xs []expr, ts []Type, consts []*Value) expr {
 			return arr[i], nil
 		})
 	case "split":
-		// The engine supports SPLIT only on BYTES.
 		if ts[0].Kind != KindBytes {
 			return nil
 		}
@@ -317,7 +317,7 @@ func like(pattern []byte, isString bool) (func([]byte) bool, error) {
 // castExpr compiles CAST between BYTES and STRING, and to a value's own type.
 func castExpr(x expr, from, to Type) (expr, error) {
 	switch {
-	case from.Kind == to.Kind && from.Kind != KindMap && from.Kind != KindArray:
+	case reflect.DeepEqual(from, to):
 		return x, nil
 	case from.Kind == KindString && to.Kind == KindBytes:
 		return x, nil

@@ -11,12 +11,13 @@ Usage:
 Run emulator -h to list every flag. The fork adds one:
 
 	-probe address
-		Probe the emulator at address:port, then exit with status 0 if it
-		lists its tables, or 1 if it does not. The image's healthcheck runs
-		-probe localhost:8086.
+		Check that an emulator answers at address, given as host:port. The
+		command asks the emulator to list its tables, and exits with status 0
+		if it answers within 5 seconds, or 1 if it does not. The image's
+		healthcheck runs -probe localhost:8086.
 
-To serve on port 8086 of every interface from a checkout, as the image does,
-run:
+To start the emulator from a checkout the way the image does, listening on
+port 8086 on every network interface, run:
 
 	go run ./cmd/emulator -host 0.0.0.0 -port 8086
 */

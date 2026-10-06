@@ -34,8 +34,9 @@ jobs:
       - run: scripts/check.sh
 
   # Publishes each image as one linux/amd64 and linux/arm64 index tagged with
-  # the commit SHA. The base images are pinned by tags that move, so a rebuild
-  # of a published commit could change its digest. A rerun skips the build.
+  # the commit SHA, and attests the index's build provenance. The base images
+  # are pinned by tags that move, so a rebuild of a published commit could
+  # change its digest. A rerun skips the build and verifies the attestation.
   publish:
     needs: check
     if: github.event_name == 'push'
@@ -44,7 +45,10 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
+      attestations: write
     strategy:
+      fail-fast: false
       matrix:
         include:
           - image: better-bttest
@@ -58,18 +62,22 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ github.token }}
       - id: published
         run: |
-          if docker buildx imagetools inspect "$IMAGE" >/dev/null 2>&1; then
+          if out=$(docker buildx imagetools inspect "$IMAGE" 2>&1); then
             echo "$IMAGE is already published"
             echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$out" != *"$IMAGE: not found"* ]]; then
+            echo "$out" >&2
+            exit 1
           fi
       - if: steps.published.outputs.skip != 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - if: steps.published.outputs.skip != 'true'
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - if: steps.published.outputs.skip != 'true'
+      - id: build
+        if: steps.published.outputs.skip != 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -81,3 +89,21 @@ jobs:
           # The default provenance attestation adds an unknown/unknown entry
           # per platform to the index, and nothing reads it.
           provenance: false
+      # Only the build that pushed the index supplies the digest to sign. The
+      # registry tag can move, so a skipped run does not sign the digest that
+      # the tag points to now.
+      - if: steps.published.outputs.skip != 'true'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+      # A rerun fails when the published index has no attestation from this
+      # workflow for this commit, such as when the attest step failed after the
+      # push. To recover, delete that package version and rerun the job.
+      - if: steps.published.outputs.skip == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh attestation verify "oci://$IMAGE" --repo "$GITHUB_REPOSITORY"
+          --source-digest "$GITHUB_SHA"
+          --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/ci.yml"

@@ -17,14 +17,13 @@ import (
 // itemRow is one seeded row of an items table. A nil field leaves its cell unset.
 type itemRow struct {
 	key    string
-	size   *uint64
+	size   *int64
 	labels *string
 	flag   bool
 	// flagDeleted writes the flag cell, then deletes it.
 	flagDeleted bool
 }
 
-func u64(v uint64) *uint64 { return &v }
 func str(v string) *string { return &v }
 
 // createItemsTable creates a table with families size, labels, and mark, and writes the rows. A size is 8
@@ -42,7 +41,7 @@ func (f *sqlFixture) createItemsTable(ctx context.Context, t *testing.T, name st
 	for _, r := range rows {
 		m := bigtable.NewMutation()
 		if r.size != nil {
-			m.Set("size", "bytes", 0, binary.BigEndian.AppendUint64(nil, *r.size))
+			m.Set("size", "bytes", 0, binary.BigEndian.AppendUint64(nil, uint64(*r.size)))
 		}
 		if r.labels != nil {
 			m.Set("labels", "labels", 0, []byte(*r.labels))
@@ -81,10 +80,10 @@ GROUP BY tenantId, labelId, partitionId, rowType`
 
 // totalsRows are the rows the totals query tests seed.
 var totalsRows = []itemRow{
-	{key: "t1#p1#n#rowA", size: u64(100), labels: str(`["default","b2"]`), flag: true},
-	{key: "t1#p1#n#rowB", size: u64(50), labels: str(`["default"]`)},
-	{key: "t1#p1#b#rowC", size: u64(70), flag: true},
-	{key: "t2#p1#n#rowD", size: u64(10), labels: str(`[]`), flagDeleted: true},
+	{key: "t1#p1#n#rowA", size: i64(100), labels: str(`["default","b2"]`), flag: true},
+	{key: "t1#p1#n#rowB", size: i64(50), labels: str(`["default"]`)},
+	{key: "t1#p1#b#rowC", size: i64(70), flag: true},
+	{key: "t2#p1#n#rowD", size: i64(10), labels: str(`[]`), flagDeleted: true},
 }
 
 // totalsColumns and totalsTypes are the totals query's output schema.
@@ -122,12 +121,12 @@ func TestSQLTotalsQueryCountsRowsPerLabel(t *testing.T) {
 
 // runtimeErrorRows are the rows production held for its runtime error probes on 2026-10-03.
 var runtimeErrorRows = []itemRow{
-	{key: "t1#p1#n#rowA", size: u64(100), labels: str(`["default","b2"]`), flag: true},
-	{key: "t1#p1#n#rowB", size: u64(50), labels: str(`["default"]`)},
-	{key: "t1#p1#b#rowC", size: u64(70), flag: true},
-	{key: "t5#p1#n#rowG", size: u64(9223372036854775807)},
-	{key: "t5#p1#n#rowH", size: u64(1)},
-	{key: "t6#p1#n#rowI", size: u64(7)},
+	{key: "t1#p1#n#rowA", size: i64(100), labels: str(`["default","b2"]`), flag: true},
+	{key: "t1#p1#n#rowB", size: i64(50), labels: str(`["default"]`)},
+	{key: "t1#p1#b#rowC", size: i64(70), flag: true},
+	{key: "t5#p1#n#rowG", size: i64(9223372036854775807)},
+	{key: "t5#p1#n#rowH", size: i64(1)},
+	{key: "t6#p1#n#rowI", size: i64(7)},
 	{key: "t7#p1#n#rowJ", labels: str("abcdefgh")},
 }
 
@@ -191,14 +190,18 @@ func TestSQLRuntimeErrorFailsExecuteAsProductionDoes(t *testing.T) {
 			}
 		})
 	}
+}
 
-	t.Run("SUM whose running sum stays in range", func(t *testing.T) {
-		got := f.query(ctx, t, "SELECT SUM(x) AS s FROM T, UNNEST([9223372036854775807, -5, 1]) AS x WHERE _key = 't6#p1#n#rowI'", nil, nil)
+func TestSQLSumReturnsATotalWhoseRunningSumStaysInRange(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+	f.createItemsTable(ctx, t, "T", runtimeErrorRows)
 
-		if diff := cmp.Diff([][]any{{i64(9223372036854775803)}}, got.rows); diff != "" {
-			t.Errorf("rows (-want +got):\n%s", diff)
-		}
-	})
+	got := f.query(ctx, t, "SELECT SUM(x) AS s FROM T, UNNEST([9223372036854775807, -5, 1]) AS x WHERE _key = 't6#p1#n#rowI'", nil, nil)
+
+	if diff := cmp.Diff([][]any{{i64(9223372036854775803)}}, got.rows); diff != "" {
+		t.Errorf("rows (-want +got):\n%s", diff)
+	}
 }
 
 func TestSQLGroupByArrayFormsOneGroupPerDistinctArray(t *testing.T) {
@@ -207,7 +210,7 @@ func TestSQLGroupByArrayFormsOneGroupPerDistinctArray(t *testing.T) {
 	f.createItemsTable(ctx, t, "J", []itemRow{
 		{key: "rowA", labels: str(`["default","b2"]`)},
 		{key: "rowB", labels: str(`["default"]`)},
-		{key: "rowC", size: u64(1)},
+		{key: "rowC", size: i64(1)},
 		{key: "rowD", labels: str(`[]`)},
 		{key: "rowE", labels: str(`["default"]`)},
 		{key: "rowF", labels: str(`["a\"b"]`)},
@@ -251,7 +254,7 @@ func TestSQLGroupByArrayFormsOneGroupPerDistinctArray(t *testing.T) {
 func TestSQLGroupByArraysSeparatesEmptyArrayFromNullElement(t *testing.T) {
 	ctx := sqlContext(t)
 	f := newSQLFixture(ctx, t)
-	f.createItemsTable(ctx, t, "N", []itemRow{{key: "r1", size: u64(1)}, {key: "r2", size: u64(1)}})
+	f.createItemsTable(ctx, t, "N", []itemRow{{key: "r1", size: i64(1)}, {key: "r2", size: i64(1)}})
 
 	// Row r1 groups by ([], NULL, [NULL]), and row r2 by ([NULL], [], NULL). A NULL element encodes as the same byte
 	// that ends an array, so only the element counts keep the two group keys apart.
