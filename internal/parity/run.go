@@ -284,15 +284,6 @@ func (r *runner) queryContext(ctx context.Context) context.Context {
 	return metadata.AppendToOutgoingContext(ctx, "x-goog-request-params", "name="+url.QueryEscape(r.target.Instance))
 }
 
-// The routing headers that the Go client sends on a call to the instance, as PrepareQuery and ExecuteQuery are.
-// Production answers PrepareQuery without them with Unavailable "PrepareQuery is not implemented.".
-func (r *runner) instanceCall(ctx context.Context) context.Context {
-	return metadata.AppendToOutgoingContext(ctx,
-		"google-cloud-resource-prefix", r.target.Instance,
-		"x-goog-request-params", "name="+url.QueryEscape(r.target.Instance)+"&app_profile_id=",
-	)
-}
-
 func (c PrepareQuery) run(ctx context.Context, r *runner) (Result, error) {
 	r.prepared, r.columns = nil, nil
 	resp, err := r.target.Data.PrepareQuery(r.queryContext(ctx), &btpb.PrepareQueryRequest{

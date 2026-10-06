@@ -27,7 +27,7 @@ var numberedInstance = regexp.MustCompile(`projects/\{[^}]*\}/instances/[^/]+`)
 
 // Normalize returns results with what differs between targets and runs replaced. Status
 // messages embed table paths, which carry the target's instance, and row keys and table names, which carry the run id.
-// A cell at the server's clock gets ServerTime, the time that SetCell takes for the server's clock. ReadRows leaves the
+// A status message ends before a "(while evaluating" line. A cell at the server's clock gets ServerTime, the time that SetCell takes for the server's clock. ReadRows leaves the
 // order of a row's families unspecified, so the cells sort by family, keeping their order within each.
 func Normalize(instance, runID string, results []Result) []Result {
 	replacer := strings.NewReplacer(instance, placeholderInstance, runID, "<run>")
@@ -36,7 +36,7 @@ func Normalize(instance, runID string, results []Result) []Result {
 		if strings.HasPrefix(s.Message, structMessage) {
 			s.Message = structMessage
 		}
-		s.Message, _, _ = strings.Cut(s.Message, sqlExpressionLine)
+		s.Message, _, _ = strings.Cut(s.Message, evaluatingLine)
 		return s
 	}
 	out := make([]Result, len(results))
@@ -66,9 +66,10 @@ func family(c Cell) string {
 // Production's message for a row key schema with no encoding continues with text that differs between calls.
 const structMessage = "Missing encoding for STRUCT"
 
-// Production's SQL runtime error ends with a line that names the failing expression in its own rewritten form. The
-// emulator leaves the line out.
-const sqlExpressionLine = "\n(while evaluating "
+// Production's runtime SQL error continues on a second line with the expression it was evaluating, in production's
+// internal names, such as to_int64_big_endian(`$col3`). The emulator does not reproduce that line, so the comparison
+// stops at it.
+const evaluatingLine = "\n(while evaluating "
 
 // Diff returns each call whose result differs between want and got, or "" when every result matches.
 func Diff(want, got []Result) string {
