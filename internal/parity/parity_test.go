@@ -22,15 +22,21 @@ func deadline(c Case) time.Duration {
 	return caseDeadline
 }
 
-var realInstance = flag.String("real", "", "run the cases on the parity table in the real instance <project>/<instance>, and check the gate against it")
+var (
+	realInstance = flag.String("real", "", "run the cases on the parity table in the real instance <project>/<instance>, and check the gate against it")
+	views        = flag.Bool("views", false, "with -real, run the view cases too. They create materialized views in the instance, and each create takes production 1 to 2 minutes")
+)
 
 // TestParity runs every case on the real table and on the gate, and checks the gate's results against the real
-// table's. It runs only with -real.
+// table's. It runs only with -real, and the view cases only with -views too.
 func TestParity(t *testing.T) {
 	if *realInstance == "" {
 		t.Skip("run with -real=<project>/<instance>")
 	}
 	cases := Cases()
+	if *views {
+		cases = append(cases, ViewCases()...)
+	}
 	runID := NewRunID(time.Now())
 	real := realResults(t, cases, runID)
 

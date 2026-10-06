@@ -55,6 +55,15 @@ A case that creates a table names it `better-bttest-parity-<run id>-t<n>`.
 When the test ends, it deletes the rows that its cases wrote and the tables that they created, and fails if any remain.
 An interrupted run leaves its rows and tables, and a run that starts an hour or more later deletes them.
 
+The view cases run only with `-views`:
+
+```sh
+go test ./internal/parity -run 'TestParity$' -real=<project>/<instance> -views -timeout 40m
+```
+
+They create materialized views named `better-bttest-parity-<run id>-v<n>` on their case tables, and production takes one to two minutes to create each.
+The run deletes each view before its table.
+
 ### Compare Google's emulator
 
 ```sh
@@ -83,6 +92,10 @@ A SQL case's calls are `PrepareQuery` and `ExecuteQuery`, and `Query(sql, params
 A SQL case starts its `Setup` with `sqlFixture()`, which creates the table and writes the six rows that the queries read.
 Add SQL cases to `SQLCases` in `internal/parity/sqlcases.go`.
 A case for GROUP BY, UNNEST, or a function that `totalsQuery` calls goes in `TotalsCases` in `internal/parity/totalscases.go`.
+
+A view case creates its view with `CreateView`, and `{view}` in its SQL stands for the view.
+`viewFixture(query)` writes the SQL fixture, then creates the view, so that the view's first refresh holds every row.
+Give a view case `Deadline: viewDeadline`, and add it to `ViewCases` in `internal/parity/viewcases.go`.
 
 ## Sync with upstream
 
