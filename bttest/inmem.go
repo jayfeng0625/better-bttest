@@ -118,6 +118,7 @@ type server struct {
 	tables    map[string]*table          // keyed by fully qualified name
 	instances map[string]*btapb.Instance // keyed by fully qualified name
 	gcc       chan int                   // set when gcloop starts, closed when server shuts down
+	sql       sqlQueries                 // prepared SQL queries
 
 	// Any unimplemented methods will cause a panic.
 	btapb.BigtableTableAdminServer
@@ -1541,14 +1542,6 @@ func (s *server) SampleRowKeys(req *btpb.SampleRowKeysRequest, stream btpb.Bigta
 		})
 	}
 	return err
-}
-
-func (s *server) PrepareQuery(context.Context, *btpb.PrepareQueryRequest) (*btpb.PrepareQueryResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "the emulator does not currently support PrepareQuery")
-}
-
-func (s *server) ExecuteQuery(*btpb.ExecuteQueryRequest, btpb.Bigtable_ExecuteQueryServer) error {
-	return status.Errorf(codes.Unimplemented, "the emulator does not currently support ExecuteQuery")
 }
 
 func (s *server) GetClientConfiguration(ctx context.Context, req *btpb.GetClientConfigurationRequest) (*btpb.ClientConfiguration, error) {

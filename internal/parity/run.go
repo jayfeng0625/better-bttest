@@ -7,12 +7,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"reflect"
+	"strings"
+	"time"
 
 	"cloud.google.com/go/bigtable/admin/apiv2/adminpb"
 	btpb "cloud.google.com/go/bigtable/apiv2/bigtablepb"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 // Every row the cases write on the parity table starts with this prefix and the run id.
@@ -21,9 +26,12 @@ const rowPrefix = "probe#"
 // Every table the cases create starts with this prefix and the run id, to fit the 50-character table id limit.
 const tablePrefix = parityTable + "-"
 
+// How long Run has to delete the case's table, after the case's calls.
+const caseCleanupDeadline = time.Minute
+
 // Run makes the case's calls on the target, and returns each of Calls' results. The ordinal is the case's place in
 // the run, which names its table, so every target gives a case the same table name. Run deletes the case's table
-// before it returns.
+// before it returns, even when ctx has ended.
 func Run(ctx context.Context, t Target, runID string, ordinal int, c Case) (results []Result, err error) {
 	r := &runner{
 		target:       t,
@@ -32,6 +40,8 @@ func Run(ctx context.Context, t Target, runID string, ordinal int, c Case) (resu
 	}
 	defer func() {
 		if r.created {
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), caseCleanupDeadline)
+			defer cancel()
 			err = errors.Join(err, t.deleteTable(ctx, r.table))
 		}
 	}()
@@ -52,6 +62,9 @@ type runner struct {
 	rowKeyPrefix string
 	table        string // the case's table's id
 	created      bool   // whether the case has called CreateTable
+	// The case's last prepared query and its columns, or nil when its last PrepareQuery failed.
+	prepared []byte
+	columns  []Column
 }
 
 func (r *runner) call(ctx context.Context, call Call) Result {
@@ -263,6 +276,88 @@ func (GetTable) run(ctx context.Context, r *runner) (Result, error) {
 	return Result{Table: &TableView{
 		ColumnFamilies: tbl.ColumnFamilies, RowKeySchema: tbl.RowKeySchema, DeletionProtection: tbl.DeletionProtection,
 	}}, nil
+}
+
+// Production routes PrepareQuery and ExecuteQuery by this header, which the Go client sends. Without it, production
+// answers Unavailable "PrepareQuery is not implemented.".
+func (r *runner) queryContext(ctx context.Context) context.Context {
+	return metadata.AppendToOutgoingContext(ctx, "x-goog-request-params", "name="+url.QueryEscape(r.target.Instance))
+}
+
+func (c PrepareQuery) run(ctx context.Context, r *runner) (Result, error) {
+	r.prepared, r.columns = nil, nil
+	resp, err := r.target.Data.PrepareQuery(r.queryContext(ctx), &btpb.PrepareQueryRequest{
+		InstanceName: r.target.Instance,
+		Query:        strings.ReplaceAll(c.SQL, "{table}", r.table),
+		DataFormat:   &btpb.PrepareQueryRequest_ProtoFormat{ProtoFormat: &btpb.ProtoFormat{}},
+		ParamTypes:   c.Params,
+	})
+	if err != nil {
+		return Result{}, err
+	}
+	var columns []Column
+	for _, m := range resp.GetMetadata().GetProtoSchema().GetColumns() {
+		columns = append(columns, Column{Name: m.Name, Type: m.Type})
+	}
+	r.prepared, r.columns = resp.PreparedQuery, columns
+	return Result{Columns: columns}, nil
+}
+
+var errNoPreparedQuery = status.Error(codes.FailedPrecondition, "the case has no prepared query")
+
+// ExecuteQuery returns the rows, split from each batch's values by the prepared column count, and one line for each
+// message.
+func (c ExecuteQuery) run(ctx context.Context, r *runner) (Result, error) {
+	if r.prepared == nil {
+		return Result{}, errNoPreparedQuery
+	}
+	stream, err := r.target.Data.ExecuteQuery(r.queryContext(ctx), &btpb.ExecuteQueryRequest{
+		InstanceName: r.target.Instance, PreparedQuery: r.prepared, Params: c.Params,
+	})
+	if err != nil {
+		return Result{}, err
+	}
+	var res Result
+	var pending []*btpb.Value
+	width := len(r.columns)
+	for {
+		resp, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			return res, nil
+		}
+		if err != nil {
+			return res, err
+		}
+		var parts []string
+		if results := resp.GetResults(); results != nil {
+			if batch := results.GetProtoRowsBatch(); batch != nil {
+				var rows btpb.ProtoRows
+				if err := proto.Unmarshal(batch.BatchData, &rows); err != nil {
+					return res, fmt.Errorf("decode batch_data: %w", err)
+				}
+				pending = append(pending, rows.Values...)
+				before := len(res.Rows)
+				for width > 0 && len(pending) >= width {
+					res.Rows = append(res.Rows, pending[:width:width])
+					pending = pending[width:]
+				}
+				parts = append(parts, fmt.Sprintf("batch rows=%d", len(res.Rows)-before))
+			}
+			if results.Reset_ {
+				parts = append(parts, "reset")
+			}
+			if results.BatchChecksum != nil {
+				parts = append(parts, "checksum")
+			}
+			if len(results.ResumeToken) > 0 {
+				parts = append(parts, "token")
+			}
+		}
+		if resp.GetMetadata() != nil {
+			parts = append(parts, "metadata")
+		}
+		res.Messages = append(res.Messages, strings.Join(parts, " "))
+	}
 }
 
 // Pass each response on the stream to f, until the stream ends.
