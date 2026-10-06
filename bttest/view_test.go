@@ -323,3 +323,19 @@ func TestViewKeepsGroupWithNullKeyFirst(t *testing.T) {
 		t.Errorf("rows (-want +got):\n%s", diff)
 	}
 }
+
+func TestDeleteTableFailsWhileAViewReadsIt(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newViewFixture(ctx, t, totalsRows)
+	f.createView(ctx, t, "v_expired", expiredViewQuery)
+
+	err := f.admin.DeleteTable(ctx, "items-prod")
+
+	wantStatus(t, err, codes.FailedPrecondition, "Unable to delete resource projects/p/instances/i/tables/items-prod because the resource is referenced by another resource. The existing references are: {projects/p/instances/i/materializedViews/v_expired}")
+	if err := f.iadmin.DeleteMaterializedView(ctx, "i", "v_expired"); err != nil {
+		t.Fatalf("DeleteMaterializedView: %v", err)
+	}
+	if err := f.admin.DeleteTable(ctx, "items-prod"); err != nil {
+		t.Errorf("DeleteTable after the view is gone: %v", err)
+	}
+}

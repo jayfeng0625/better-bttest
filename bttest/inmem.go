@@ -280,6 +280,9 @@ func (s *server) DeleteTable(ctx context.Context, req *btapb.DeleteTableRequest)
 	if s.tables[req.Name].isProtected {
 		return nil, status.Errorf(codes.FailedPrecondition, "table %q is protected from deletion", req.Name)
 	}
+	if err := s.viewReferences(req.Name); err != nil {
+		return nil, err
+	}
 	delete(s.tables, req.Name)
 	return &emptypb.Empty{}, nil
 }

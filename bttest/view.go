@@ -22,7 +22,30 @@ import (
 // query, and each SQL read of the view evaluates it.
 type materializedViews struct {
 	mu    sync.Mutex
-	views map[string]*btapb.MaterializedView
+	views map[string]*materializedView
+}
+
+// materializedView is a stored view and the full name of the table its query reads.
+type materializedView struct {
+	mv    *btapb.MaterializedView
+	table string
+}
+
+// viewReferences fails a table's deletion while a view reads it, with production's message.
+func (s *server) viewReferences(table string) error {
+	s.views.mu.Lock()
+	defer s.views.mu.Unlock()
+	var refs []string
+	for name, v := range s.views.views {
+		if v.table == table {
+			refs = append(refs, name)
+		}
+	}
+	if len(refs) == 0 {
+		return nil
+	}
+	slices.Sort(refs)
+	return status.Errorf(codes.FailedPrecondition, "Unable to delete resource %s because the resource is referenced by another resource. The existing references are: {%s}", table, strings.Join(refs, ", "))
 }
 
 // sqlViews lists the instance's materialized views as SQL sees them.
@@ -31,9 +54,9 @@ func (s *server) sqlViews(instance string) []sqlengine.Table {
 	s.views.mu.Lock()
 	defer s.views.mu.Unlock()
 	var out []sqlengine.Table
-	for name, mv := range s.views.views {
+	for name, v := range s.views.views {
 		if id, ok := strings.CutPrefix(name, prefix); ok {
-			out = append(out, sqlengine.Table{Name: id, ViewQuery: mv.Query})
+			out = append(out, sqlengine.Table{Name: id, ViewQuery: v.mv.Query})
 		}
 	}
 	return out
@@ -43,7 +66,8 @@ func (s *server) sqlViews(instance string) []sqlengine.Table {
 // so the Go client's Wait makes no GetOperation call.
 func (s *server) CreateMaterializedView(ctx context.Context, req *btapb.CreateMaterializedViewRequest) (*longrunning.Operation, error) {
 	query := req.GetMaterializedView().GetQuery()
-	if _, err := sqlengine.PrepareView(query, s.sqlTables(req.GetParent())); err != nil {
+	q, err := sqlengine.PrepareView(query, s.sqlTables(req.GetParent()))
+	if err != nil {
 		return nil, err
 	}
 	name := req.GetParent() + "/materializedViews/" + req.GetMaterializedViewId()
@@ -58,9 +82,9 @@ func (s *server) CreateMaterializedView(ctx context.Context, req *btapb.CreateMa
 		return nil, status.Errorf(codes.AlreadyExists, "Materialized View %s already exists.", req.GetMaterializedViewId())
 	}
 	if s.views.views == nil {
-		s.views.views = map[string]*btapb.MaterializedView{}
+		s.views.views = map[string]*materializedView{}
 	}
-	s.views.views[name] = mv
+	s.views.views[name] = &materializedView{mv: mv, table: req.GetParent() + "/tables/" + q.Table}
 	return doneOperation(mv)
 }
 
@@ -76,11 +100,11 @@ func doneOperation(mv *btapb.MaterializedView) (*longrunning.Operation, error) {
 func (s *server) GetMaterializedView(ctx context.Context, req *btapb.GetMaterializedViewRequest) (*btapb.MaterializedView, error) {
 	s.views.mu.Lock()
 	defer s.views.mu.Unlock()
-	mv, ok := s.views.views[req.GetName()]
+	v, ok := s.views.views[req.GetName()]
 	if !ok {
 		return nil, viewNotFound(req.GetName())
 	}
-	return proto.Clone(mv).(*btapb.MaterializedView), nil
+	return proto.Clone(v.mv).(*btapb.MaterializedView), nil
 }
 
 // viewNotFound is the error for a view that does not exist. Production's message is unmeasured.
@@ -94,9 +118,9 @@ func (s *server) ListMaterializedViews(ctx context.Context, req *btapb.ListMater
 	s.views.mu.Lock()
 	defer s.views.mu.Unlock()
 	res := &btapb.ListMaterializedViewsResponse{}
-	for name, mv := range s.views.views {
+	for name, v := range s.views.views {
 		if strings.HasPrefix(name, prefix) {
-			res.MaterializedViews = append(res.MaterializedViews, proto.Clone(mv).(*btapb.MaterializedView))
+			res.MaterializedViews = append(res.MaterializedViews, proto.Clone(v.mv).(*btapb.MaterializedView))
 		}
 	}
 	slices.SortFunc(res.MaterializedViews, func(a, b *btapb.MaterializedView) int { return strings.Compare(a.Name, b.Name) })
@@ -106,11 +130,11 @@ func (s *server) ListMaterializedViews(ctx context.Context, req *btapb.ListMater
 func (s *server) DeleteMaterializedView(ctx context.Context, req *btapb.DeleteMaterializedViewRequest) (*emptypb.Empty, error) {
 	s.views.mu.Lock()
 	defer s.views.mu.Unlock()
-	mv, ok := s.views.views[req.GetName()]
+	v, ok := s.views.views[req.GetName()]
 	if !ok {
 		return nil, viewNotFound(req.GetName())
 	}
-	if mv.DeletionProtection {
+	if v.mv.DeletionProtection {
 		return nil, status.Errorf(codes.FailedPrecondition, "Materialized View %s has deletion protection enabled.", req.GetName())
 	}
 	delete(s.views.views, req.GetName())
@@ -123,10 +147,11 @@ func (s *server) UpdateMaterializedView(ctx context.Context, req *btapb.UpdateMa
 	in := req.GetMaterializedView()
 	s.views.mu.Lock()
 	defer s.views.mu.Unlock()
-	mv, ok := s.views.views[in.GetName()]
+	v, ok := s.views.views[in.GetName()]
 	if !ok {
 		return nil, viewNotFound(in.GetName())
 	}
+	mv := v.mv
 	paths := req.GetUpdateMask().GetPaths()
 	if slices.Contains(paths, "query") && in.GetQuery() != mv.Query {
 		return nil, status.Error(codes.InvalidArgument, "Immutable fields 'query,name' cannot be updated.")
