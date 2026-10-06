@@ -198,6 +198,28 @@ func TestRunDeletesAProtectedTable(t *testing.T) {
 	}
 }
 
+// A call that ends the case's context, as a case that runs past its deadline does.
+type endCase struct{ cancel context.CancelFunc }
+
+func (c endCase) run(context.Context, *runner) (Result, error) {
+	c.cancel()
+	return Result{}, nil
+}
+
+func TestRunDeletesItsTableAfterTheCaseContextEnds(t *testing.T) {
+	ctx, target := startGate(t)
+	caseCtx, cancel := context.WithCancel(ctx)
+	c := Case{Name: "overrun", Setup: []Call{CreateTable{}}, Calls: []Call{endCase{cancel}}}
+
+	if _, err := Run(caseCtx, target, testRunID, 1, c); err != nil {
+		t.Fatal(err)
+	}
+
+	if tables, err := caseTables(ctx, target, func(string) bool { return true }); err != nil || len(tables) > 0 {
+		t.Errorf("case tables after the case = %v, %v, want none", tables, err)
+	}
+}
+
 func TestRunSetsAndClearsTheRowKeySchema(t *testing.T) {
 	ctx, target := startGate(t)
 	schema := Delimited("#", "a")
