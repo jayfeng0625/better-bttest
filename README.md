@@ -44,18 +44,25 @@ A parity case sends the same requests to a real table and to the emulator.
 - **[Missing values](https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2#value).**
   A request with no value counts as NULL, so an `AddToCell` adds 0 and a `MergeToCell` changes nothing.
   Google's emulator crashes on a missing value.
+- **[Materialized views](https://cloud.google.com/bigtable/docs/materialized-views).**
+  `CreateMaterializedView` stores a view, and `GetMaterializedView` returns it.
+  A view that does not exist, or an ID that is taken, gets the error that production returns.
+  The emulator does not check the view's query, and does not serve reads of the view.
+  Google's emulator crashes on every materialized view admin call.
 
-Two more changes have nothing to match in production:
+Three more changes have nothing to match in production:
 
 - The image has a Docker healthcheck.
   It runs `emulator -probe`, which the [`emulator` command docs](https://pkg.go.dev/github.com/jayfeng0625/better-bttest/cmd/emulator) describe.
 - On SIGTERM, such as from `docker stop`, the emulator prints its shutdown message, closes the server, and exits.
   It does the same on Ctrl-C.
+- A call that the emulator does not serve, such as `ListBackups`, returns `Unimplemented`.
+  Google's emulator crashes on these calls.
 
 ## Not supported yet
 
 - SQL queries. `PrepareQuery` and `ExecuteQuery` return `Unimplemented`.
-- Materialized views.
+- Listing, updating, and deleting materialized views, and reading from a view.
 - HyperLogLog (HLL) aggregate families.
 
 ## Use the published images

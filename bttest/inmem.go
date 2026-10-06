@@ -119,7 +119,9 @@ type server struct {
 	instances map[string]*btapb.Instance // keyed by fully qualified name
 	gcc       chan int                   // set when gcloop starts, closed when server shuts down
 
-	// Any unimplemented methods will cause a panic.
+	views map[string]*btapb.MaterializedView // keyed by fully qualified name
+
+	// newServer sets these to the Unimplemented servers, so an RPC that server does not define returns Unimplemented.
 	btapb.BigtableTableAdminServer
 	btapb.BigtableInstanceAdminServer
 	btpb.BigtableServer
@@ -161,6 +163,10 @@ func newServer(l net.Listener, ownsListener bool, opt ...grpc.ServerOption) *Ser
 		s: &server{
 			tables:    make(map[string]*table),
 			instances: make(map[string]*btapb.Instance),
+
+			BigtableTableAdminServer:    btapb.UnimplementedBigtableTableAdminServer{},
+			BigtableInstanceAdminServer: btapb.UnimplementedBigtableInstanceAdminServer{},
+			BigtableServer:              btpb.UnimplementedBigtableServer{},
 		},
 		ownsListener: ownsListener,
 	}
@@ -278,7 +284,7 @@ func (s *server) DeleteTable(ctx context.Context, req *btapb.DeleteTableRequest)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.tables[req.Name]; !ok {
-		return nil, deleteTableNotFound(req.Name)
+		return nil, readNotFound(req.Name)
 	}
 	if s.tables[req.Name].isProtected {
 		return nil, status.Errorf(codes.FailedPrecondition, "table %q is protected from deletion", req.Name)
