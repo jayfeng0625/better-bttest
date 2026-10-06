@@ -15,6 +15,13 @@ import (
 // A client retries a target that stops answering, so each case gets a deadline.
 const caseDeadline = 30 * time.Second
 
+func deadline(c Case) time.Duration {
+	if c.Deadline > 0 {
+		return c.Deadline
+	}
+	return caseDeadline
+}
+
 var realInstance = flag.String("real", "", "run the cases on the parity table in the real instance <project>/<instance>, and check the gate against it")
 
 // TestParity runs every case on the real table and on the gate, and checks the gate's results against the real
@@ -41,7 +48,7 @@ func TestParity(t *testing.T) {
 			if !ok {
 				t.Skip("the case failed on the real table")
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), caseDeadline)
+			ctx, cancel := context.WithTimeout(context.Background(), deadline(c))
 			defer cancel()
 			got, err := Run(ctx, gate, runID, i+1, c)
 			if err != nil {
@@ -86,7 +93,7 @@ func realResults(t *testing.T, cases []Case, runID string) map[string][]Result {
 
 	results := map[string][]Result{}
 	for i, c := range cases {
-		ctx, cancel := context.WithTimeout(context.Background(), caseDeadline)
+		ctx, cancel := context.WithTimeout(context.Background(), deadline(c))
 		got, err := Run(ctx, real, runID, i+1, c)
 		cancel()
 		if err != nil {
