@@ -84,6 +84,10 @@ func PrepareView(sql string, tables []Table) (*Query, error) {
 	if clause == "ORDER BY" && !slices.ContainsFunc(keys, isKey) {
 		return nil, status.Error(codes.InvalidArgument, "queries must select and order by the unmodified _key column from the source table")
 	}
+	hint := slices.ContainsFunc(q.Columns, func(c Column) bool { return c.Name == "_key" })
+	if clause == "GROUP BY" && hint && !(len(keys) == 1 && isKey(keys[0])) {
+		return nil, status.Error(codes.InvalidArgument, "queries that provide a _key hint must only group by _key (and optionally _timestamp). Use a different column name if you want to create a composite key.")
+	}
 	for i, k := range keys {
 		switch k.kind {
 		case KindBytes, KindString, KindInt64:

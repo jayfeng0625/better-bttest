@@ -170,6 +170,18 @@ func TestViewCreateRejectsQueriesAsProductionDoes(t *testing.T) {
 			codes.InvalidArgument, "every GROUP BY column must be selected in the final query",
 		},
 		{
+			"ORDER BY without the selected key", "v_bad", "SELECT TO_INT64(size['bytes']) AS sz, _key FROM `items-prod` ORDER BY sz",
+			codes.InvalidArgument, "queries must select and order by the unmodified _key column from the source table",
+		},
+		{
+			"GROUP BY _key and another column", "v_bad", "SELECT _key, TO_INT64(size['bytes']) AS sz FROM `items-prod` GROUP BY _key, sz",
+			codes.InvalidArgument, "queries that provide a _key hint must only group by _key (and optionally _timestamp). Use a different column name if you want to create a composite key.",
+		},
+		{
+			"aggregate named _key", "v_bad", "SELECT SPLIT(_key, '#')[0] AS t, MAX(_key) AS _key, COUNT(*) AS n FROM `items-prod` GROUP BY t",
+			codes.InvalidArgument, "queries that provide a _key hint must only group by _key (and optionally _timestamp). Use a different column name if you want to create a composite key.",
+		},
+		{
 			"ANY_VALUE under a taken ID", "v_expired", "SELECT _key, ANY_VALUE(size['bytes']) AS sz, COUNT(*) AS n FROM `items-prod` GROUP BY _key",
 			codes.InvalidArgument, "Only stable functions are supported in materialized views (GoogleSQL:any_value is not stable)",
 		},
@@ -341,20 +353,6 @@ func TestViewExposesKeyOnlyAsAnOutputColumn(t *testing.T) {
 	}
 	if diff := cmp.Diff(want, got, cmp.AllowUnexported(sqlResult{})); diff != "" {
 		t.Errorf("_key view (-want +got):\n%s", diff)
-	}
-}
-
-func TestViewKeyOutputColumnSortsAsTheRawKey(t *testing.T) {
-	ctx := sqlContext(t)
-	// Production stores a _key output column raw. The view key of k\x00\x00 then starts 6b 00 00, which sorts before
-	// k's 6b 00 01. Encoded, it would start 6b 00 ff and sort after.
-	f := newViewFixture(ctx, t, []itemRow{{key: "k", size: u64(1)}, {key: "k\x00\x00", size: u64(2)}})
-	f.createView(ctx, t, "v_bykey", "SELECT _key, TO_INT64(size['bytes']) AS sz FROM `items-prod` GROUP BY _key, sz")
-
-	got := f.query(ctx, t, "SELECT _key FROM v_bykey", nil, nil)
-
-	if diff := cmp.Diff([]string{"k\x00\x00", "k"}, got.keys()); diff != "" {
-		t.Errorf("view keys (-want +got):\n%s", diff)
 	}
 }
 
