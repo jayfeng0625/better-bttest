@@ -5,6 +5,8 @@ package sqlengine
 import (
 	"bytes"
 	"encoding/binary"
+	"math"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -97,6 +99,102 @@ func function(name string, xs []expr, ts []Type, consts []*Value) expr {
 			}
 			return null, nil
 		})
+	case "$subtract":
+		if ts[0].Kind != KindInt64 {
+			return nil
+		}
+		return strict(func(a []Value) (Value, error) {
+			x, y := a[0].Int, a[1].Int
+			r := x - y
+			if (y > 0 && r > x) || (y < 0 && r < x) {
+				// The message is an assumption. Production recorded no overflow of INT64 subtraction.
+				return Value{}, status.Errorf(codes.OutOfRange, "int64 overflow: %d - %d", x, y)
+			}
+			return Value{Int: r}, nil
+		})
+	case "div":
+		if ts[0].Kind != KindInt64 {
+			return nil
+		}
+		return strict(func(a []Value) (Value, error) {
+			x, y := a[0].Int, a[1].Int
+			switch {
+			case y == 0:
+				return Value{}, status.Error(codes.OutOfRange, "division by zero: DIV")
+			case x == math.MinInt64 && y == -1:
+				// The message is an assumption. Production recorded no overflow of DIV.
+				return Value{}, status.Errorf(codes.OutOfRange, "int64 overflow: DIV(%d, %d)", x, y)
+			}
+			return Value{Int: x / y}, nil
+		})
+	case "$array_at_offset":
+		return strict(func(a []Value) (Value, error) {
+			arr, i := a[0].Elems, a[1].Int
+			if i < 0 {
+				return Value{}, status.Error(codes.OutOfRange, "Array index is out of bounds")
+			}
+			if i >= int64(len(arr)) {
+				return Value{}, status.Errorf(codes.OutOfRange, "Array index %d is out of bounds", i)
+			}
+			return arr[i], nil
+		})
+	case "split":
+		if ts[0].Kind != KindBytes {
+			return nil
+		}
+		return strict(func(a []Value) (Value, error) { return splitBytes(a[0].Bytes, a[1].Bytes), nil })
+	case "json_query_array":
+		// go-googlesql passes the default path $ when the query omits it. compiler.call rejects any other path.
+		return strict(func(a []Value) (Value, error) { return jsonQueryArray(a[0].Bytes), nil })
+	case "array_concat":
+		return strict(func(a []Value) (Value, error) {
+			out := Value{Elems: []Value{}}
+			for _, v := range a {
+				out.Elems = append(out.Elems, v.Elems...)
+			}
+			return out, nil
+		})
+	case "$make_array":
+		return func(x *execCtx, row []Value) (Value, error) {
+			out := Value{Elems: make([]Value, len(xs))}
+			for i, a := range xs {
+				v, err := a(x, row)
+				if err != nil {
+					return Value{}, err
+				}
+				out.Elems[i] = v
+			}
+			return out, nil
+		}
+	case "coalesce":
+		return func(x *execCtx, row []Value) (Value, error) {
+			for _, a := range xs {
+				v, err := a(x, row)
+				if err != nil || !v.Null {
+					return v, err
+				}
+			}
+			return null, nil
+		}
+	case "$case_no_value":
+		// CASE WHEN c1 THEN v1 ... [ELSE e] END resolves to its conditions and values in pairs, then the ELSE value
+		// when the count is odd. The engine evaluates only the chosen value.
+		return func(x *execCtx, row []Value) (Value, error) {
+			n := len(xs)
+			for i := 0; i+1 < n; i += 2 {
+				c, err := xs[i](x, row)
+				if err != nil {
+					return Value{}, err
+				}
+				if !c.Null && c.Bool {
+					return xs[i+1](x, row)
+				}
+			}
+			if n%2 == 1 {
+				return xs[n-1](x, row)
+			}
+			return null, nil
+		}
 	case toInt64:
 		return strict(func(a []Value) (Value, error) {
 			if len(a[0].Bytes) != 8 {
@@ -106,6 +204,25 @@ func function(name string, xs []expr, ts []Type, consts []*Value) expr {
 		})
 	}
 	return nil
+}
+
+// splitBytes splits s at each d. An empty d splits s into single bytes. An empty s gives one empty element.
+func splitBytes(s, d []byte) Value {
+	out := Value{Elems: []Value{}}
+	if len(s) == 0 {
+		out.Elems = append(out.Elems, Value{Bytes: []byte{}})
+		return out
+	}
+	if len(d) == 0 {
+		for i := range s {
+			out.Elems = append(out.Elems, Value{Bytes: s[i : i+1]})
+		}
+		return out
+	}
+	for _, p := range bytes.Split(s, d) {
+		out.Elems = append(out.Elems, Value{Bytes: p})
+	}
+	return out
 }
 
 // logical compiles AND and OR with three-valued logic: a deciding operand wins over NULL.
@@ -200,7 +317,7 @@ func like(pattern []byte, isString bool) (func([]byte) bool, error) {
 // castExpr compiles CAST between BYTES and STRING, and to a value's own type.
 func castExpr(x expr, from, to Type) (expr, error) {
 	switch {
-	case from.Kind == to.Kind && from.Kind != KindMap:
+	case reflect.DeepEqual(from, to):
 		return x, nil
 	case from.Kind == KindString && to.Kind == KindBytes:
 		return x, nil
@@ -229,6 +346,8 @@ func kindName(k Kind) string {
 		return "INT64"
 	case KindBool:
 		return "BOOL"
+	case KindArray:
+		return "ARRAY"
 	}
 	return "MAP"
 }

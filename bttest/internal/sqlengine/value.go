@@ -5,6 +5,7 @@ package sqlengine
 import (
 	"bytes"
 	"cmp"
+	"encoding/binary"
 	"fmt"
 	"slices"
 
@@ -20,9 +21,10 @@ const (
 	KindInt64
 	KindBool
 	KindMap
+	KindArray
 )
 
-// Type is a SQL type. Key and Elem are a map's key and value types.
+// Type is a SQL type. Key and Elem are a map's key and value types, and Elem is an array's element type.
 type Type struct {
 	Kind Kind
 	Key  *Type
@@ -37,6 +39,7 @@ type Value struct {
 	Bool  bool
 	Keys  []Value // MAP keys, in ascending order
 	Vals  []Value // MAP values, by Keys index
+	Elems []Value // ARRAY elements
 }
 
 var null = Value{Null: true}
@@ -75,6 +78,8 @@ func (t Type) Proto() *btpb.Type {
 		return &btpb.Type{Kind: &btpb.Type_BoolType{BoolType: &btpb.Type_Bool{}}}
 	case KindMap:
 		return &btpb.Type{Kind: &btpb.Type_MapType{MapType: &btpb.Type_Map{KeyType: t.Key.Proto(), ValueType: t.Elem.Proto()}}}
+	case KindArray:
+		return &btpb.Type{Kind: &btpb.Type_ArrayType{ArrayType: &btpb.Type_Array{ElementType: t.Elem.Proto()}}}
 	}
 	panic(fmt.Sprintf("sqlengine: no proto for kind %d", t.Kind))
 }
@@ -118,6 +123,12 @@ func (v Value) Proto(t Type) *btpb.Value {
 			}}}
 		}
 		return &btpb.Value{Kind: &btpb.Value_ArrayValue{ArrayValue: a}}
+	case KindArray:
+		a := &btpb.ArrayValue{Values: make([]*btpb.Value, len(v.Elems))}
+		for i, e := range v.Elems {
+			a.Values[i] = e.Proto(*t.Elem)
+		}
+		return &btpb.Value{Kind: &btpb.Value_ArrayValue{ArrayValue: a}}
 	}
 	panic(fmt.Sprintf("sqlengine: no proto for kind %d", t.Kind))
 }
@@ -155,4 +166,24 @@ func newMap(entries map[string]Value) Value {
 		m.Vals[i] = entries[k]
 	}
 	return m
+}
+
+// appendGroupKey appends an encoding of v that equals another value's encoding exactly when GROUP BY puts the
+// two values in one group. NULL forms its own group.
+func appendGroupKey(b []byte, v Value) []byte {
+	if v.Null {
+		return append(b, 0)
+	}
+	b = append(b, 1)
+	b = binary.AppendUvarint(b, uint64(len(v.Bytes)))
+	b = append(b, v.Bytes...)
+	b = binary.BigEndian.AppendUint64(b, uint64(v.Int))
+	b = binary.AppendUvarint(b, uint64(len(v.Elems)))
+	for _, e := range v.Elems {
+		b = appendGroupKey(b, e)
+	}
+	if v.Bool {
+		return append(b, 1)
+	}
+	return append(b, 0)
 }

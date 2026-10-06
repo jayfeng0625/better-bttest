@@ -53,9 +53,11 @@ A parity case sends the same requests to a real table and to the emulator.
   Any other type fails `PrepareQuery` with `InvalidArgument`.
   A construct outside the list below fails `PrepareQuery` with `InvalidArgument`.
   A query can take query parameters and use these constructs:
-  - Query parts: a select list with aliases and `*`, a subquery in `FROM`, `WHERE`, `ORDER BY`, and `LIMIT`.
-  - Operators: comparisons, `AND`, `OR`, `NOT`, `IS NULL`, `IN`, `BETWEEN`, `LIKE`, and the map subscript `fam['col']`.
-  - Functions: `STARTS_WITH`, `CAST` between `BYTES` and `STRING`, and `TO_INT64`.
+  - Query parts: a select list with aliases and `*`, a subquery in `FROM`, a comma join with `UNNEST`, `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY`, and `LIMIT`.
+  - Operators: comparisons, `AND`, `OR`, `NOT`, `IS NULL`, `IN`, `BETWEEN`, `LIKE`, `DIV`, `-` on `INT64`, searched `CASE`, the map subscript `fam['col']`, and the array subscripts `[n]` and `[OFFSET(n)]`.
+  - Functions: `STARTS_WITH`, `CAST` between `BYTES` and `STRING`, `TO_INT64`, `COALESCE`, `SPLIT` on `BYTES`, `JSON_QUERY_ARRAY` with the path `$`, and `ARRAY_CONCAT`.
+  - Aggregate functions: `COUNT(*)`, `SUM` over `INT64`, and `MAX`.
+  - Values: array literals.
 
 Two more changes have nothing to match in production:
 
@@ -66,7 +68,7 @@ Two more changes have nothing to match in production:
 
 ## Not supported yet
 
-- SQL beyond the constructs listed above, such as `GROUP BY`, `UNNEST`, and `OFFSET`.
+- SQL beyond the constructs listed above, such as `LEFT JOIN`, `COUNT(expr)`, and `LIMIT` with `OFFSET`.
 - A runtime SQL error's second line, `(while evaluating <expression>)`.
 - Materialized views.
 - HyperLogLog (HLL) aggregate families.
