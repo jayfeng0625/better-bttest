@@ -133,6 +133,16 @@ func TestNormalizeTrimsTheStructEncodingMessage(t *testing.T) {
 	}
 }
 
+// Production's message, as an ExecuteQuery returned it.
+func TestNormalizeDropsTheSQLExpressionLine(t *testing.T) {
+	results := []Result{{Call: "ExecuteQuery", Status: Status{Code: codes.OutOfRange, Message: "SUM() aggregation overflow\n(while evaluating sum(x))"}}}
+	want := []Result{{Call: "ExecuteQuery", Status: Status{Code: codes.OutOfRange, Message: "SUM() aggregation overflow"}}}
+
+	if d := cmp.Diff(want, Normalize(testInstance, testRunID, results)); d != "" {
+		t.Errorf("Normalize (-want +got):\n%s", d)
+	}
+}
+
 func TestDiffReportsADifferentNumberOfCalls(t *testing.T) {
 	want := []Result{{Call: "MutateRow"}, {Call: "ReadRow"}}
 	got := []Result{{Call: "MutateRow"}}

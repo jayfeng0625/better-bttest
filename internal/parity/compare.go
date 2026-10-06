@@ -36,6 +36,7 @@ func Normalize(instance, runID string, results []Result) []Result {
 		if strings.HasPrefix(s.Message, structMessage) {
 			s.Message = structMessage
 		}
+		s.Message, _, _ = strings.Cut(s.Message, sqlExpressionLine)
 		return s
 	}
 	out := make([]Result, len(results))
@@ -64,6 +65,10 @@ func family(c Cell) string {
 
 // Production's message for a row key schema with no encoding continues with text that differs between calls.
 const structMessage = "Missing encoding for STRUCT"
+
+// Production's SQL runtime error ends with a line that names the failing expression in its own rewritten form. The
+// emulator leaves the line out.
+const sqlExpressionLine = "\n(while evaluating "
 
 // Diff returns each call whose result differs between want and got, or "" when every result matches.
 func Diff(want, got []Result) string {
