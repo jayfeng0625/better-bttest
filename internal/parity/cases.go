@@ -16,7 +16,7 @@ func Cases() []Case {
 	for _, agg := range Aggregates {
 		cases = append(cases, named(agg, MergeCases(agg))...)
 	}
-	return slices.Concat(cases, named(Sum, AggregateCases(Sum)), PlainCases, TableCases())
+	return slices.Concat(cases, named(Sum, AggregateCases(Sum)), PlainCases, TableCases(), SQLCases())
 }
 
 func named(agg Family, cases []Case) []Case {
