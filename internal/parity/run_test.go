@@ -366,3 +366,17 @@ func TestRunNamesTheCaseTableInAQueryOnNoTable(t *testing.T) {
 		t.Errorf("PrepareQuery status (-want +got):\n%s", d)
 	}
 }
+
+// Each SQL case's Setup succeeds on the gate.
+func TestSQLCasesRunOnTheGate(t *testing.T) {
+	_, target := startGate(t)
+	for i, c := range SQLCases() {
+		t.Run(c.Name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			if _, err := Run(ctx, target, testRunID, i+1, c); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}

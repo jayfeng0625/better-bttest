@@ -78,6 +78,11 @@ Add the rest to `PlainCases` or `TableCases`.
 Then run the cases on a real instance.
 If a case needs another family, add it to `families()` in `fixture.go` and to the real table.
 
+A SQL case's calls are `PrepareQuery` and `ExecuteQuery`, and `Query(sql, params...)` returns both.
+`{table}` in the SQL stands for the case's table. Write it in backquotes, because GoogleSQL does not parse the table id unquoted.
+A SQL case starts its `Setup` with `sqlFixture()`, which creates the table and writes the six rows that the queries read.
+Add SQL cases to `SQLCases` in `internal/parity/sqlcases.go`.
+
 ## Sync with upstream
 
 The fork follows upstream's bigtable releases.
