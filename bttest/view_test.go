@@ -186,6 +186,30 @@ func TestViewCreateRejectsQueriesAsProductionDoes(t *testing.T) {
 			codes.InvalidArgument, "Only stable functions are supported in materialized views (GoogleSQL:any_value is not stable)",
 		},
 		{
+			"CURRENT_TIMESTAMP", "v_bad", "SELECT SPLIT(_key, '#')[0] AS t, CURRENT_TIMESTAMP() AS ts, COUNT(*) AS n FROM `items-prod` GROUP BY t",
+			codes.InvalidArgument, "Only immutable functions are supported in materialized views (GoogleSQL:current_timestamp is not immutable)",
+		},
+		{
+			"RAND", "v_bad", "SELECT SPLIT(_key, '#')[0] AS t, RAND() AS r, COUNT(*) AS n FROM `items-prod` GROUP BY t",
+			codes.InvalidArgument, "Only immutable functions are supported in materialized views (GoogleSQL:rand is not immutable)",
+		},
+		{
+			"GENERATE_UUID", "v_bad", "SELECT SPLIT(_key, '#')[0] AS t, GENERATE_UUID() AS u, COUNT(*) AS n FROM `items-prod` GROUP BY t",
+			codes.InvalidArgument, "Only immutable functions are supported in materialized views (GoogleSQL:generate_uuid is not immutable)",
+		},
+		{
+			"CURRENT_DATE", "v_bad", "SELECT SPLIT(_key, '#')[0] AS t, CURRENT_DATE() AS d, COUNT(*) AS n FROM `items-prod` GROUP BY t",
+			codes.InvalidArgument, "Only immutable functions are supported in materialized views (GoogleSQL:current_date is not immutable)",
+		},
+		{
+			"ARRAY_AGG", "v_bad", "SELECT SPLIT(_key, '#')[0] AS t, ARRAY_AGG(_key) AS ks, COUNT(*) AS n FROM `items-prod` GROUP BY t",
+			codes.InvalidArgument, "Only stable functions are supported in materialized views (GoogleSQL:array_agg is not stable)",
+		},
+		{
+			"STRING_AGG", "v_bad", "SELECT SPLIT(_key, '#')[0] AS t, STRING_AGG(_key) AS ks, COUNT(*) AS n FROM `items-prod` GROUP BY t",
+			codes.InvalidArgument, "Only stable functions are supported in materialized views (GoogleSQL:string_agg is not stable)",
+		},
+		{
 			"valid query under a taken ID", "v_expired", expiredViewQuery,
 			codes.AlreadyExists, "Materialized View v_expired already exists.",
 		},
