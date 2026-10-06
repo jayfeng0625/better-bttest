@@ -123,6 +123,25 @@ type ExecuteQuery struct {
 	Params map[string]*btpb.Value
 }
 
+// The view calls run on the case's view, which the run names after the case's table, with v for t. A case has one
+// view id, so a CreateView after another needs a DeleteView between them. The run deletes the view, then the table,
+// when the case ends. {view} in SQL stands for the view's id, as {table} stands for the table's.
+
+// CreateMaterializedView with Query, on the case's table where Query names {table}, and a wait for its operation.
+// Production's create takes 1 to 2 minutes.
+type CreateView struct{ Query string }
+
+// GetMaterializedView. The result leaves out the etag, which differs between calls.
+type GetView struct{}
+
+// UpdateMaterializedView with the mask deletion_protection, and a wait for its operation.
+type SetViewDeletionProtection struct{ On bool }
+
+type DeleteView struct{}
+
+// ReadRows over the case's view, keeping each row's key and its cells' raw bytes.
+type ReadView struct{}
+
 // Builders for mutations at column c and 1000 µs, unless an option says otherwise.
 
 type cellAt struct {

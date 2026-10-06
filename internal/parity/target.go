@@ -24,9 +24,10 @@ import (
 
 // A Target is a Bigtable that the cases run on: the real one, or an emulator.
 type Target struct {
-	Data  btpb.BigtableClient
-	Admin adminpb.BigtableTableAdminClient
-	// The admin service's long-running operations, which UpdateTable returns.
+	Data      btpb.BigtableClient
+	Admin     adminpb.BigtableTableAdminClient
+	Instances adminpb.BigtableInstanceAdminClient
+	// The admin services' long-running operations, which UpdateTable and the view calls return.
 	Operations longrunningpb.OperationsClient
 	Instance   string // projects/<project>/instances/<instance>
 }
@@ -35,6 +36,7 @@ type Target struct {
 const parityTable = "better-bttest-parity"
 
 func (t Target) tablePath(id string) string { return t.Instance + "/tables/" + id }
+func (t Target) viewPath(id string) string  { return t.Instance + "/materializedViews/" + id }
 
 // How often a poll asks again, for an operation that is not done or an emulator that does not answer yet.
 const pollInterval = 200 * time.Millisecond
@@ -57,6 +59,16 @@ func (t Target) wait(ctx context.Context, op *longrunningpb.Operation) error {
 func (t Target) updateTable(ctx context.Context, tbl *adminpb.Table, field string, ignoreWarnings bool) error {
 	op, err := t.Admin.UpdateTable(ctx, &adminpb.UpdateTableRequest{
 		Table: tbl, UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{field}}, IgnoreWarnings: ignoreWarnings,
+	})
+	if err != nil {
+		return err
+	}
+	return t.wait(ctx, op)
+}
+
+func (t Target) updateView(ctx context.Context, mv *adminpb.MaterializedView, field string) error {
+	op, err := t.Instances.UpdateMaterializedView(ctx, &adminpb.UpdateMaterializedViewRequest{
+		MaterializedView: mv, UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{field}},
 	})
 	if err != nil {
 		return err
@@ -94,6 +106,7 @@ func emulatorTarget(conn *grpc.ClientConn) Target {
 	return Target{
 		Data:       btpb.NewBigtableClient(conn),
 		Admin:      adminpb.NewBigtableTableAdminClient(conn),
+		Instances:  adminpb.NewBigtableInstanceAdminClient(conn),
 		Operations: longrunningpb.NewOperationsClient(conn),
 		Instance:   "projects/parity/instances/parity",
 	}
@@ -128,6 +141,7 @@ func DialReal(ctx context.Context, instance string) (Target, func(), error) {
 	return Target{
 		Data:       btpb.NewBigtableClient(data),
 		Admin:      adminpb.NewBigtableTableAdminClient(admin),
+		Instances:  adminpb.NewBigtableInstanceAdminClient(admin),
 		Operations: longrunningpb.NewOperationsClient(admin),
 		Instance:   instance,
 	}, stop, nil
