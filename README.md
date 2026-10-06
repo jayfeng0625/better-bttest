@@ -58,6 +58,20 @@ A parity case sends the same requests to a real table and to the emulator.
   - Functions: `STARTS_WITH`, `CAST` between `BYTES` and `STRING`, `TO_INT64`, `COALESCE`, `SPLIT` on `BYTES`, `JSON_QUERY_ARRAY` with the path `$`, and `ARRAY_CONCAT`.
   - Aggregate functions: `COUNT(*)`, `SUM` over `INT64`, and `MAX`.
   - Values: array literals.
+- **[Materialized views](https://cloud.google.com/bigtable/docs/continuous-materialized-views).**
+  `CreateMaterializedView` plans the query, checks [production's view rules](https://cloud.google.com/bigtable/docs/continuous-materialized-view-queries), and returns a finished operation.
+  `GetMaterializedView` returns the view, and `ListMaterializedViews` returns the instance's views in name order.
+  `DeleteMaterializedView` deletes the view, and fails with `FailedPrecondition` while deletion protection is on.
+  `DeleteTable` fails with `FailedPrecondition` while a view reads the table, and names the view.
+  `UpdateMaterializedView` changes only deletion protection.
+  It fails with `InvalidArgument` when the update mask names `query` and the query differs from the stored one.
+  A SQL read of a view evaluates its query and returns the rows in production's view key order. The read leaves out each source row or group whose evaluation fails, as production does.
+  Once the view is deleted, `ExecuteQuery` on a query prepared against it fails with `NotFound`, at once, since the emulator has no replication lag.
+  `ReadRows` on a view returns its rows as production stores them: the encoded view key, one family `default`, an empty-qualifier cell with no value, then a cell per stored column, all at timestamp 0.
+  An invalid query fails with the analyzer's message, which differs from production's in two ways.
+  The message has no `while resolving DDL statement` suffix.
+  Its position refers to the query as written, such as `[at 1:8]`. Production's position refers to its reformatted query, such as `[at 4:3]`.
+  Google's emulator crashes on these calls.
 
 Two more changes have nothing to match in production:
 
@@ -70,7 +84,6 @@ Two more changes have nothing to match in production:
 
 - SQL beyond the constructs listed above, such as `LEFT JOIN`, `COUNT(expr)`, and `LIMIT` with `OFFSET`.
 - A runtime SQL error's second line, `(while evaluating <expression>)`.
-- Materialized views.
 - HyperLogLog (HLL) aggregate families.
 
 ## Use the published images

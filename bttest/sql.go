@@ -125,7 +125,7 @@ func (s *server) PrepareQuery(ctx context.Context, req *btpb.PrepareQueryRequest
 }
 
 // sqlTables lists the instance's tables as SQL sees them: families in byte order, with Sum, Min and Max families
-// typed INT64.
+// typed INT64. Then it lists the instance's materialized views.
 func (s *server) sqlTables(instance string) []sqlengine.Table {
 	prefix := instance + "/tables/"
 	s.mu.Lock()
@@ -145,7 +145,7 @@ func (s *server) sqlTables(instance string) []sqlengine.Table {
 		slices.SortFunc(t.Families, func(a, b sqlengine.Family) int { return strings.Compare(a.Name, b.Name) })
 		out = append(out, t)
 	}
-	return out
+	return append(out, s.sqlViews(instance)...)
 }
 
 func (s *server) ExecuteQuery(req *btpb.ExecuteQueryRequest, stream btpb.Bigtable_ExecuteQueryServer) error {
@@ -172,7 +172,7 @@ func (s *server) ExecuteQuery(req *btpb.ExecuteQueryRequest, stream btpb.Bigtabl
 }
 
 // preparedQuery finds a prepared query and fails as production does once it has expired: 40 s after prepare, or
-// after a family it reads is dropped.
+// after a family it reads is dropped. A query of a view fails once the view is deleted.
 func (s *server) preparedQuery(token []byte) (*preparedQuery, error) {
 	s.sql.mu.Lock()
 	pq := s.sql.queries[string(token)]
@@ -190,6 +190,11 @@ func (s *server) preparedQuery(token []byte) (*preparedQuery, error) {
 	if s.familyDropped(pq) {
 		// Production repeats the message for a dropped family.
 		return nil, expiredError(expiredMessage + " : " + expiredMessage)
+	}
+	if pq.query.View != "" {
+		if err := s.viewReplica(pq.instance, pq.query.View); err != nil {
+			return nil, err
+		}
 	}
 	return pq, nil
 }

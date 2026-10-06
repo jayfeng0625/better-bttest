@@ -26,22 +26,27 @@ const rowPrefix = "probe#"
 // Every table the cases create starts with this prefix and the run id, to fit the 50-character table id limit.
 const tablePrefix = parityTable + "-"
 
-// How long Run has to delete the case's table, after the case's calls.
+// How long Run has to delete the case's view and table, after the case's calls.
 const caseCleanupDeadline = time.Minute
 
 // Run makes the case's calls on the target, and returns each of Calls' results. The ordinal is the case's place in
-// the run, which names its table, so every target gives a case the same table name. Run deletes the case's table
-// before it returns, even when ctx has ended.
+// the run, which names its table and its view, so every target gives a case the same names. Run deletes the case's
+// view, then its table, before it returns, even when ctx has ended. Production refuses to delete a table while a
+// view reads it.
 func Run(ctx context.Context, t Target, runID string, ordinal int, c Case) (results []Result, err error) {
 	r := &runner{
 		target:       t,
 		rowKeyPrefix: rowPrefix + runID + "#" + c.Name,
 		table:        fmt.Sprintf("%s%s-t%d", tablePrefix, runID, ordinal),
+		view:         fmt.Sprintf("%s%s-v%d", tablePrefix, runID, ordinal),
 	}
 	defer func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), caseCleanupDeadline)
+		defer cancel()
+		if r.viewCreated {
+			err = errors.Join(err, t.deleteView(ctx, r.view))
+		}
 		if r.created {
-			ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), caseCleanupDeadline)
-			defer cancel()
 			err = errors.Join(err, t.deleteTable(ctx, r.table))
 		}
 	}()
@@ -62,6 +67,8 @@ type runner struct {
 	rowKeyPrefix string
 	table        string // the case's table's id
 	created      bool   // whether the case has called CreateTable
+	view         string // the case's view's id
+	viewCreated  bool   // whether the case has called CreateView
 	// The case's last prepared query and its columns, or nil when its last PrepareQuery failed.
 	prepared []byte
 	columns  []Column
@@ -76,6 +83,11 @@ func (r *runner) call(ctx context.Context, call Call) Result {
 }
 
 func (r *runner) tablePath() string { return r.target.tablePath(r.table) }
+func (r *runner) viewPath() string  { return r.target.viewPath(r.view) }
+
+func (r *runner) sql(sql string) string {
+	return strings.NewReplacer("{table}", r.table, "{view}", r.view).Replace(sql)
+}
 
 // The path of a data call's table.
 func (r *runner) dataTable(caseTable bool) string {
@@ -142,24 +154,39 @@ func (c ReadModifyWrite) run(ctx context.Context, r *runner) (Result, error) {
 	return Result{}, err
 }
 
-// The row's cells as raw bytes. A chunk with a value_size continues in the next chunk, and any other chunk ends its
-// cell. A chunk that names no family or qualifier keeps the previous cell's.
+// The row's cells as raw bytes.
 func (c ReadRow) run(ctx context.Context, r *runner) (Result, error) {
-	stream, err := r.target.Data.ReadRows(ctx, &btpb.ReadRowsRequest{
+	rows, err := readRows(ctx, r.target, &btpb.ReadRowsRequest{
 		TableName: r.dataTable(c.CaseTable), Rows: &btpb.RowSet{RowKeys: [][]byte{r.rowKey(c.CaseTable, c.Row)}},
 	})
-	if err != nil {
+	if err != nil || len(rows) == 0 {
 		return Result{}, err
 	}
-	var cells []Cell
+	return Result{Cells: rows[0].Cells}, nil
+}
+
+// Each row that the request reads, with its cells as raw bytes. A chunk names its row only when the row starts, and
+// a row that the server resets after a reset_row starts again with the same key. A chunk with a value_size
+// continues in the next chunk, and any other chunk ends its cell. A chunk that names no family or qualifier keeps
+// the previous cell's.
+func readRows(ctx context.Context, t Target, req *btpb.ReadRowsRequest) ([]ViewRow, error) {
+	stream, err := t.Data.ReadRows(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	var rows []ViewRow
 	var family, qualifier string
 	continuing := false
 	err = recvAll(stream, func(resp *btpb.ReadRowsResponse) {
 		for _, ch := range resp.Chunks {
 			if ch.GetResetRow() {
-				cells, continuing = nil, false
+				rows[len(rows)-1].Cells, continuing = nil, false
 				continue
 			}
+			if len(ch.RowKey) > 0 && (len(rows) == 0 || string(rows[len(rows)-1].Key) != string(ch.RowKey)) {
+				rows = append(rows, ViewRow{Key: ch.RowKey})
+			}
+			row := &rows[len(rows)-1]
 			if !continuing {
 				if ch.FamilyName != nil {
 					family = ch.FamilyName.Value
@@ -167,17 +194,17 @@ func (c ReadRow) run(ctx context.Context, r *runner) (Result, error) {
 				if ch.Qualifier != nil {
 					qualifier = string(ch.Qualifier.Value)
 				}
-				cells = append(cells, Cell{Column: family + ":" + qualifier, TS: ch.TimestampMicros})
+				row.Cells = append(row.Cells, Cell{Column: family + ":" + qualifier, TS: ch.TimestampMicros})
 			}
-			last := &cells[len(cells)-1]
+			last := &row.Cells[len(row.Cells)-1]
 			last.Value = append(last.Value, ch.Value...)
 			continuing = ch.ValueSize > 0
 		}
 	})
 	if err != nil {
-		return Result{}, err
+		return nil, err
 	}
-	return Result{Cells: cells}, nil
+	return rows, nil
 }
 
 func (ReadRowKeys) run(ctx context.Context, r *runner) (Result, error) {
@@ -185,23 +212,15 @@ func (ReadRowKeys) run(ctx context.Context, r *runner) (Result, error) {
 	return Result{Keys: keys}, err
 }
 
-// The key of each row that the request reads, in order. A chunk names its row only when the row starts, and a row that
-// the server resets after a reset_row starts again with the same key.
+// The key of each row that the request reads, in order.
 func readKeys(ctx context.Context, t Target, req *btpb.ReadRowsRequest) ([]Hex, error) {
-	stream, err := t.Data.ReadRows(ctx, req)
+	rows, err := readRows(ctx, t, req)
 	if err != nil {
 		return nil, err
 	}
-	var keys []Hex
-	err = recvAll(stream, func(resp *btpb.ReadRowsResponse) {
-		for _, ch := range resp.Chunks {
-			if len(ch.RowKey) > 0 && (len(keys) == 0 || string(keys[len(keys)-1]) != string(ch.RowKey)) {
-				keys = append(keys, ch.RowKey)
-			}
-		}
-	})
-	if err != nil {
-		return nil, err
+	keys := make([]Hex, len(rows))
+	for i, row := range rows {
+		keys[i] = row.Key
 	}
 	return keys, nil
 }
@@ -288,7 +307,7 @@ func (c PrepareQuery) run(ctx context.Context, r *runner) (Result, error) {
 	r.prepared, r.columns = nil, nil
 	resp, err := r.target.Data.PrepareQuery(r.queryContext(ctx), &btpb.PrepareQueryRequest{
 		InstanceName: r.target.Instance,
-		Query:        strings.ReplaceAll(c.SQL, "{table}", r.table),
+		Query:        r.sql(c.SQL),
 		DataFormat:   &btpb.PrepareQueryRequest_ProtoFormat{ProtoFormat: &btpb.ProtoFormat{}},
 		ParamTypes:   c.Params,
 	})
@@ -358,6 +377,40 @@ func (c ExecuteQuery) run(ctx context.Context, r *runner) (Result, error) {
 		}
 		res.Messages = append(res.Messages, strings.Join(parts, " "))
 	}
+}
+
+func (c CreateView) run(ctx context.Context, r *runner) (Result, error) {
+	r.viewCreated = true
+	op, err := r.target.Instances.CreateMaterializedView(ctx, &adminpb.CreateMaterializedViewRequest{
+		Parent: r.target.Instance, MaterializedViewId: r.view,
+		MaterializedView: &adminpb.MaterializedView{Query: r.sql(c.Query)},
+	})
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{}, r.target.wait(ctx, op)
+}
+
+func (GetView) run(ctx context.Context, r *runner) (Result, error) {
+	mv, err := r.target.Instances.GetMaterializedView(ctx, &adminpb.GetMaterializedViewRequest{Name: r.viewPath()})
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{View: &ViewInfo{Query: mv.Query, DeletionProtection: mv.DeletionProtection}}, nil
+}
+
+func (c SetViewDeletionProtection) run(ctx context.Context, r *runner) (Result, error) {
+	return Result{}, r.target.updateView(ctx, &adminpb.MaterializedView{Name: r.viewPath(), DeletionProtection: c.On}, "deletion_protection")
+}
+
+func (DeleteView) run(ctx context.Context, r *runner) (Result, error) {
+	_, err := r.target.Instances.DeleteMaterializedView(ctx, &adminpb.DeleteMaterializedViewRequest{Name: r.viewPath()})
+	return Result{}, err
+}
+
+func (ReadView) run(ctx context.Context, r *runner) (Result, error) {
+	rows, err := readRows(ctx, r.target, &btpb.ReadRowsRequest{MaterializedViewName: r.viewPath()})
+	return Result{ViewRows: rows}, err
 }
 
 // Pass each response on the stream to f, until the stream ends.

@@ -11,7 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
-// A run that is still going keeps its rows and tables. An interrupted run's are deleted with the run's own.
+// A run that is still going keeps its rows, views and tables. An interrupted run's are deleted with the run's own.
 func TestCleanupDeletesTheRunsAndStaleRunsData(t *testing.T) {
 	ctx, target := startGate(t)
 	run := NewRunID(time.Now())
@@ -38,9 +38,20 @@ func TestCleanupDeletesTheRunsAndStaleRunsData(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	view := func(id string) {
+		t.Helper()
+		_, err := target.Instances.CreateMaterializedView(ctx, &adminpb.CreateMaterializedViewRequest{
+			Parent: target.Instance, MaterializedViewId: tablePrefix + id + "-v1",
+			MaterializedView: &adminpb.MaterializedView{Query: "SELECT _key AS k FROM `" + tablePrefix + id + "-t1` ORDER BY k", DeletionProtection: true},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	for _, id := range []string{run, other, stale} {
 		write(rowPrefix + id + "#case")
 		create(tablePrefix+id+"-t1", true)
+		view(id)
 	}
 	write("not a case row")
 
@@ -62,6 +73,13 @@ func TestCleanupDeletesTheRunsAndStaleRunsData(t *testing.T) {
 	}
 	if want := []string{tablePrefix + other + "-t1"}; !cmp.Equal(tables, want) {
 		t.Errorf("case tables after the cleanup = %v, want %v", tables, want)
+	}
+	views, err := caseViews(ctx, target, everyRun)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{tablePrefix + other + "-v1"}; !cmp.Equal(views, want) {
+		t.Errorf("case views after the cleanup = %v, want %v", views, want)
 	}
 	stream, err := target.Data.ReadRows(ctx, &btpb.ReadRowsRequest{
 		TableName: target.tablePath(parityTable), Rows: &btpb.RowSet{RowKeys: [][]byte{[]byte("not a case row")}},

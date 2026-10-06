@@ -47,13 +47,15 @@ var errStop = errors.New("stop")
 // Run executes the query and calls emit with each output row, in output column order.
 func (q *Query) Run(ctx context.Context, src Source, params map[string]Value, emit func([]Value) error) error {
 	x := &execCtx{ctx: ctx, src: src, params: params, nSlots: q.nSlots, failed: func(err error) error { return err }}
-	return q.root.run(x, func(row []Value) error {
-		out := make([]Value, len(q.outIDs))
-		for i, id := range q.outIDs {
-			out[i] = row[id]
-		}
-		return emit(out)
-	})
+	return q.root.run(x, func(row []Value) error { return emit(q.output(row)) })
+}
+
+func (q *Query) output(row []Value) []Value {
+	out := make([]Value, len(q.outIDs))
+	for i, id := range q.outIDs {
+		out[i] = row[id]
+	}
+	return out
 }
 
 // tableCol is one column a table scan reads: _key when family is nil.
