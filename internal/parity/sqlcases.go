@@ -22,7 +22,8 @@ const (
 // A case that drops a family needs longer than caseDeadline. Production's drop takes 30 to 32 s.
 const adminDeadline = 90 * time.Second
 
-// The marker times, in milliseconds: one year after the fixture was first written on production, and one hour before.
+// The marker times, in milliseconds: one year after the fixture was first written on production, and one hour before
+// that first write.
 const (
 	markAhead  = 1822572691361
 	markBehind = 1791033091361
@@ -58,7 +59,7 @@ func sqlFixture() []Call {
 	}
 }
 
-// The SQL fixture, and the rows like# followed by each of the suffixes that LIKE and BETWEEN tell apart.
+// likeFixture adds to the SQL fixture a row like# with each suffix that LIKE and BETWEEN tell apart.
 func likeFixture() []Call {
 	var entries []Entry
 	for _, s := range []string{"", "a", "b", "ax", "_x", "é", "€", `\`, "%", "\xff"} {
@@ -96,7 +97,8 @@ func SQLCases() []Case {
 		}
 	}
 
-	// Each row is larger than any batch size that production was seen to close at, so each batch holds one row.
+	// Production closed each batch below 2 MiB on 2026-10-06. Each row here is larger than 2 MiB, so each batch holds one
+	// row whatever production's exact threshold is.
 	big := []Call{CreateTable{Families: sqlFamilies()}}
 	label := labelsCell(strings.Repeat("x", 5<<19))
 	for i := range 3 {
@@ -111,6 +113,8 @@ func SQLCases() []Case {
 				keysWhere(t1ToT4),
 				keysWhere(t1ToT4+" ORDER BY _key"),
 				keysWhere(t1ToT4+" ORDER BY _key DESC"),
+				Query("SELECT _key, TO_INT64(size['bytes']) AS bytes FROM `{table}` WHERE "+t1ToT4+" ORDER BY bytes"),
+				Query("SELECT _key, TO_INT64(size['bytes']) AS bytes FROM `{table}` WHERE "+t1ToT4+" ORDER BY bytes DESC"),
 				keysWhere("STARTS_WITH(_key, 't3')"),
 				keysWhere(t1ToT4+" AND mark['marker'] IS NULL"),
 				keysWhere("(_key >= 't1' AND _key < 't2') OR (_key >= 't3' AND mark['marker'] IS NOT NULL AND _key < 't4')"),

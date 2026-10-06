@@ -27,7 +27,7 @@ var numberedInstance = regexp.MustCompile(`projects/\{[^}]*\}/instances/[^/]+`)
 
 // Normalize returns results with what differs between targets and runs replaced. Status
 // messages embed table paths, which carry the target's instance, and row keys and table names, which carry the run id.
-// A status message ends before a "(while evaluating" line. A cell at the server's clock gets ServerTime, the time that SetCell takes for the server's clock. ReadRows leaves the
+// A cell at the server's clock gets ServerTime, the time that SetCell takes for the server's clock. ReadRows leaves the
 // order of a row's families unspecified, so the cells sort by family, keeping their order within each.
 func Normalize(instance, runID string, results []Result) []Result {
 	replacer := strings.NewReplacer(instance, placeholderInstance, runID, "<run>")
