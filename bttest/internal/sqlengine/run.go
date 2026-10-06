@@ -311,9 +311,10 @@ func (a *aggregate) run(x *execCtx, emit func([]Value) error) error {
 	}
 	keys := make([]Value, len(a.groupExprs))
 	args := make([]Value, len(a.aggs))
+	var key []byte
 	err := a.input.run(x, func(row []Value) error {
 		// Evaluate everything the row adds before changing any group, so a failing row leaves no trace.
-		var key []byte
+		key = key[:0]
 		for i, g := range a.groupExprs {
 			v, err := g(x, row)
 			if err != nil {

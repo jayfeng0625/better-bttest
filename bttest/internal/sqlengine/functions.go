@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -138,7 +139,6 @@ func function(name string, xs []expr, ts []Type, consts []*Value) expr {
 			return arr[i], nil
 		})
 	case "split":
-		// The engine supports SPLIT only on BYTES.
 		if ts[0].Kind != KindBytes {
 			return nil
 		}
@@ -317,7 +317,7 @@ func like(pattern []byte, isString bool) (func([]byte) bool, error) {
 // castExpr compiles CAST between BYTES and STRING, and to a value's own type.
 func castExpr(x expr, from, to Type) (expr, error) {
 	switch {
-	case from.Kind == to.Kind && from.Kind != KindMap && from.Kind != KindArray:
+	case reflect.DeepEqual(from, to):
 		return x, nil
 	case from.Kind == KindString && to.Kind == KindBytes:
 		return x, nil
