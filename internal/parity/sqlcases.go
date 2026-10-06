@@ -41,9 +41,6 @@ func sqlFamilies() map[string]*adminpb.ColumnFamily {
 func sizeCell(n int64) *btpb.Mutation    { return SetCell(Size, BE(n), Col("bytes")) }
 func labelsCell(s string) *btpb.Mutation { return SetCell(Labels, []byte(s), Col("labels")) }
 func markCell(ms int64) *btpb.Mutation   { return SetCell(Mark, BE(ms), Col("marker")) }
-func mutateRowA(m *btpb.Mutation) MutateRow {
-	return MutateRow{CaseTable: true, Row: "t1#p1#n#rowA", Mutations: Mutations(m)}
-}
 
 // sqlFixture creates the case's table with the families size, labels and mark, each with GC rule never (fixture.go
 // says why), and writes the six rows every SQL case queries.
@@ -93,7 +90,7 @@ func SQLCases() []Case {
 				PrepareQuery{SQL: markRowA},
 				dropMark,
 				ModifyColumnFamilies{Mods: []*adminpb.ModifyColumnFamiliesRequest_Modification{CreateFamily(string(Mark), cf)}},
-				mutateRowA(write),
+				MutateRow{CaseTable: true, Row: "t1#p1#n#rowA", Mutations: Mutations(write)},
 				ExecuteQuery{},
 			},
 		}
