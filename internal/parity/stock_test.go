@@ -52,7 +52,7 @@ func TestStock(t *testing.T) {
 		if !ok {
 			continue
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), caseDeadline)
+		ctx, cancel := context.WithTimeout(context.Background(), deadline(c))
 		got, err := Run(ctx, emulator.Target, runID, i+1, c)
 		cancel()
 		if log, stopped := emulator.Stopped(); stopped {

@@ -4,6 +4,7 @@ package parity
 
 import (
 	"cloud.google.com/go/bigtable/admin/apiv2/adminpb"
+	btpb "cloud.google.com/go/bigtable/apiv2/bigtablepb"
 	"google.golang.org/grpc/codes"
 )
 
@@ -15,14 +16,19 @@ import (
 //	ReadRow          Cells
 //	ReadRowKeys      Keys
 //	GetTable         Table
+//	PrepareQuery     Columns
+//	ExecuteQuery     Rows, Messages
 type Result struct {
-	Call    string
-	Status  Status
-	Entries []Status
-	Matched *bool
-	Cells   []Cell
-	Keys    []Hex
-	Table   *TableView
+	Call     string
+	Status   Status
+	Entries  []Status
+	Matched  *bool
+	Cells    []Cell
+	Keys     []Hex
+	Table    *TableView
+	Columns  []Column
+	Rows     [][]*btpb.Value
+	Messages []string
 }
 
 // A Status is a gRPC status.
@@ -46,4 +52,10 @@ type TableView struct {
 	ColumnFamilies     map[string]*adminpb.ColumnFamily
 	RowKeySchema       *adminpb.Type_Struct
 	DeletionProtection bool
+}
+
+// A Column is one column of a prepared query's result, as PrepareQuery returns it.
+type Column struct {
+	Name string
+	Type *btpb.Type
 }
