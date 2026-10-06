@@ -6,6 +6,7 @@ package parity
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	btpb "cloud.google.com/go/bigtable/apiv2/bigtablepb"
@@ -132,7 +133,7 @@ func TestRunNamesTheCaseTableInAQueryOnNoTable(t *testing.T) {
 // Each SQL case's Setup succeeds on the gate.
 func TestSQLCasesRunOnTheGate(t *testing.T) {
 	_, target := startGate(t)
-	for i, c := range SQLCases() {
+	for i, c := range slices.Concat(SQLCases(), TotalsCases()) {
 		t.Run(c.Name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), deadline(c))
 			defer cancel()
