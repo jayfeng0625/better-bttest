@@ -7,12 +7,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"reflect"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/bigtable/admin/apiv2/adminpb"
 	btpb "cloud.google.com/go/bigtable/apiv2/bigtablepb"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
@@ -23,9 +26,12 @@ const rowPrefix = "probe#"
 // Every table the cases create starts with this prefix and the run id, to fit the 50-character table id limit.
 const tablePrefix = parityTable + "-"
 
+// How long Run has to delete the case's table, after the case's calls.
+const caseCleanupDeadline = time.Minute
+
 // Run makes the case's calls on the target, and returns each of Calls' results. The ordinal is the case's place in
 // the run, which names its table, so every target gives a case the same table name. Run deletes the case's table
-// before it returns.
+// before it returns, even when ctx has ended.
 func Run(ctx context.Context, t Target, runID string, ordinal int, c Case) (results []Result, err error) {
 	r := &runner{
 		target:       t,
@@ -34,6 +40,8 @@ func Run(ctx context.Context, t Target, runID string, ordinal int, c Case) (resu
 	}
 	defer func() {
 		if r.created {
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), caseCleanupDeadline)
+			defer cancel()
 			err = errors.Join(err, t.deleteTable(ctx, r.table))
 		}
 	}()
@@ -270,9 +278,24 @@ func (GetTable) run(ctx context.Context, r *runner) (Result, error) {
 	}}, nil
 }
 
+// Production routes PrepareQuery and ExecuteQuery by this header, which the Go client sends. Without it, production
+// answers Unavailable "PrepareQuery is not implemented.".
+func (r *runner) queryContext(ctx context.Context) context.Context {
+	return metadata.AppendToOutgoingContext(ctx, "x-goog-request-params", "name="+url.QueryEscape(r.target.Instance))
+}
+
+// The routing headers that the Go client sends on a call to the instance, as PrepareQuery and ExecuteQuery are.
+// Production answers PrepareQuery without them with Unavailable "PrepareQuery is not implemented.".
+func (r *runner) instanceCall(ctx context.Context) context.Context {
+	return metadata.AppendToOutgoingContext(ctx,
+		"google-cloud-resource-prefix", r.target.Instance,
+		"x-goog-request-params", "name="+url.QueryEscape(r.target.Instance)+"&app_profile_id=",
+	)
+}
+
 func (c PrepareQuery) run(ctx context.Context, r *runner) (Result, error) {
 	r.prepared, r.columns = nil, nil
-	resp, err := r.target.Data.PrepareQuery(ctx, &btpb.PrepareQueryRequest{
+	resp, err := r.target.Data.PrepareQuery(r.queryContext(ctx), &btpb.PrepareQueryRequest{
 		InstanceName: r.target.Instance,
 		Query:        strings.ReplaceAll(c.SQL, "{table}", r.table),
 		DataFormat:   &btpb.PrepareQueryRequest_ProtoFormat{ProtoFormat: &btpb.ProtoFormat{}},
@@ -296,7 +319,7 @@ func (c ExecuteQuery) run(ctx context.Context, r *runner) (Result, error) {
 	if r.prepared == nil {
 		return Result{}, errNoPreparedQuery
 	}
-	stream, err := r.target.Data.ExecuteQuery(ctx, &btpb.ExecuteQueryRequest{
+	stream, err := r.target.Data.ExecuteQuery(r.queryContext(ctx), &btpb.ExecuteQueryRequest{
 		InstanceName: r.target.Instance, PreparedQuery: r.prepared, Params: c.Params,
 	})
 	if err != nil {

@@ -19,8 +19,9 @@ const (
 	Mark   Family = "mark"
 )
 
-// A case that drops a family needs longer than caseDeadline, since production's drop takes 30 to 32 s.
-const dropDeadline = 90 * time.Second
+// A case that drops a family, or re-creates a table it deleted, needs longer than caseDeadline. Production's drop takes
+// 30 to 32 s, and a table created under a deleted table's name was still being created 30 s later.
+const adminDeadline = 90 * time.Second
 
 // The marker times, in milliseconds: one year after the fixture was first written on production, and one hour before.
 const (
@@ -88,7 +89,7 @@ func SQLCases() []Case {
 		return Case{
 			Name:     "SQL query prepared before its family is dropped and re-added as " + name,
 			Setup:    sqlFixture(),
-			Deadline: dropDeadline,
+			Deadline: adminDeadline,
 			Calls: slices.Concat([]Call{
 				PrepareQuery{SQL: markRowA},
 				dropMark,
@@ -101,8 +102,9 @@ func SQLCases() []Case {
 	// The table deleted after prepare and re-created with size as cf, then a fresh prepare.
 	recreated := func(name string, cf *adminpb.ColumnFamily, write *btpb.Mutation) Case {
 		return Case{
-			Name:  "SQL query prepared before its table is deleted and re-created with the family as " + name,
-			Setup: sqlFixture(),
+			Name:     "SQL query prepared before its table is deleted and re-created with the family as " + name,
+			Setup:    sqlFixture(),
+			Deadline: adminDeadline,
 			Calls: slices.Concat([]Call{
 				PrepareQuery{SQL: sizeRowA},
 				DeleteTable{},
@@ -245,13 +247,13 @@ func SQLCases() []Case {
 		{
 			Name:     "SQL query that reads a family dropped after prepare",
 			Setup:    sqlFixture(),
-			Deadline: dropDeadline,
+			Deadline: adminDeadline,
 			Calls:    []Call{PrepareQuery{SQL: starRowA}, dropMark, ExecuteQuery{}, ExecuteQuery{}},
 		},
 		{
 			Name:     "SQL query that does not read a family dropped after prepare",
 			Setup:    sqlFixture(),
-			Deadline: dropDeadline,
+			Deadline: adminDeadline,
 			Calls:    []Call{PrepareQuery{SQL: keyRowA}, dropMark, ExecuteQuery{}},
 		},
 		readded("plain", &adminpb.ColumnFamily{}, SetCell(Mark, []byte("after"), Col("marker"))),
