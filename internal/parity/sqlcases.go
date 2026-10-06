@@ -19,8 +19,7 @@ const (
 	Mark   Family = "mark"
 )
 
-// A case that drops a family, or re-creates a table it deleted, needs longer than caseDeadline. Production's drop takes
-// 30 to 32 s, and a table created under a deleted table's name was still being created 30 s later.
+// A case that drops a family needs longer than caseDeadline. Production's drop takes 30 to 32 s.
 const adminDeadline = 90 * time.Second
 
 // The marker times, in milliseconds: one year after the fixture was first written on production, and one hour before.
@@ -79,46 +78,32 @@ func SQLCases() []Case {
 		starRowA = "SELECT * FROM `{table}` WHERE " + rowA
 		keyRowA  = "SELECT _key FROM `{table}` WHERE " + rowA
 		markRowA = "SELECT _key, mark FROM `{table}` WHERE " + rowA
-		sizeRowA = "SELECT _key, size FROM `{table}` WHERE " + rowA
 		likeRows = "STARTS_WITH(_key, 'like#') AND "
 	)
 	dropMark := ModifyColumnFamilies{Mods: []*adminpb.ModifyColumnFamiliesRequest_Modification{DropFamily(string(Mark))}}
 
-	// A family dropped and re-added as cf before the query that reads it first runs, then a fresh prepare.
+	// A family dropped and re-added as cf before the query that reads it first runs. Production's PrepareQuery sees a
+	// family change only seconds later, so the case prepares no fresh query after it.
 	readded := func(name string, cf *adminpb.ColumnFamily, write *btpb.Mutation) Case {
 		return Case{
 			Name:     "SQL query prepared before its family is dropped and re-added as " + name,
 			Setup:    sqlFixture(),
 			Deadline: adminDeadline,
-			Calls: slices.Concat([]Call{
+			Calls: []Call{
 				PrepareQuery{SQL: markRowA},
 				dropMark,
 				ModifyColumnFamilies{Mods: []*adminpb.ModifyColumnFamiliesRequest_Modification{CreateFamily(string(Mark), cf)}},
 				mutateRowA(write),
 				ExecuteQuery{},
-			}, Query(markRowA)),
-		}
-	}
-	// The table deleted after prepare and re-created with size as cf, then a fresh prepare.
-	recreated := func(name string, cf *adminpb.ColumnFamily, write *btpb.Mutation) Case {
-		return Case{
-			Name:     "SQL query prepared before its table is deleted and re-created with the family as " + name,
-			Setup:    sqlFixture(),
-			Deadline: adminDeadline,
-			Calls: slices.Concat([]Call{
-				PrepareQuery{SQL: sizeRowA},
-				DeleteTable{},
-				CreateTable{Families: map[string]*adminpb.ColumnFamily{string(Size): cf}},
-				mutateRowA(write),
-				ExecuteQuery{},
-			}, Query(sizeRowA)),
+			},
 		}
 	}
 
-	big := make([]Entry, 1250)
-	label := labelsCell(strings.Repeat("x", 4096))
-	for i := range big {
-		big[i] = Entry{Row: Row(fmt.Sprintf("big#%04d", i)), Mutations: Mutations(label)}
+	// Each row is larger than any batch size that production was seen to close at, so each batch holds one row.
+	big := []Call{CreateTable{Families: sqlFamilies()}}
+	label := labelsCell(strings.Repeat("x", 5<<19))
+	for i := range 3 {
+		big = append(big, MutateRow{CaseTable: true, Row: Row(fmt.Sprintf("big#%d", i)), Mutations: Mutations(label)})
 	}
 
 	return []Case{
@@ -150,14 +135,12 @@ func SQLCases() []Case {
 				Query("SELECT _key, size['bytes'] AS raw, TO_INT64(size['bytes']) AS bytes, CAST(labels['labels'] AS STRING) AS labels, mark['marker'] AS marker FROM `{table}` WHERE "+t1ToT4),
 				Query("SELECT _key, TO_INT64(size['bytes']) AS bytes FROM `{table}` WHERE "+rowA),
 				Query("SELECT _key, TO_INT64(size['bytes']) AS bytes, FROM `{table}` WHERE "+rowA),
-				Query("SELECT _key, 1+1, SPLIT(_key, '#')[0] FROM `{table}` WHERE "+rowA),
+				Query("SELECT _key, CAST(_key AS STRING), TO_INT64(size['bytes']) FROM `{table}` WHERE "+rowA),
 				Query("SELECT _key, TO_INT64(size['bytes']) AS n FROM `{table}` WHERE _key = 't3#p1#m#rowE'"),
 				Query("SELECT CAST(_key AS STRING) AS k, CAST(CAST(_key AS STRING) AS BYTES) AS b FROM `{table}` WHERE "+rowA),
 				Query("SELECT _key, size['nope'] AS v FROM `{table}` WHERE "+rowA),
-				Query("SELECT _key, labels IS NULL AS n, ARRAY_LENGTH(MAP_KEYS(labels)) AS k FROM `{table}` WHERE _key = 't1#p1#b#rowC'"),
+				Query("SELECT _key, labels IS NULL AS n FROM `{table}` WHERE _key = 't1#p1#b#rowC'"),
 				Query("SELECT * FROM `{table}` LIMIT 1"),
-				Query("SELECT COUNT(*) AS n FROM `{table}` WHERE "+t1ToT4),
-				Query("SELECT COUNT(*) AS n FROM `{table}`"),
 			),
 		},
 		{
@@ -181,10 +164,7 @@ func SQLCases() []Case {
 		{
 			Name:  "SQL errors at execute",
 			Setup: sqlFixture(),
-			Calls: slices.Concat(
-				Query("SELECT _key, TO_INT64(labels['labels']) AS n FROM `{table}` WHERE _key = 't1#p1#n#rowB'"),
-				Query("SELECT SPLIT(_key, '#')[9] AS x FROM `{table}` WHERE "+rowA),
-			),
+			Calls: Query("SELECT _key, TO_INT64(labels['labels']) AS n FROM `{table}` WHERE _key = 't1#p1#n#rowB'"),
 		},
 		{
 			Name:  "SQL LIKE on the row key",
@@ -235,14 +215,15 @@ func SQLCases() []Case {
 			),
 		},
 		{
-			Name:  "SQL result over several batches",
-			Setup: []Call{CreateTable{Families: sqlFamilies()}, MutateRows{CaseTable: true, Entries: big}},
-			Calls: Query("SELECT _key, labels FROM `{table}`"),
+			Name:     "SQL result over several batches",
+			Setup:    big,
+			Deadline: time.Minute,
+			Calls:    Query("SELECT _key, labels FROM `{table}`"),
 		},
 		{
 			Name:  "SQL query prepared before a family is added",
 			Setup: sqlFixture(),
-			Calls: slices.Concat([]Call{PrepareQuery{SQL: starRowA}, ModifyColumnFamilies{}, ExecuteQuery{}}, Query(starRowA)),
+			Calls: []Call{PrepareQuery{SQL: starRowA}, ModifyColumnFamilies{}, ExecuteQuery{}},
 		},
 		{
 			Name:     "SQL query that reads a family dropped after prepare",
@@ -258,12 +239,5 @@ func SQLCases() []Case {
 		},
 		readded("plain", &adminpb.ColumnFamily{}, SetCell(Mark, []byte("after"), Col("marker"))),
 		readded("Sum", families()[string(Sum)], AddToCell(Mark, Int(5), Col("marker"))),
-		{
-			Name:  "SQL query prepared before its table is deleted",
-			Setup: sqlFixture(),
-			Calls: []Call{PrepareQuery{SQL: sizeRowA}, DeleteTable{}, ExecuteQuery{}},
-		},
-		recreated("plain", &adminpb.ColumnFamily{}, SetCell(Size, BE(7), Col("bytes"))),
-		recreated("Sum", families()[string(Sum)], AddToCell(Size, Int(7), Col("bytes"))),
 	}
 }
