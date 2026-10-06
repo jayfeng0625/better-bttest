@@ -21,10 +21,25 @@ type keyPart struct {
 	raw  bool
 }
 
-// viewKeyParts is what the compiler records of a view's query: the key parts of its outermost GROUP BY and ORDER BY.
-type viewKeyParts struct {
-	group []keyPart
-	order []keyPart
+// viewShape is what the compiler records of a view's query: its GROUP BY and ORDER BY clauses.
+type viewShape struct {
+	group viewClause
+	order viewClause
+}
+
+// viewClause records a view's GROUP BY or ORDER BY clauses: how many the query has, and the key parts of the
+// outermost one, which compiles last.
+type viewClause struct {
+	count int
+	keys  []keyPart
+}
+
+func (vc *viewClause) add(ids []int32, kinds []Kind) {
+	vc.count++
+	vc.keys = make([]keyPart, len(ids))
+	for i, id := range ids {
+		vc.keys[i] = keyPart{id: id, kind: kinds[i]}
+	}
 }
 
 // unstable names the aggregates production rejects in a view as not stable.
@@ -45,9 +60,15 @@ func PrepareView(sql string, tables []Table) (*Query, error) {
 	if err != nil {
 		return nil, err
 	}
-	keys := c.keyParts.group
+	if c.shape.group.count > 0 && c.shape.order.count > 0 {
+		return nil, status.Error(codes.InvalidArgument, "ORDER BY is not supported with GROUP BY in materialized views.")
+	}
+	if c.shape.group.count > 1 || c.shape.order.count > 1 {
+		return nil, status.Error(codes.InvalidArgument, "This query is not valid. Please ensure that all parts of the query are valid, as per the requirements listed at https://cloud.google.com/bigtable/docs/reference/sql/googlesql-reference-overview. In particular, the query must not use multiple GROUP BY or ORDER BY clauses.")
+	}
+	keys := c.shape.group.keys
 	if keys == nil {
-		keys = c.keyParts.order
+		keys = c.shape.order.keys
 	}
 	if keys == nil {
 		return nil, status.Error(codes.InvalidArgument, "queries must contain a GROUP BY or ORDER BY clause")

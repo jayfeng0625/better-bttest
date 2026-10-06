@@ -41,7 +41,7 @@ func Prepare(sql string, tables []Table, params map[string]Type) (*Query, error)
 	return prepare(sql, tables, params, &compiler{})
 }
 
-// prepare analyzes and compiles sql with the compiler c, which records a view's key parts.
+// prepare analyzes and compiles sql with the compiler c, which records a view's shape.
 func prepare(sql string, tables []Table, params map[string]Type, c *compiler) (*Query, error) {
 	e, err := newEnv(params)
 	if err != nil {
@@ -170,9 +170,9 @@ type compiler struct {
 	tables map[string]*Table
 	views  map[string]*Query
 	q      *Query
-	// view marks a materialized view's query. The compiler then records the view's key parts.
-	view     bool
-	keyParts viewKeyParts
+	// view marks a materialized view's query. The compiler then records the view's shape.
+	view  bool
+	shape viewShape
 }
 
 // scanNames name the scans the engine does not support, by node kind. aggregateError names an aggregate scan, and the
@@ -317,17 +317,12 @@ func (c *compiler) computed(cols []*gsql.ResolvedComputedColumn) ([]int32, []Kin
 	return ids, kinds, exprs, nil
 }
 
-// setViewKeys sets *dst to the key parts of a view's GROUP BY or ORDER BY. The outermost clause compiles last, so
-// its parts stay.
-func (c *compiler) setViewKeys(dst *[]keyPart, ids []int32, kinds []Kind) {
+// setViewKeys records a view's GROUP BY or ORDER BY clause and its key parts.
+func (c *compiler) setViewKeys(dst *viewClause, ids []int32, kinds []Kind) {
 	if !c.view || len(ids) == 0 {
 		return
 	}
-	parts := make([]keyPart, len(ids))
-	for i, id := range ids {
-		parts[i] = keyPart{id: id, kind: kinds[i]}
-	}
-	*dst = parts
+	dst.add(ids, kinds)
 }
 
 // arrayScan compiles a comma join or CROSS JOIN with UNNEST of one array.
@@ -401,7 +396,7 @@ func (c *compiler) aggregate(s *gsql.ResolvedAggregateScan) (scan, error) {
 	if a.groupIDs, kinds, a.groupExprs, err = c.computed(gb); err != nil {
 		return nil, err
 	}
-	c.setViewKeys(&c.keyParts.group, a.groupIDs, kinds)
+	c.setViewKeys(&c.shape.group, a.groupIDs, kinds)
 	al, err := s.AggregateList()
 	if err != nil {
 		return nil, internal(err)
@@ -533,7 +528,7 @@ func (c *compiler) orderBy(s *gsql.ResolvedOrderByScan) (scan, error) {
 		ids = append(ids, id)
 		kinds = append(kinds, t.Kind)
 	}
-	c.setViewKeys(&c.keyParts.order, ids, kinds)
+	c.setViewKeys(&c.shape.order, ids, kinds)
 	return o, nil
 }
 

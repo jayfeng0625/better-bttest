@@ -138,6 +138,22 @@ func TestViewCreateRejectsQueriesAsProductionDoes(t *testing.T) {
 			codes.InvalidArgument, "Limit and offset are not supported in materialized views.",
 		},
 		{
+			"GROUP BY under ORDER BY", "v_bad", "SELECT t, n FROM (SELECT SPLIT(_key, '#')[0] AS t, COUNT(*) AS n FROM `items-prod` GROUP BY t) ORDER BY n",
+			codes.InvalidArgument, "ORDER BY is not supported with GROUP BY in materialized views.",
+		},
+		{
+			"ORDER BY under GROUP BY", "v_bad", "SELECT t, COUNT(*) AS n FROM (SELECT SPLIT(_key, '#')[0] AS t FROM `items-prod` ORDER BY t) GROUP BY t",
+			codes.InvalidArgument, "ORDER BY is not supported with GROUP BY in materialized views.",
+		},
+		{
+			"GROUP BY with ORDER BY", "v_bad", "SELECT SPLIT(_key, '#')[0] AS t, COUNT(*) AS n FROM `items-prod` GROUP BY t ORDER BY t",
+			codes.InvalidArgument, "ORDER BY is not supported with GROUP BY in materialized views.",
+		},
+		{
+			"two GROUP BYs", "v_bad", "SELECT n, COUNT(*) AS c FROM (SELECT SPLIT(_key, '#')[0] AS t, COUNT(*) AS n FROM `items-prod` GROUP BY t) GROUP BY n",
+			codes.InvalidArgument, "This query is not valid. Please ensure that all parts of the query are valid, as per the requirements listed at https://cloud.google.com/bigtable/docs/reference/sql/googlesql-reference-overview. In particular, the query must not use multiple GROUP BY or ORDER BY clauses.",
+		},
+		{
 			"ANY_VALUE under a taken ID", "v_expired", "SELECT _key, ANY_VALUE(size['bytes']) AS sz, COUNT(*) AS n FROM `items-prod` GROUP BY _key",
 			codes.InvalidArgument, "Only stable functions are supported in materialized views (GoogleSQL:any_value is not stable)",
 		},
