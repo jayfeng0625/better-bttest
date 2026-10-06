@@ -25,7 +25,8 @@ FROM (SELECT
 UNNEST(expand.labels) AS labelId
 GROUP BY tenantId, labelId, partitionId, rowType`
 
-// The sum# groups each hold three sizes whose total fits INT64, in every order. g7 is a control whose total does not.
+// Groups g1 to g6 hold three sizes whose total fits INT64, one group for each order. g7 holds two sizes whose total
+// does not fit.
 var sumGroups = [][]int64{
 	{math.MaxInt64, 1, -5},
 	{math.MaxInt64, -5, 1},
@@ -36,7 +37,8 @@ var sumGroups = [][]int64{
 	{math.MaxInt64, 1},
 }
 
-// The SQL fixture, and the rows sum#g<n>#<a, b, c> with sumGroups' sizes in key order.
+// sumFixture writes the SQL fixture, and a row for each size in sumGroups. The keys sum#g<n>#a, b and c keep each
+// group's sizes in order.
 func sumFixture() []Call {
 	var entries []Entry
 	for i, sizes := range sumGroups {
