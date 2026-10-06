@@ -564,7 +564,12 @@ func (s *server) ReadRows(req *btpb.ReadRowsRequest, stream btpb.Bigtable_ReadRo
 	s.mu.Lock()
 	tbl, ok := s.tables[req.TableName]
 	s.mu.Unlock()
-	if !ok {
+	if req.MaterializedViewName != "" {
+		var err error
+		if tbl, err = s.viewTable(stream.Context(), req.MaterializedViewName); err != nil {
+			return err
+		}
+	} else if !ok {
 		return tableNotFound(req.TableName)
 	}
 

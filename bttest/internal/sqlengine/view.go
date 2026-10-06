@@ -4,9 +4,11 @@ package sqlengine
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"math/bits"
 	"slices"
+	"strings"
 
 	gsql "github.com/goccy/go-googlesql"
 	"google.golang.org/grpc/codes"
@@ -101,6 +103,12 @@ func PrepareView(sql string, tables []Table) (*Query, error) {
 		}
 	}
 	q.keys = keys
+	loneKey := len(keys) == 1 && keys[0].raw
+	q.cells = make([]bool, len(q.outIDs))
+	for i, id := range q.outIDs {
+		inKey := slices.ContainsFunc(keys, func(k keyPart) bool { return k.id == id })
+		q.cells[i] = !inKey || clause == "ORDER BY" && !loneKey
+	}
 	return q, nil
 }
 
@@ -135,11 +143,21 @@ type viewScan struct {
 	cols []scanCol
 }
 
-// run evaluates the view's query as production maintains the view: it leaves out each source row and each group
-// whose evaluation fails, and orders the rows by their encoded keys.
+// run reads the view's rows in key order.
 func (s *viewScan) run(x *execCtx, emit func([]Value) error) error {
-	q := s.view
-	vx := &execCtx{ctx: x.ctx, src: x.src, nSlots: q.nSlots, failed: func(error) error { return nil }}
+	return s.view.viewRows(x.ctx, x.src, func(_ []byte, out []Value) error {
+		row := make([]Value, x.nSlots)
+		for _, c := range s.cols {
+			row[c.id] = out[c.index]
+		}
+		return x.check(emit(row))
+	})
+}
+
+// viewRows evaluates the view's query as production maintains the view: it leaves out each source row and each
+// group whose evaluation fails, and passes each row's encoded key and output values to emit in key order.
+func (q *Query) viewRows(ctx context.Context, src Source, emit func(key []byte, out []Value) error) error {
+	vx := &execCtx{ctx: ctx, src: src, nSlots: q.nSlots, failed: func(error) error { return nil }}
 	type keyedRow struct {
 		key []byte
 		row []Value
@@ -153,15 +171,44 @@ func (s *viewScan) run(x *execCtx, emit func([]Value) error) error {
 	}
 	slices.SortStableFunc(rows, func(a, b keyedRow) int { return bytes.Compare(a.key, b.key) })
 	for _, r := range rows {
-		row := make([]Value, x.nSlots)
-		for _, c := range s.cols {
-			row[c.id] = r.row[c.index]
-		}
-		if err := x.check(emit(row)); err != nil {
+		if err := emit(r.key, r.row); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// A ViewCell is one cell of a materialized view row as production stores it: the output column's name, and its
+// value as bytes, an INT64 as 8 big-endian bytes.
+type ViewCell struct {
+	Column string
+	Value  []byte
+}
+
+// ViewRows passes each row of the view to emit in key order, as production's ReadRows returns them: the encoded key,
+// and the cells in column name order. A NULL value has no cell. Production keeps a GROUP BY view's group columns in
+// the key only, and stores an ORDER BY view's columns as cells unless the view's whole key is the _key column.
+func (q *Query) ViewRows(ctx context.Context, src Source, emit func(key []byte, cells []ViewCell) error) error {
+	return q.viewRows(ctx, src, func(key []byte, out []Value) error {
+		var cells []ViewCell
+		for i, v := range out {
+			if v.Null || !q.cells[i] {
+				continue
+			}
+			c := ViewCell{Column: q.Columns[i].Name}
+			switch q.Columns[i].Type.Kind {
+			case KindInt64:
+				c.Value = binary.BigEndian.AppendUint64(nil, uint64(v.Int))
+			case KindBytes, KindString:
+				c.Value = v.Bytes
+			default:
+				return unsupported("ReadRows on a view with a column that is not BYTES, STRING or INT64")
+			}
+			cells = append(cells, c)
+		}
+		slices.SortFunc(cells, func(a, b ViewCell) int { return strings.Compare(a.Column, b.Column) })
+		return emit(key, cells)
+	})
 }
 
 // encodeKey returns a view row's key as production stores it: the parts joined with \x00\x01.

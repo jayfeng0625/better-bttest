@@ -10,6 +10,7 @@ import (
 
 	btapb "cloud.google.com/go/bigtable/admin/apiv2/adminpb"
 	longrunning "cloud.google.com/go/longrunning/autogen/longrunningpb"
+	"github.com/google/btree"
 	"github.com/jayfeng0625/better-bttest/bttest/internal/sqlengine"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -46,6 +47,39 @@ func (s *server) viewReferences(table string) error {
 	}
 	slices.Sort(refs)
 	return status.Errorf(codes.FailedPrecondition, "Unable to delete resource %s because the resource is referenced by another resource. The existing references are: {%s}", table, strings.Join(refs, ", "))
+}
+
+// viewTable evaluates the view into a table as production's ReadRows shows a view: one family, default, where each
+// row has an empty-qualifier cell with an empty value, then a cell per stored column, all at timestamp 0.
+func (s *server) viewTable(ctx context.Context, name string) (*table, error) {
+	s.views.mu.Lock()
+	v, ok := s.views.views[name]
+	s.views.mu.Unlock()
+	if !ok {
+		return nil, tableNotFound(name)
+	}
+	instance, _, _ := strings.Cut(name, "/materializedViews/")
+	q, err := sqlengine.PrepareView(v.mv.Query, s.sqlTables(instance))
+	if err != nil {
+		return nil, err
+	}
+	tbl := &table{rows: btree.New(btreeDegree)}
+	err = q.ViewRows(ctx, &tableSource{s: s, instance: instance}, func(key []byte, cells []sqlengine.ViewCell) error {
+		r := newRow(string(key))
+		fam := r.getOrCreateFamily("default", 0)
+		fam.cellsByColumn("")
+		fam.cells[""] = []cell{{value: []byte{}}}
+		for _, c := range cells {
+			fam.cellsByColumn(c.Column)
+			fam.cells[c.Column] = []cell{{value: c.Value}}
+		}
+		tbl.rows.ReplaceOrInsert(r)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return tbl, nil
 }
 
 // sqlViews lists the instance's materialized views as SQL sees them.

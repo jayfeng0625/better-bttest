@@ -31,8 +31,10 @@ type Query struct {
 	root   scan
 	outIDs []int32
 	nSlots int
-	// keys are a materialized view's key parts, in key order. Only PrepareView sets them.
-	keys []keyPart
+	// keys are a materialized view's key parts, in key order, and cells marks each output column that a view row
+	// stores as a cell. Only PrepareView sets them.
+	keys  []keyPart
+	cells []bool
 }
 
 // Prepare analyzes sql against the tables and compiles it. It returns InvalidArgument with the analyzer's one-line
