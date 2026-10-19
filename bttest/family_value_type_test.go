@@ -40,6 +40,15 @@ func TestModifyColumnFamiliesRefusesAValueTypeChange(t *testing.T) {
 	addCF2 := &btapb.ModifyColumnFamiliesRequest_Modification{
 		Id: "cf2", Mod: &btapb.ModifyColumnFamiliesRequest_Modification_Create{Create: &btapb.ColumnFamily{}},
 	}
+	addCF3 := &btapb.ModifyColumnFamiliesRequest_Modification{
+		Id: "cf3", Mod: &btapb.ModifyColumnFamiliesRequest_Modification_Create{Create: &btapb.ColumnFamily{}},
+	}
+	dropSum := &btapb.ModifyColumnFamiliesRequest_Modification{
+		Id: "sum", Mod: &btapb.ModifyColumnFamiliesRequest_Modification_Drop{Drop: true},
+	}
+	addPlainSum := &btapb.ModifyColumnFamiliesRequest_Modification{
+		Id: "sum", Mod: &btapb.ModifyColumnFamiliesRequest_Modification_Create{Create: &btapb.ColumnFamily{}},
+	}
 	for _, tc := range []struct {
 		name    string
 		mods    []*btapb.ModifyColumnFamiliesRequest_Modification
@@ -52,6 +61,8 @@ func TestModifyColumnFamiliesRefusesAValueTypeChange(t *testing.T) {
 		{"Sum to plain", []*btapb.ModifyColumnFamiliesRequest_Modification{updateFamily("sum", &btapb.ColumnFamily{}, "value_type")}, true},
 		{"plain to Sum with a GC rule", []*btapb.ModifyColumnFamiliesRequest_Modification{updateFamily("plain", oneVersion, "gc_rule", "value_type")}, true},
 		{"plain to Sum after a create", []*btapb.ModifyColumnFamiliesRequest_Modification{addCF2, updateFamily("plain", sumFamily(), "value_type")}, true},
+		{"a family created plain, then updated to Sum", []*btapb.ModifyColumnFamiliesRequest_Modification{addCF3, updateFamily("cf3", sumFamily(), "value_type")}, true},
+		{"a Sum family dropped, then re-created plain", []*btapb.ModifyColumnFamiliesRequest_Modification{dropSum, addPlainSum}, false},
 		{"plain to plain", []*btapb.ModifyColumnFamiliesRequest_Modification{updateFamily("plain", &btapb.ColumnFamily{}, "value_type")}, false},
 		{"Sum to Sum", []*btapb.ModifyColumnFamiliesRequest_Modification{updateFamily("sum", sumFamily(), "value_type")}, false},
 	} {

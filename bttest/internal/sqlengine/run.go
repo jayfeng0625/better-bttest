@@ -51,8 +51,9 @@ type execCtx struct {
 	staged   []stagedRow
 }
 
-// A sink keeps an evaluated row, as an aggregate adds it to its group or an ORDER BY collects it.
-type sink func(row []Value)
+// A sink keeps an evaluated row, as an aggregate adds it to its group or an ORDER BY collects it. It fails when the
+// row cannot be kept, as when a SUM overflows.
+type sink func(row []Value) error
 
 type stagedRow struct {
 	sink sink
@@ -60,31 +61,38 @@ type stagedRow struct {
 }
 
 // keep passes row to s, or stages a copy of it while a view evaluates a source row.
-func (x *execCtx) keep(s sink, row []Value) {
+func (x *execCtx) keep(s sink, row []Value) error {
 	if !x.inRow {
-		s(row)
-		return
+		return s(row)
 	}
 	x.staged = append(x.staged, stagedRow{sink: s, row: slices.Clone(row)})
+	return nil
 }
 
 // emitSourceRow emits one source row, then passes the rows its sinks staged on to them unless an evaluation failed.
+// A staged row that its sink cannot keep leaves out only what the sink marks, such as the overflowing group.
 func (x *execCtx) emitSourceRow(emit func([]Value) error, row []Value) error {
 	x.inRow = x.leaveOut
 	err := emit(row)
 	x.inRow = false
-	if !evalFailure(err) {
-		for _, s := range x.staged {
-			s.sink(s.row)
+	staged := x.staged
+	x.staged = x.staged[:0]
+	if evalFailure(err) {
+		return x.check(err)
+	}
+	for _, s := range staged {
+		if err := x.check(s.sink(s.row)); err != nil {
+			return err
 		}
 	}
-	x.staged = x.staged[:0]
-	return x.check(err)
+	return err
 }
 
 // expr evaluates an expression over a row of slots, indexed by resolved column id.
 type expr func(x *execCtx, row []Value) (Value, error)
 
+// scan calls emit with each row it produces. A row's slots belong to the scan, which may reuse them for its next row,
+// so a caller that keeps a row past emit keeps a copy.
 type scan interface {
 	run(x *execCtx, emit func(row []Value) error) error
 }
@@ -115,13 +123,13 @@ type tableCol struct {
 type tableScan struct {
 	table string
 	cols  []tableCol
-	// lower and upper come from the WHERE clause's comparisons of _key. The filter still decides each row.
-	lower, upper []keyBound
+	// bounds come from the WHERE clause's comparisons of _key. The filter still decides each row.
+	bounds []keyBound
 }
 
 type keyBound struct {
-	value  expr
-	strict bool
+	value         expr
+	strict, upper bool
 }
 
 func (s *tableScan) run(x *execCtx, emit func([]Value) error) error {
@@ -165,32 +173,25 @@ func (s *tableScan) run(x *execCtx, emit func([]Value) error) error {
 // keyRange is the tightest range the scan's bounds allow. nonEmpty is false when no key can pass: a bound is NULL,
 // or _key must be below the empty key.
 func (s *tableScan) keyRange(x *execCtx) (r KeyRange, nonEmpty bool, err error) {
-	for _, b := range s.lower {
+	for _, b := range s.bounds {
 		v, err := b.value(x, nil)
 		if err != nil || v.Null {
 			return r, false, err
 		}
-		start := v.Bytes
-		if b.strict {
-			start = append(slices.Clone(start), 0)
+		// A range holds its Start and stops before its End, so both _key > v and _key <= v put the bound at v's successor.
+		key := v.Bytes
+		if b.strict != b.upper {
+			key = append(slices.Clone(key), 0)
 		}
-		if bytes.Compare(start, r.Start) > 0 {
-			r.Start = start
-		}
-	}
-	for _, b := range s.upper {
-		v, err := b.value(x, nil)
-		if err != nil || v.Null {
-			return r, false, err
-		}
-		end := v.Bytes
-		if !b.strict {
-			end = append(slices.Clone(end), 0)
-		} else if len(end) == 0 {
+		switch {
+		case !b.upper:
+			if bytes.Compare(key, r.Start) > 0 {
+				r.Start = key
+			}
+		case len(key) == 0:
 			return r, false, nil
-		}
-		if r.End == nil || bytes.Compare(end, r.End) < 0 {
-			r.End = end
+		case r.End == nil || bytes.Compare(key, r.End) < 0:
+			r.End = key
 		}
 	}
 	return r, true, nil
@@ -263,10 +264,12 @@ type orderBy struct {
 
 func (o *orderBy) run(x *execCtx, emit func([]Value) error) error {
 	var rows [][]Value
-	collect := func(row []Value) { rows = append(rows, row) }
-	if err := o.input.run(x, func(row []Value) error {
-		x.keep(collect, row)
+	collect := func(row []Value) error {
+		rows = append(rows, slices.Clone(row))
 		return nil
+	}
+	if err := o.input.run(x, func(row []Value) error {
+		return x.keep(collect, row)
 	}); err != nil {
 		return err
 	}
@@ -356,10 +359,8 @@ func (a *arrayScan) run(x *execCtx, emit func([]Value) error) error {
 			return err
 		}
 		for _, el := range arr.Elems {
-			// Each output row gets its own slots, since a later scan may keep it.
-			out := slices.Clone(row)
-			out[a.elemID] = el
-			if err := emit(out); err != nil {
+			row[a.elemID] = el
+			if err := emit(row); err != nil {
 				return err
 			}
 		}
@@ -388,13 +389,14 @@ type aggSpec struct {
 type aggregate struct {
 	input      scan
 	groupIDs   []int32
+	groupTypes []Type
 	groupExprs []expr
 	aggs       []aggSpec
 }
 
 type group struct {
-	row []Value
-	err error // the first failure while accumulating, such as SUM overflow
+	row    []Value
+	failed bool
 }
 
 func (a *aggregate) run(x *execCtx, emit func([]Value) error) error {
@@ -421,25 +423,27 @@ func (a *aggregate) run(x *execCtx, emit func([]Value) error) error {
 	nKeys := len(a.groupExprs)
 	vals := make([]Value, nKeys+len(a.aggs))
 	var key []byte
-	add := func(row []Value) {
+	add := func(row []Value) error {
 		keys, args := row[:nKeys], row[nKeys:]
 		key = key[:0]
-		for _, v := range keys {
-			key = appendGroupKey(key, v)
+		for i, v := range keys {
+			key = appendGroupKey(key, a.groupTypes[i], v)
 		}
 		g, ok := groups[string(key)]
 		if !ok {
 			g = newGroup(keys)
 			groups[string(key)] = g
 		}
-		if g.err != nil {
-			return
+		if g.failed {
+			return nil
 		}
 		for i, ag := range a.aggs {
-			if g.err = ag.add(&g.row[ag.id], args[i]); g.err != nil {
-				return
+			if err := ag.add(&g.row[ag.id], args[i]); err != nil {
+				g.failed = true
+				return err
 			}
 		}
+		return nil
 	}
 	err := a.input.run(x, func(row []Value) error {
 		// Evaluate everything the row adds before changing any group, so a failing row changes no group.
@@ -460,18 +464,16 @@ func (a *aggregate) run(x *execCtx, emit func([]Value) error) error {
 			}
 			vals[nKeys+i] = v
 		}
-		x.keep(add, vals)
-		return nil
+		return x.keep(add, vals)
 	})
 	if err != nil {
 		return err
 	}
 	for _, g := range order {
-		err := g.err
-		if err == nil {
-			err = emit(g.row)
+		if g.failed {
+			continue
 		}
-		if err := x.check(err); err != nil {
+		if err := x.check(emit(g.row)); err != nil {
 			return err
 		}
 	}

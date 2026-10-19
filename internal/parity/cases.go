@@ -342,8 +342,9 @@ func TableCases() []Case {
 			},
 		},
 		Case{
-			Name:  "ModifyColumnFamilies that updates a family's value type",
-			Setup: []Call{CreateTable{Families: families()}},
+			Name:     "ModifyColumnFamilies that updates a family's value type",
+			Setup:    []Call{CreateTable{Families: families()}},
+			Deadline: adminDeadline,
 			Calls: []Call{
 				update(UpdateFamily(string(Plain), &adminpb.ColumnFamily{}, "value_type")),
 				update(UpdateFamily(string(Sum), families()[string(Sum)], "value_type")),
@@ -353,6 +354,8 @@ func TableCases() []Case {
 				update(UpdateFamily(string(Sum), &adminpb.ColumnFamily{})),
 				update(UpdateFamily(string(Plain), sumOneVersion, "gc_rule", "value_type")),
 				update(CreateFamily("cf2", &adminpb.ColumnFamily{}), UpdateFamily(string(Plain), families()[string(Sum)], "value_type")),
+				update(CreateFamily("cf3", &adminpb.ColumnFamily{}), UpdateFamily("cf3", families()[string(Sum)], "value_type")),
+				update(DropFamily(string(Min)), CreateFamily(string(Min), &adminpb.ColumnFamily{})),
 				GetTable{},
 			},
 		},

@@ -34,15 +34,24 @@ func storedValueType(t *btapb.Type) *btapb.Type {
 
 // checkValueTypeUpdates returns production's error when an update with value_type in its mask would change a family's
 // value type. Production refuses the whole request, so the check runs before any modification applies. An update to
-// the family's own type passes.
+// the family's own type passes. The family's type is the one it holds at the update, after the request's earlier
+// creates and drops.
 func checkValueTypeUpdates(mods []*btapb.ModifyColumnFamiliesRequest_Modification, fs map[string]*columnFamily) error {
+	types := map[string]*btapb.Type{}
+	for id, cf := range fs {
+		types[id] = cf.valueType
+	}
 	for _, mod := range mods {
-		cf, ok := fs[mod.Id]
-		if !ok || mod.GetUpdate() == nil || !slices.Contains(mod.GetUpdateMask().GetPaths(), "value_type") {
-			continue
-		}
-		if !proto.Equal(storedValueType(mod.GetUpdate().GetValueType()), cf.valueType) {
-			return status.Error(codes.InvalidArgument, "Immutable fields 'value_type.aggregate_type,sql_type' cannot be updated.")
+		switch {
+		case mod.GetCreate() != nil:
+			types[mod.Id] = storedValueType(mod.GetCreate().GetValueType())
+		case mod.GetDrop():
+			delete(types, mod.Id)
+		case mod.GetUpdate() != nil && slices.Contains(mod.GetUpdateMask().GetPaths(), "value_type"):
+			t, ok := types[mod.Id]
+			if ok && !proto.Equal(storedValueType(mod.GetUpdate().GetValueType()), t) {
+				return status.Error(codes.InvalidArgument, "Immutable fields 'value_type.aggregate_type,sql_type' cannot be updated.")
+			}
 		}
 	}
 	return nil

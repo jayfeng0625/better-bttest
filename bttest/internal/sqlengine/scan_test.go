@@ -7,6 +7,7 @@ package sqlengine
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"testing"
 
 	btpb "cloud.google.com/go/bigtable/apiv2/bigtablepb"
@@ -46,10 +47,11 @@ func TestScanAsksForThePlansFamiliesAndKeyRange(t *testing.T) {
 	}
 	tables = append(tables, Table{Name: "v", View: view})
 	cell := func(v string) map[string][]byte { return map[string][]byte{"n": []byte(v)} }
+	int64Cell := func(v uint64) map[string][]byte { return map[string][]byte{"n": binary.BigEndian.AppendUint64(nil, v)} }
 	rows := []Row{
 		{Key: []byte("a"), Cells: map[string]map[string][]byte{"size": cell("x1")}},
-		{Key: []byte("b"), Cells: map[string]map[string][]byte{"size": cell("x2"), "total": cell("\x00\x00\x00\x00\x00\x00\x00\x07")}},
-		{Key: []byte("c"), Cells: map[string]map[string][]byte{"total": cell("\x00\x00\x00\x00\x00\x00\x00\x09")}},
+		{Key: []byte("b"), Cells: map[string]map[string][]byte{"size": cell("x2"), "total": int64Cell(7)}},
+		{Key: []byte("c"), Cells: map[string]map[string][]byte{"total": int64Cell(9)}},
 		{Key: []byte("d"), Cells: map[string]map[string][]byte{"size": cell("x4")}},
 	}
 	key := func(k string) []Value { return []Value{{Bytes: []byte(k)}} }

@@ -149,12 +149,32 @@ func TestSQLRuntimeErrorFailsExecuteAsProductionDoes(t *testing.T) {
 	ctx := sqlContext(t)
 	f := newSQLFixture(ctx, t)
 	f.createItemsTable(ctx, t, "T", runtimeErrorRows)
+	f.createItemsTable(ctx, t, "H", []itemRow{
+		{key: "oneRow#a", size: i64(1)},
+		{key: "overflow#a", size: i64(9223372036854775807)},
+		{key: "overflow#b", size: i64(1)},
+	})
 
 	for _, tc := range []struct {
 		name, sql string
 		code      codes.Code
 		msg       string
 	}{
+		{
+			"SUM overflow under LIMIT",
+			"SELECT SPLIT(_key, '#')[0] AS t, SUM(TO_INT64(size['bytes'])) AS s FROM T GROUP BY t LIMIT 1",
+			codes.OutOfRange, "SUM() aggregation overflow",
+		},
+		{
+			"SUM overflow before DIV by zero in HAVING",
+			"SELECT SPLIT(_key, '#')[0] AS t, SUM(TO_INT64(size['bytes'])) AS s FROM H GROUP BY t HAVING DIV(COUNT(*), COUNT(*) - 1) > 0",
+			codes.OutOfRange, "SUM() aggregation overflow",
+		},
+		{
+			"SUM overflow before DIV by zero in the select list",
+			"SELECT SPLIT(_key, '#')[0] AS t, SUM(TO_INT64(size['bytes'])) AS s, DIV(COUNT(*), COUNT(*) - 1) AS d FROM H GROUP BY t",
+			codes.OutOfRange, "SUM() aggregation overflow",
+		},
 		{
 			"DIV by zero above GROUP BY",
 			"SELECT SPLIT(_key, '#')[0] AS t, DIV(SUM(TO_INT64(size['bytes'])), COUNT(*) - 1) AS q, COUNT(*) AS n FROM T WHERE STARTS_WITH(_key, 't1') OR STARTS_WITH(_key, 't6') GROUP BY t",
