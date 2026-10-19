@@ -223,6 +223,22 @@ func TestViewCreateRejectsQueriesAsProductionDoes(t *testing.T) {
 			codes.InvalidArgument, "Only immutable functions are supported in materialized views (GoogleSQL:current_date is not immutable)",
 		},
 		{
+			"RAND under CAST", "v_bad", "SELECT SPLIT(_key, '#')[0] AS t, CAST(RAND() AS STRING) AS r, COUNT(*) AS n FROM `items-prod` GROUP BY t",
+			codes.InvalidArgument, "Only immutable functions are supported in materialized views (GoogleSQL:rand is not immutable)",
+		},
+		{
+			"GENERATE_UUID under CONCAT", "v_bad", "SELECT SPLIT(_key, '#')[0] AS t, CONCAT(GENERATE_UUID(), 'x') AS u, COUNT(*) AS n FROM `items-prod` GROUP BY t",
+			codes.InvalidArgument, "Only immutable functions are supported in materialized views (GoogleSQL:generate_uuid is not immutable)",
+		},
+		{
+			"RAND in WHERE of a GROUP BY view", "v_bad", "SELECT SPLIT(_key, '#')[0] AS t, COUNT(*) AS n FROM `items-prod` WHERE RAND() < 0.5 GROUP BY t",
+			codes.InvalidArgument, "Only immutable functions are supported in materialized views (GoogleSQL:rand is not immutable)",
+		},
+		{
+			"RAND in WHERE of an ORDER BY view", "v_bad", "SELECT _key, TO_INT64(size['bytes']) AS sz FROM `items-prod` WHERE RAND() < 0.5 ORDER BY _key",
+			codes.InvalidArgument, "Only immutable functions are supported in materialized views (GoogleSQL:rand is not immutable)",
+		},
+		{
 			"ARRAY_AGG", "v_bad", "SELECT SPLIT(_key, '#')[0] AS t, ARRAY_AGG(_key) AS ks, COUNT(*) AS n FROM `items-prod` GROUP BY t",
 			codes.InvalidArgument, "Only stable functions are supported in materialized views (GoogleSQL:array_agg is not stable)",
 		},
