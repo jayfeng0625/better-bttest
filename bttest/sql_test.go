@@ -369,6 +369,28 @@ func TestSQLSelectListTypesAliasesAndStar(t *testing.T) {
 	}
 }
 
+func TestSQLCastToOwnTypeReturnsTheValue(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+
+	got := f.query(ctx, t, "SELECT CAST(_key AS BYTES) AS k, CAST(SPLIT(_key, b',') AS ARRAY<BYTES>) AS a, CAST(total AS MAP<BYTES, INT64>) AS m FROM t WHERE _key = 'b'", nil, nil)
+
+	n := int64(7)
+	want := sqlResult{
+		cols: []string{"k", "a", "m"},
+		types: []bigtable.SQLType{
+			bigtable.BytesSQLType{},
+			bigtable.ArraySQLType{ElemType: bigtable.BytesSQLType{}},
+			bigtable.MapSQLType{KeyType: bigtable.BytesSQLType{}, ValueType: bigtable.Int64SQLType{}},
+		},
+		// The client keys a BYTES map by the base64 of each key: bg== is "n".
+		rows: [][]any{{[]byte("b"), [][]byte{[]byte("b")}, map[string]*int64{"bg==": &n}}},
+	}
+	if diff := cmp.Diff(want, got, cmp.AllowUnexported(sqlResult{})); diff != "" {
+		t.Errorf("result (-want +got):\n%s", diff)
+	}
+}
+
 // prepareRaw prepares sql through the raw PrepareQuery RPC and returns the prepared query.
 func (f *sqlFixture) prepareRaw(ctx context.Context, t *testing.T, sql string) []byte {
 	t.Helper()

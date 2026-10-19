@@ -84,6 +84,19 @@ func (t Type) Proto() *btpb.Type {
 	panic(fmt.Sprintf("sqlengine: no proto for kind %d", t.Kind))
 }
 
+// Equal reports whether t and u are the same type, comparing a map's key and value types and an array's element type.
+func (t Type) Equal(u Type) bool {
+	switch {
+	case t.Kind != u.Kind:
+		return false
+	case t.Kind == KindMap:
+		return t.Key.Equal(*u.Key) && t.Elem.Equal(*u.Elem)
+	case t.Kind == KindArray:
+		return t.Elem.Equal(*u.Elem)
+	}
+	return true
+}
+
 // ValueFromProto converts a query parameter value of type t. A value with no kind is NULL.
 func ValueFromProto(v *btpb.Value, t Type) Value {
 	if v.GetKind() == nil {
