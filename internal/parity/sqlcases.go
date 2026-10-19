@@ -238,6 +238,16 @@ func SQLCases() []Case {
 			Deadline: adminDeadline,
 			Calls:    []Call{PrepareQuery{SQL: keyRowA}, dropMark, ExecuteQuery{}},
 		},
+		{
+			Name:     "SQL query prepared before its table is deleted",
+			Setup:    sqlFixture(),
+			Deadline: time.Minute,
+			Calls: []Call{
+				PrepareQuery{SQL: keyRowA}, DeleteTable{},
+				Wait{D: 5 * time.Second}, ExecuteQuery{},
+				Wait{D: 25 * time.Second}, ExecuteQuery{},
+			},
+		},
 		readded("plain", &adminpb.ColumnFamily{}, SetCell(Mark, []byte("after"), Col("marker"))),
 		readded("Sum", families()[string(Sum)], AddToCell(Mark, Int(5), Col("marker"))),
 	}

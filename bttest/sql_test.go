@@ -619,6 +619,22 @@ func TestSQLPreparedQueryExpiresWhenItsFamilyIsDropped(t *testing.T) {
 	}
 }
 
+func TestSQLPreparedQueryFailsNotFoundOnceItsTableIsDeleted(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+	prepared := f.prepareRaw(ctx, t, "SELECT _key FROM t WHERE _key = 'a'")
+
+	if err := f.admin.DeleteTable(ctx, "t"); err != nil {
+		t.Fatal(err)
+	}
+
+	msgs, err := f.executeRaw(ctx, t, prepared)
+	if len(msgs) != 0 {
+		t.Errorf("got %d messages before the error, want none", len(msgs))
+	}
+	wantStatus(t, err, codes.NotFound, "Not found: projects/p/instances/i/tables/t")
+}
+
 func TestSQLGoClientRepreparesAfterFamilyDrop(t *testing.T) {
 	ctx := sqlContext(t)
 	f := newSQLFixture(ctx, t)
