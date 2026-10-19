@@ -26,7 +26,7 @@ func Prepare(sql string, tables []Table, paramTypes map[string]*btpb.Type) (*Que
 		}
 		params[name] = pt
 	}
-	q, err := prepare(sql, tables, params, &compiler{})
+	q, err := prepare(sql, tables, params, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -34,7 +34,8 @@ func Prepare(sql string, tables []Table, paramTypes map[string]*btpb.Type) (*Que
 	return q, nil
 }
 
-func prepare(sql string, tables []Table, params map[string]Type, c *compiler) (*Query, error) {
+// prepare analyzes sql and compiles it. A non-nil check sees the resolved query before it compiles.
+func prepare(sql string, tables []Table, params map[string]Type, check func(*gsql.ResolvedQueryStmt) error) (*Query, error) {
 	e, err := newEnv()
 	if err != nil {
 		return nil, internal(err)
@@ -54,6 +55,11 @@ func prepare(sql string, tables []Table, params map[string]Type, c *compiler) (*
 	if !ok {
 		return nil, unsupported("statements other than SELECT")
 	}
+	if check != nil {
+		if err := check(qs); err != nil {
+			return nil, err
+		}
+	}
 	maxID, err := out.MaxColumnId()
 	if err != nil {
 		return nil, internal(err)
@@ -63,9 +69,6 @@ func prepare(sql string, tables []Table, params map[string]Type, c *compiler) (*
 	if err != nil {
 		return nil, internal(err)
 	}
-	// A view checks its functions before its output types, as production does, so an output type the engine does
-	// not support fails the view only after its query compiles.
-	var typeErr error
 	for i := range n {
 		oc, err := qs.OutputColumnList2(i)
 		if err != nil {
@@ -81,12 +84,7 @@ func prepare(sql string, tables []Table, params map[string]Type, c *compiler) (*
 		}
 		id, t, err := colInfo(col)
 		if err != nil {
-			if !c.view {
-				return nil, err
-			}
-			if typeErr == nil {
-				typeErr = err
-			}
+			return nil, err
 		}
 		q.Columns = append(q.Columns, Column{Name: name, Type: t})
 		q.outIDs = append(q.outIDs, id)
@@ -95,12 +93,9 @@ func prepare(sql string, tables []Table, params map[string]Type, c *compiler) (*
 	if err != nil {
 		return nil, internal(err)
 	}
-	c.tables, c.views, c.q = byName, e.views, q
+	c := &compiler{tables: byName, views: e.views, q: q}
 	if q.root, err = c.scan(root); err != nil {
 		return nil, err
-	}
-	if typeErr != nil {
-		return nil, typeErr
 	}
 	return q, nil
 }
@@ -172,8 +167,6 @@ type compiler struct {
 	tables map[string]*Table
 	views  map[string]*Query
 	q      *Query
-	view   bool
-	shape  viewShape
 }
 
 // scanNames name the scans the engine does not support, by node kind.
@@ -236,9 +229,6 @@ func (c *compiler) scan(n gsql.ResolvedScanNode) (scan, error) {
 	case *gsql.ResolvedArrayScan:
 		return c.arrayScan(s)
 	case *gsql.ResolvedLimitOffsetScan:
-		if c.view {
-			return nil, status.Error(codes.InvalidArgument, "Limit and offset are not supported in materialized views.")
-		}
 		input, err := c.input(s.InputScan())
 		if err != nil {
 			return nil, err
@@ -299,27 +289,9 @@ func (c *compiler) computed(cols []*gsql.ResolvedComputedColumn) ([]int32, []Typ
 	var types []Type
 	var exprs []expr
 	for _, cc := range cols {
-		if c.view {
-			if err := viewFunctionRule(cc); err != nil {
-				return nil, nil, nil, err
-			}
-		}
 		id, t, e, err := computedColumn(cc)
 		if err != nil {
 			return nil, nil, nil, err
-		}
-		if ref, ok := e.(*gsql.ResolvedColumnRef); ok && c.view {
-			col, err := ref.Column()
-			if err != nil {
-				return nil, nil, nil, internal(err)
-			}
-			refID, _, err := colInfo(col)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			if c.shape.keyIDs[refID] {
-				c.shape.keyIDs[id] = true
-			}
 		}
 		x, err := c.expr(e)
 		if err != nil {
@@ -402,9 +374,6 @@ func (c *compiler) aggregate(s *gsql.ResolvedAggregateScan) (scan, error) {
 	if a.groupIDs, a.groupTypes, a.groupExprs, err = c.computed(gb); err != nil {
 		return nil, err
 	}
-	if c.view {
-		c.shape.group.add(a.groupIDs, a.groupTypes)
-	}
 	al, err := s.AggregateList()
 	if err != nil {
 		return nil, internal(err)
@@ -474,9 +443,6 @@ func (c *compiler) aggregateCall(cc *gsql.ResolvedComputedColumn) (aggSpec, erro
 	if err != nil {
 		return aggSpec{}, internal(err)
 	}
-	if c.view && unstable[name] {
-		return aggSpec{}, status.Errorf(codes.InvalidArgument, "Only stable functions are supported in materialized views (GoogleSQL:%s is not stable)", name)
-	}
 	ag := aggSpec{id: id, kind: t.Kind}
 	switch {
 	case name == "$count_star":
@@ -506,8 +472,6 @@ func (c *compiler) orderBy(s *gsql.ResolvedOrderByScan) (scan, error) {
 	if err != nil {
 		return nil, internal(err)
 	}
-	var ids []int32
-	var types []Type
 	for _, it := range items {
 		ref, err := it.ColumnRef()
 		if err != nil {
@@ -525,9 +489,6 @@ func (c *compiler) orderBy(s *gsql.ResolvedOrderByScan) (scan, error) {
 		if err != nil {
 			return nil, internal(err)
 		}
-		if desc && c.view {
-			return nil, status.Error(codes.InvalidArgument, "Only ascending order in ORDER BY by is supported in materialized views.")
-		}
 		no, err := it.NullOrder()
 		if err != nil {
 			return nil, internal(err)
@@ -541,11 +502,6 @@ func (c *compiler) orderBy(s *gsql.ResolvedOrderByScan) (scan, error) {
 			nullsFirst = false
 		}
 		o.keys = append(o.keys, sortKey{id: id, kind: t.Kind, desc: desc, nullsFirst: nullsFirst})
-		ids = append(ids, id)
-		types = append(types, t)
-	}
-	if c.view {
-		c.shape.order.add(ids, types)
 	}
 	return o, nil
 }
@@ -571,9 +527,6 @@ func (c *compiler) tableScan(s *gsql.ResolvedTableScan) (scan, error) {
 	}
 	for _, sc := range cols {
 		tc := tableCol{id: sc.id}
-		if sc.index == 0 && c.view {
-			c.shape.keyIDs[sc.id] = true
-		}
 		if sc.index > 0 {
 			tc.family = &tbl.Families[sc.index-1]
 			c.q.Families = append(c.q.Families, tc.family.Name)
