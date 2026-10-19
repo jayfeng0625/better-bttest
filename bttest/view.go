@@ -31,7 +31,7 @@ type materializedViews struct {
 // without SQL compiles no query and leaves the table empty.
 type materializedView struct {
 	mv    *btapb.MaterializedView
-	query *sqlengine.Query
+	view  *sqlengine.View
 	table string
 }
 
@@ -77,7 +77,7 @@ func (s *server) viewTable(ctx context.Context, name string) (*table, error) {
 		return nil, tableNotFound(name)
 	}
 	instance, _, _ := strings.Cut(name, "/materializedViews/")
-	q, err := sqlengine.CurrentView(v.query, s.sqlTables(instance))
+	q, err := sqlengine.CurrentView(v.view, s.sqlTables(instance))
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +104,7 @@ func (s *server) sqlViews(instance string) []sqlengine.Table {
 	var out []sqlengine.Table
 	for name, v := range s.views.views {
 		if id, ok := strings.CutPrefix(name, prefix); ok {
-			out = append(out, sqlengine.Table{Name: id, View: v.query})
+			out = append(out, sqlengine.Table{Name: id, View: v.view})
 		}
 	}
 	return out
@@ -114,7 +114,7 @@ func (s *server) sqlViews(instance string) []sqlengine.Table {
 // so the Go client's Wait makes no GetOperation call.
 func (s *server) CreateMaterializedView(ctx context.Context, req *btapb.CreateMaterializedViewRequest) (*longrunning.Operation, error) {
 	query := req.GetMaterializedView().GetQuery()
-	q, err := sqlengine.CheckView(query, s.sqlTables(req.GetParent()))
+	view, err := sqlengine.CheckView(query, s.sqlTables(req.GetParent()))
 	if err != nil {
 		return nil, err
 	}
@@ -124,9 +124,9 @@ func (s *server) CreateMaterializedView(ctx context.Context, req *btapb.CreateMa
 		Query:              query,
 		DeletionProtection: req.GetMaterializedView().GetDeletionProtection(),
 	}
-	v := &materializedView{mv: mv, query: q}
-	if q != nil {
-		v.table = req.GetParent() + "/tables/" + q.Table
+	v := &materializedView{mv: mv, view: view}
+	if view != nil {
+		v.table = req.GetParent() + "/tables/" + view.Query.Table
 	}
 	// CheckView ran without a lock, so a DeleteTable may have removed the table since. Holding s.mu until the view
 	// is stored makes the check and the store one step against DeleteTable, which takes s.mu then s.views.mu too.

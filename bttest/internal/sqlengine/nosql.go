@@ -17,11 +17,12 @@ func Prepare(sql string, tables []Table, paramTypes map[string]*btpb.Type) (*Que
 }
 
 // CheckView accepts any query and compiles none, so a view is stored unchecked and blocks no DeleteTable.
-func CheckView(sql string, tables []Table) (*Query, error) {
+func CheckView(sql string, tables []Table) (*View, error) {
 	return nil, nil
 }
 
-func CurrentView(v *Query, tables []Table) (*Query, error) {
+// CurrentView returns Unimplemented, so a read of a view stored unchecked fails as a query does.
+func CurrentView(v *View, tables []Table) (*Query, error) {
 	return nil, errNoSQL
 }
 

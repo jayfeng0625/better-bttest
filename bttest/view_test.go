@@ -682,8 +682,8 @@ func BenchmarkPrepareQueryOverView(b *testing.B) {
 	}
 }
 
-// A view reads its source table's families as they are at each read. Until the drop of a family a view reads fails,
-// as on production, the view fails as its query does against the table's families now.
+// Once a family a view's query reads is dropped or recreated with another type, the view's ReadRows and queries
+// fail as its query does against the table now.
 func TestViewFailsAsItsQueryDoesOnceAFamilyItReadsChanges(t *testing.T) {
 	sum := bigtable.AggregateType{Input: bigtable.Int64Type{}, Aggregator: bigtable.SumAggregator{}}
 	for _, tc := range []struct {
@@ -715,7 +715,7 @@ func TestViewFailsAsItsQueryDoesOnceAFamilyItReadsChanges(t *testing.T) {
 	}
 }
 
-// A view's ReadRows and its queries share the view's compiled query.
+// Concurrent ReadRows and queries on one view each return the view's rows.
 func TestViewServesConcurrentReadsAndQueries(t *testing.T) {
 	ctx := sqlContext(t)
 	f := newViewFixture(ctx, t, totalsRows)
