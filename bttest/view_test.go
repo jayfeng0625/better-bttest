@@ -14,6 +14,8 @@ import (
 	"testing"
 
 	"cloud.google.com/go/bigtable"
+	btapb "cloud.google.com/go/bigtable/admin/apiv2/adminpb"
+	btpb "cloud.google.com/go/bigtable/apiv2/bigtablepb"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc/codes"
@@ -492,6 +494,44 @@ func TestViewExecuteFailsOnceTheViewIsDeleted(t *testing.T) {
 	// Production names the project by number and the view's replica by cluster. The emulator has the project ID and
 	// no cluster, so it writes the ID in the number's slot and names its one cluster after the instance.
 	wantStatus(t, err, codes.NotFound, "Failed to read: projects/{p}/instances/i/clusters/i-c1/materializedViews/v_expired : MaterializedViewsReplicas(p,i,i-c1,v_expired) : Failed to read: projects/{p}/instances/i/clusters/i-c1/materializedViews/v_expired")
+}
+
+func TestViewExecuteUnderBareInstanceFailsOnceTheViewIsDeleted(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+	admin := btapb.NewBigtableTableAdminClient(f.conn)
+	_, err := admin.CreateTable(ctx, &btapb.CreateTableRequest{
+		Parent:  "i",
+		TableId: "t",
+		Table:   &btapb.Table{ColumnFamilies: map[string]*btapb.ColumnFamily{"f": {}}},
+	})
+	if err != nil {
+		t.Fatalf("CreateTable: %v", err)
+	}
+	iadmin := btapb.NewBigtableInstanceAdminClient(f.conn)
+	_, err = iadmin.CreateMaterializedView(ctx, &btapb.CreateMaterializedViewRequest{
+		Parent:             "i",
+		MaterializedViewId: "v",
+		MaterializedView:   &btapb.MaterializedView{Query: "SELECT _key AS rowKey FROM `t` ORDER BY rowKey"},
+	})
+	if err != nil {
+		t.Fatalf("CreateMaterializedView: %v", err)
+	}
+	data := btpb.NewBigtableClient(f.conn)
+	prepared, err := data.PrepareQuery(ctx, &btpb.PrepareQueryRequest{InstanceName: "i", Query: "SELECT rowKey FROM v"})
+	if err != nil {
+		t.Fatalf("PrepareQuery: %v", err)
+	}
+	if _, err := iadmin.DeleteMaterializedView(ctx, &btapb.DeleteMaterializedViewRequest{Name: "i/materializedViews/v"}); err != nil {
+		t.Fatalf("DeleteMaterializedView: %v", err)
+	}
+
+	_, err = f.executeOn(ctx, t, "i", prepared.PreparedQuery)
+	wantStatus(t, err, codes.NotFound, "Failed to read: i/materializedViews/v")
+
+	if _, err := admin.GetTable(ctx, &btapb.GetTableRequest{Name: "i/tables/t"}); err != nil {
+		t.Errorf("GetTable after the failed query: %v", err)
+	}
 }
 
 func (f *viewFixture) readView(ctx context.Context, t *testing.T, id string) []bigtable.Row {

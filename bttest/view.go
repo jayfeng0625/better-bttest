@@ -155,15 +155,21 @@ func (s *server) viewReplica(instance, id string) error {
 	if _, ok := s.views.views[instance+"/materializedViews/"+id]; ok {
 		return nil
 	}
-	project, instanceID := projectInstance(instance)
+	project, instanceID, ok := projectInstance(instance)
+	if !ok {
+		return status.Errorf(codes.NotFound, "Failed to read: %s/materializedViews/%s", instance, id)
+	}
 	cluster := instanceID + "-c1"
 	replica := numberedProject(instance) + "/clusters/" + cluster + "/materializedViews/" + id
 	return status.Errorf(codes.NotFound, "Failed to read: %s : MaterializedViewsReplicas(%s,%s,%s,%s) : Failed to read: %s", replica, project, instanceID, cluster, id, replica)
 }
 
-func projectInstance(instance string) (project, id string) {
+func projectInstance(instance string) (project, id string, ok bool) {
 	parts := strings.Split(instance, "/")
-	return parts[1], parts[3]
+	if len(parts) != 4 || parts[0] != "projects" || parts[2] != "instances" {
+		return "", "", false
+	}
+	return parts[1], parts[3], true
 }
 
 // ListMaterializedViews returns the instance's views in name order, in one page.
