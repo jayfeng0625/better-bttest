@@ -44,20 +44,23 @@ if [ -n "$codec_in_tests" ]; then
     exit 1
 fi
 
-go vet ./...
-
 # staticcheck exits 1 on any finding, so the filtered output decides. The
 # filtered findings sit in upstream code, which keeps upstream's style.
 staticcheck_bin=$(mktemp -d)
 trap 'rm -rf "$staticcheck_bin"' EXIT
 GOBIN=$staticcheck_bin go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
-findings=$("$staticcheck_bin/staticcheck" ./... 2>&1 |
-    grep -v -e '^bttest/example_test.go:[0-9:]* google.golang.org/grpc.Dial is deprecated' \
-        -e '^bttest/inmem.go:[0-9:]* const maxValidMilliSeconds is unused' \
-        -e '^cmd/emulator/cbtemulator.go:[0-9:]* should use a simple channel send/receive' || true)
-if [ -n "$findings" ]; then
-    echo "$findings" >&2
-    exit 1
-fi
 
-go test -race ./...
+# The with-sql image builds with the googlesql tag, so vet, staticcheck, and
+# the tests run on the plain build and on the tagged build.
+for tags in '' googlesql; do
+    go vet -tags "$tags" ./...
+    findings=$("$staticcheck_bin/staticcheck" -tags "$tags" ./... 2>&1 |
+        grep -v -e '^bttest/example_test.go:[0-9:]* google.golang.org/grpc.Dial is deprecated' \
+            -e '^bttest/inmem.go:[0-9:]* const maxValidMilliSeconds is unused' \
+            -e '^cmd/emulator/cbtemulator.go:[0-9:]* should use a simple channel send/receive' || true)
+    if [ -n "$findings" ]; then
+        echo "$findings" >&2
+        exit 1
+    fi
+    go test -race -tags "$tags" ./...
+done
