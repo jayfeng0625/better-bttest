@@ -13,6 +13,8 @@ docker compose up --build -d
 
 The command builds the emulator and starts it on `localhost:8086`, in a container named `bigtable`.
 To connect a Bigtable client, set `BIGTABLE_EMULATOR_HOST=localhost:8086`.
+The emulator starts with no tables.
+Create them with your Bigtable admin client, or with [`cbt`](https://cloud.google.com/bigtable/docs/cbt-overview), which reads the same variable and needs no credentials.
 To stop the emulator, run `docker compose down`.
 
 You can also run the emulator in two other ways:
@@ -65,15 +67,11 @@ Three more changes have nothing to match in production:
 - Listing, updating, and deleting materialized views, and reading from a view.
 - HyperLogLog (HLL) aggregate families.
 
-## Use the published images
+## Use the published image
 
-Each push to `main` publishes two images to the GitHub Container Registry, tagged with the full commit SHA:
-
-- `ghcr.io/jayfeng0625/better-bttest` is the emulator.
-- `ghcr.io/jayfeng0625/better-bttest-init` has bash and [`cbt`](https://pkg.go.dev/cloud.google.com/go/cbt), to create tables when the emulator starts.
-
+Each push to `main` publishes the emulator to the GitHub Container Registry as `ghcr.io/jayfeng0625/better-bttest`, tagged with the full commit SHA.
 Each tag runs on linux/amd64 and linux/arm64, and has one digest for both.
-To build the images from a checkout, run `docker build .` for the emulator and `docker build --target init .` for the init image.
+To build the image from a checkout, run `docker build .`.
 
 ### Pin an image by digest
 
@@ -86,49 +84,13 @@ docker buildx imagetools inspect ghcr.io/jayfeng0625/better-bttest:<commit SHA> 
 
 ### Check how an image was built
 
-Each publish adds a signed build record to both images, with the [`actions/attest` action](https://github.com/actions/attest#readme).
+Each publish adds a signed build record to the image, with the [`actions/attest` action](https://github.com/actions/attest#readme).
 The record names the repository, the workflow, and the commit that built the image.
 To check it, run [`gh attestation verify`](https://cli.github.com/manual/gh_attestation_verify):
 
 ```sh
 gh attestation verify oci://ghcr.io/jayfeng0625/better-bttest@sha256:<digest> --owner jayfeng0625
 ```
-
-### Create tables when the emulator starts
-
-This compose file starts the emulator, and then runs your table script in the init image.
-The init container waits until the emulator's healthcheck passes:
-
-```yaml
-services:
-  bigtable:
-    image: ghcr.io/jayfeng0625/better-bttest@sha256:<digest>
-  bigtable-init:
-    image: ghcr.io/jayfeng0625/better-bttest-init@sha256:<digest>
-    depends_on:
-      bigtable:
-        condition: service_healthy
-    environment:
-      BIGTABLE_EMULATOR_HOST: bigtable:8086
-    volumes:
-      - ./create-tables.sh:/create-tables.sh:ro
-    command: ["bash", "/create-tables.sh"]
-```
-
-`cbt` finds the emulator through `BIGTABLE_EMULATOR_HOST`, and needs no credentials:
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-cbt -project demo -instance demo createtable events \
-    'families=recent:maxage=1s||maxversions=1,lowest:never:intmin'
-```
-
-Each column family in the list takes the form `name:gcrule[:type]`.
-The optional type makes an aggregate family: `intsum`, `intmin`, or `intmax`.
-In the example, `recent` deletes a cell once the cell is older than 1 second or is not the newest version.
-`lowest` is a MIN family that never deletes a cell.
-Quote the list, because bash reads `||` as an operator.
 
 ## Contributing
 
