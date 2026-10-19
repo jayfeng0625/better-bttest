@@ -3,7 +3,11 @@
 package bttest
 
 import (
+	"slices"
+
 	btapb "cloud.google.com/go/bigtable/admin/apiv2/adminpb"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -26,4 +30,20 @@ func storedValueType(t *btapb.Type) *btapb.Type {
 	agg := t.GetAggregateType()
 	agg.StateType = proto.CloneOf(agg.InputType)
 	return t
+}
+
+// checkValueTypeUpdates returns production's error when an update with value_type in its mask would change a family's
+// value type. Production refuses the whole request, so the check runs before any modification applies. An update to
+// the family's own type passes.
+func checkValueTypeUpdates(mods []*btapb.ModifyColumnFamiliesRequest_Modification, fs map[string]*columnFamily) error {
+	for _, mod := range mods {
+		cf, ok := fs[mod.Id]
+		if !ok || mod.GetUpdate() == nil || !slices.Contains(mod.GetUpdateMask().GetPaths(), "value_type") {
+			continue
+		}
+		if !proto.Equal(storedValueType(mod.GetUpdate().GetValueType()), cf.valueType) {
+			return status.Error(codes.InvalidArgument, "Immutable fields 'value_type.aggregate_type,sql_type' cannot be updated.")
+		}
+	}
+	return nil
 }

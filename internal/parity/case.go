@@ -9,6 +9,7 @@ import (
 
 	"cloud.google.com/go/bigtable/admin/apiv2/adminpb"
 	btpb "cloud.google.com/go/bigtable/apiv2/bigtablepb"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
 // A Case is the calls a run makes on each target, in order. Every Setup call must succeed, or the case fails on that
@@ -230,8 +231,13 @@ func CreateFamily(id string, cf *adminpb.ColumnFamily) *adminpb.ModifyColumnFami
 	return &adminpb.ModifyColumnFamiliesRequest_Modification{Id: id, Mod: &adminpb.ModifyColumnFamiliesRequest_Modification_Create{Create: cf}}
 }
 
-func UpdateFamily(id string, cf *adminpb.ColumnFamily) *adminpb.ModifyColumnFamiliesRequest_Modification {
-	return &adminpb.ModifyColumnFamiliesRequest_Modification{Id: id, Mod: &adminpb.ModifyColumnFamiliesRequest_Modification_Update{Update: cf}}
+// UpdateFamily updates the family id to cf, with paths as the update mask when there are any.
+func UpdateFamily(id string, cf *adminpb.ColumnFamily, paths ...string) *adminpb.ModifyColumnFamiliesRequest_Modification {
+	m := &adminpb.ModifyColumnFamiliesRequest_Modification{Id: id, Mod: &adminpb.ModifyColumnFamiliesRequest_Modification_Update{Update: cf}}
+	if len(paths) > 0 {
+		m.UpdateMask = &fieldmaskpb.FieldMask{Paths: paths}
+	}
+	return m
 }
 
 func DropFamily(id string) *adminpb.ModifyColumnFamiliesRequest_Modification {

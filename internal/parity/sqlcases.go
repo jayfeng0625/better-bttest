@@ -78,6 +78,11 @@ func SQLCases() []Case {
 		markRowA = "SELECT _key, mark FROM `{table}` WHERE " + rowA
 		likeRows = "STARTS_WITH(_key, 'like#') AND "
 	)
+	toSum := func(f Family) ModifyColumnFamilies {
+		return ModifyColumnFamilies{Mods: []*adminpb.ModifyColumnFamiliesRequest_Modification{
+			UpdateFamily(string(f), families()[string(Sum)], "value_type"),
+		}}
+	}
 	dropMark := ModifyColumnFamilies{Mods: []*adminpb.ModifyColumnFamiliesRequest_Modification{DropFamily(string(Mark))}}
 
 	// A family dropped and re-added as cf before the query that reads it first runs. Production's PrepareQuery sees a
@@ -240,5 +245,26 @@ func SQLCases() []Case {
 		},
 		readded("plain", &adminpb.ColumnFamily{}, SetCell(Mark, []byte("after"), Col("marker"))),
 		readded("Sum", families()[string(Sum)], AddToCell(Mark, Int(5), Col("marker"))),
+		{
+			Name: "SQL query on families updated to Sum",
+			Setup: []Call{
+				CreateTable{Families: sqlFamilies()},
+				MutateRows{CaseTable: true, Entries: []Entry{
+					{Row: "d", Mutations: Mutations(SetCell(Size, []byte("abc"), Col("x")))},
+					{Row: "e", Mutations: Mutations(SetCell(Labels, BE(7), Col("x")))},
+				}},
+			},
+			Calls: slices.Concat(
+				[]Call{toSum(Size), toSum(Labels), toSum(Mark), GetTable{}},
+				Query("SELECT * FROM `{table}`"),
+				[]Call{
+					ReadRow{CaseTable: true, Row: "d"},
+					ReadRow{CaseTable: true, Row: "e"},
+					MutateRow{CaseTable: true, Row: "d", Mutations: Mutations(AddToCell(Size, Int(1), Col("x")))},
+					MutateRow{CaseTable: true, Row: "f", Mutations: Mutations(AddToCell(Mark, Int(1), Col("x")))},
+					ReadRowKeys{},
+				},
+			),
+		},
 	}
 }

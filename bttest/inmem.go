@@ -379,6 +379,10 @@ func (s *server) ModifyColumnFamilies(ctx context.Context, req *btapb.ModifyColu
 		}
 	}
 
+	if err := checkValueTypeUpdates(req.Modifications, tbl.families); err != nil {
+		return nil, err
+	}
+
 	for _, mod := range req.Modifications {
 		if create := mod.GetCreate(); create != nil {
 			if _, ok := tbl.families[mod.Id]; ok {
@@ -427,14 +431,6 @@ func (s *server) ModifyColumnFamilies(ctx context.Context, req *btapb.ModifyColu
 			for _, path := range paths {
 				switch path {
 				case "value_type":
-					if cf.valueType != nil &&
-						cf.valueType.GetAggregateType() != nil {
-						// The existing column family is an aggregate type, and the update
-						// is attempting to modify its immutable type.
-						return nil, status.Errorf(codes.InvalidArgument,
-							"Immutable fields 'value_type.aggregate_type' cannot be updated")
-					}
-
 					cf.valueType = newcf.valueType
 				case "gc_rule":
 					cf.gcRule = newcf.gcRule
