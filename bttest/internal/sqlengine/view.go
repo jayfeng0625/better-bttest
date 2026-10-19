@@ -188,70 +188,83 @@ func columnID(c *gsql.ResolvedColumn) (int32, error) {
 	return id, nil
 }
 
+// viewLayout is how a view stores its query's rows: the key parts, which output columns it stores as cells, and the
+// output column that carries the source table's _key in an ORDER BY view's key.
+type viewLayout struct {
+	keys      []keyPart
+	cells     []bool
+	sourceCol int
+}
+
 // viewRules checks a view's resolved query against production's view rules, with production's messages, before the
 // engine compiles it, so a rule fails the view before a construct or a type the engine does not support. It returns
-// the view's key parts and which output columns the view stores as cells.
-func viewRules(qs *gsql.ResolvedQueryStmt) ([]keyPart, []bool, error) {
+// how the view stores the query's rows.
+func viewRules(qs *gsql.ResolvedQueryStmt) (viewLayout, error) {
 	s := viewShape{keyIDs: map[int32]bool{}, renames: map[int32]int32{}}
 	if err := s.visit(qs); err != nil {
-		return nil, nil, err
+		return viewLayout{}, err
 	}
 	if s.group.count > 0 && s.order.count > 0 {
-		return nil, nil, status.Error(codes.InvalidArgument, "ORDER BY is not supported with GROUP BY in materialized views.")
+		return viewLayout{}, status.Error(codes.InvalidArgument, "ORDER BY is not supported with GROUP BY in materialized views.")
 	}
 	if s.group.count > 1 || s.order.count > 1 {
-		return nil, nil, status.Error(codes.InvalidArgument, "This query is not valid. Please ensure that all parts of the query are valid, as per the requirements listed at https://cloud.google.com/bigtable/docs/reference/sql/googlesql-reference-overview. In particular, the query must not use multiple GROUP BY or ORDER BY clauses.")
+		return viewLayout{}, status.Error(codes.InvalidArgument, "This query is not valid. Please ensure that all parts of the query are valid, as per the requirements listed at https://cloud.google.com/bigtable/docs/reference/sql/googlesql-reference-overview. In particular, the query must not use multiple GROUP BY or ORDER BY clauses.")
 	}
 	cols, clause := s.group.cols, "GROUP BY"
 	if cols == nil {
 		cols, clause = s.order.cols, "ORDER BY"
 	}
 	if cols == nil {
-		return nil, nil, status.Error(codes.InvalidArgument, "queries must contain a GROUP BY or ORDER BY clause")
+		return viewLayout{}, status.Error(codes.InvalidArgument, "queries must contain a GROUP BY or ORDER BY clause")
 	}
 	ocs, err := qs.OutputColumnList()
 	if err != nil {
-		return nil, nil, internal(err)
+		return viewLayout{}, internal(err)
 	}
 	outIDs := make([]int32, len(ocs))
 	names := make([]string, len(ocs))
 	for i, oc := range ocs {
 		if names[i], err = oc.Name(); err != nil {
-			return nil, nil, internal(err)
+			return viewLayout{}, internal(err)
 		}
 		col, err := oc.Column()
 		if err != nil {
-			return nil, nil, internal(err)
+			return viewLayout{}, internal(err)
 		}
 		if outIDs[i], err = columnID(col); err != nil {
-			return nil, nil, err
+			return viewLayout{}, err
 		}
 	}
 	keys := make([]keyPart, len(cols))
 	for i, col := range cols {
 		id, t, err := colInfo(col)
 		if err != nil {
-			return nil, nil, err
+			return viewLayout{}, err
 		}
 		j := slices.Index(outIDs, id)
 		if j < 0 {
-			return nil, nil, status.Errorf(codes.InvalidArgument, "every %s column must be selected in the final query", clause)
+			return viewLayout{}, status.Errorf(codes.InvalidArgument, "every %s column must be selected in the final query", clause)
 		}
 		keys[i] = keyPart{id: id, kind: t.Kind, raw: len(cols) == 1 && names[j] == "_key"}
 	}
 	isKey := func(k keyPart) bool { return s.isKey(k.id) }
-	if clause == "ORDER BY" && !slices.ContainsFunc(keys, isKey) {
-		return nil, nil, status.Error(codes.InvalidArgument, "queries must select and order by the unmodified _key column from the source table")
+	var sourceCol int
+	if clause == "ORDER BY" {
+		i := slices.IndexFunc(keys, isKey)
+		if i < 0 {
+			return viewLayout{}, status.Error(codes.InvalidArgument, "queries must select and order by the unmodified _key column from the source table")
+		}
+		sourceCol = slices.Index(outIDs, keys[i].id)
 	}
 	hint := slices.Contains(names, "_key")
 	if clause == "GROUP BY" && hint && !(len(keys) == 1 && isKey(keys[0])) {
-		return nil, nil, status.Error(codes.InvalidArgument, "queries that provide a _key hint must only group by _key (and optionally _timestamp). Use a different column name if you want to create a composite key.")
+		return viewLayout{}, status.Error(codes.InvalidArgument, "queries that provide a _key hint must only group by _key (and optionally _timestamp). Use a different column name if you want to create a composite key.")
 	}
 	for _, k := range keys {
 		switch k.kind {
 		case KindBytes, KindString, KindInt64:
 		default:
-			return nil, nil, unsupported("a view key that is not BYTES, STRING or INT64")
+			return viewLayout{}, unsupported("a view key that is not BYTES, STRING or INT64")
 		}
 	}
 	loneKey := len(keys) == 1 && keys[0].raw
@@ -260,7 +273,7 @@ func viewRules(qs *gsql.ResolvedQueryStmt) ([]keyPart, []bool, error) {
 		inKey := slices.ContainsFunc(keys, func(k keyPart) bool { return k.id == id })
 		cells[i] = !inKey || clause == "ORDER BY" && !loneKey
 	}
-	return keys, cells, nil
+	return viewLayout{keys: keys, cells: cells, sourceCol: sourceCol}, nil
 }
 
 // CheckView analyzes and compiles a materialized view's query against the tables, and checks it against
@@ -283,16 +296,15 @@ func compileView(sql string, tables []Table) (*viewPlan, error) {
 			sources = append(sources, t)
 		}
 	}
-	var keys []keyPart
-	var cells []bool
+	var l viewLayout
 	q, err := prepare(sql, sources, nil, func(qs *gsql.ResolvedQueryStmt) (err error) {
-		keys, cells, err = viewRules(qs)
+		l, err = viewRules(qs)
 		return err
 	})
 	if err != nil {
 		return nil, err
 	}
-	q.keys, q.cells = keys, cells
+	q.keys, q.cells, q.sourceCol = l.keys, l.cells, l.sourceCol
 	i := slices.IndexFunc(sources, func(t Table) bool { return t.Name == q.Table })
 	return &viewPlan{query: q, families: sources[i].Families}, nil
 }

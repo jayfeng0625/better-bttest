@@ -66,9 +66,11 @@ type Query struct {
 	outIDs []int32
 	nSlots int
 	// keys are a materialized view's key parts, in key order, and cells marks each output column that a view row
-	// stores as a cell. Only CheckView sets them.
-	keys  []keyPart
-	cells []bool
+	// stores as a cell. sourceCol is the output column that carries the source table's _key in an ORDER BY view's
+	// key. Only CheckView sets them.
+	keys      []keyPart
+	cells     []bool
+	sourceCol int
 }
 
 // scanCol is one column a table scan reads: the slot it fills and the column's index in the table.
