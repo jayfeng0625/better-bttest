@@ -75,7 +75,10 @@ A parity case sends the same requests to a real table and to the emulator.
   `UpdateMaterializedView` changes only deletion protection.
   It fails with `InvalidArgument` when the update mask names `query` and the query differs from the stored one.
   A SQL read of a view evaluates its query and returns the rows in production's view key order. The read leaves out each source row or group whose evaluation fails, as production does.
+  It also leaves out each source row whose view rows share a key.
+  Once a family that the view's query reads is dropped or changes type, a read of the view fails as the query does against the table.
   Once the view is deleted, `ExecuteQuery` on a query prepared against it fails with `NotFound`, at once, since the emulator has no replication lag.
+  Once the view is deleted and created again, a query prepared against the old view expires, and a query prepared again reads the new view.
   `ReadRows` on a view returns its rows as production stores them: the encoded view key, one family `default`, an empty-qualifier cell with no value, then a cell per stored column, all at timestamp 0.
   An invalid query fails with the analyzer's message, which differs from production's in two ways.
   The message has no `while resolving DDL statement` suffix.
