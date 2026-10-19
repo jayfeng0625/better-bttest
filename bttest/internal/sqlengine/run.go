@@ -3,6 +3,7 @@
 package sqlengine
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -18,10 +19,23 @@ type Row struct {
 	Cells map[string]map[string][]byte
 }
 
-// Source is the seam to storage. Scan calls fn for each row of the table that holds a cell, in ascending key
-// order, and stops with fn's error.
+// A ScanRequest is what a table scan asks the source for.
+type ScanRequest struct {
+	Table    string
+	Families []string
+	Keys     KeyRange
+}
+
+// KeyRange is a range of row keys. Start is inclusive, and empty starts at the first row. End is exclusive, and nil
+// ends after the last row.
+type KeyRange struct {
+	Start, End []byte
+}
+
+// Source is the seam to storage. Scan calls fn for each row in the key range that holds a cell in any family, in
+// ascending key order, with the newest cell of each requested family, and stops with fn's error.
 type Source interface {
-	Scan(ctx context.Context, table string, fn func(Row) error) error
+	Scan(ctx context.Context, req ScanRequest, fn func(Row) error) error
 }
 
 type execCtx struct {
@@ -67,10 +81,27 @@ type tableCol struct {
 type tableScan struct {
 	table string
 	cols  []tableCol
+	// lower and upper come from the WHERE clause's comparisons of _key. The filter still decides each row.
+	lower, upper []keyBound
+}
+
+type keyBound struct {
+	value  expr
+	strict bool
 }
 
 func (s *tableScan) run(x *execCtx, emit func([]Value) error) error {
-	return x.src.Scan(x.ctx, s.table, func(r Row) error {
+	keys, nonEmpty, err := s.keyRange(x)
+	if err != nil || !nonEmpty {
+		return err
+	}
+	req := ScanRequest{Table: s.table, Keys: keys}
+	for _, c := range s.cols {
+		if c.family != nil {
+			req.Families = append(req.Families, c.family.Name)
+		}
+	}
+	return x.src.Scan(x.ctx, req, func(r Row) error {
 		if err := x.ctx.Err(); err != nil {
 			return err
 		}
@@ -95,6 +126,40 @@ func (s *tableScan) run(x *execCtx, emit func([]Value) error) error {
 		}
 		return x.check(emit(row))
 	})
+}
+
+// keyRange is the tightest range the scan's bounds allow. nonEmpty is false when no key can pass: a bound is NULL,
+// or _key must be below the empty key.
+func (s *tableScan) keyRange(x *execCtx) (r KeyRange, nonEmpty bool, err error) {
+	for _, b := range s.lower {
+		v, err := b.value(x, nil)
+		if err != nil || v.Null {
+			return r, false, err
+		}
+		start := v.Bytes
+		if b.strict {
+			start = append(slices.Clone(start), 0)
+		}
+		if bytes.Compare(start, r.Start) > 0 {
+			r.Start = start
+		}
+	}
+	for _, b := range s.upper {
+		v, err := b.value(x, nil)
+		if err != nil || v.Null {
+			return r, false, err
+		}
+		end := v.Bytes
+		if !b.strict {
+			end = append(slices.Clone(end), 0)
+		} else if len(end) == 0 {
+			return r, false, nil
+		}
+		if r.End == nil || bytes.Compare(end, r.End) < 0 {
+			r.End = end
+		}
+	}
+	return r, true, nil
 }
 
 // check passes an evaluation failure to x.failed, and returns any other error as is.

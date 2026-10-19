@@ -312,25 +312,36 @@ type tableSource struct {
 	instance string
 }
 
-func (src *tableSource) Scan(ctx context.Context, name string, fn func(sqlengine.Row) error) error {
-	tbl := src.s.instanceTable(src.instance, name)
+func (src *tableSource) Scan(ctx context.Context, req sqlengine.ScanRequest, fn func(sqlengine.Row) error) error {
+	tbl := src.s.instanceTable(src.instance, req.Table)
 	if tbl == nil {
-		return status.Errorf(codes.NotFound, "table %q not found", name)
+		return status.Errorf(codes.NotFound, "table %q not found", req.Table)
 	}
 	var rows []*row
-	tbl.mu.RLock()
-	tbl.rows.Ascend(func(i btree.Item) bool {
+	add := func(i btree.Item) bool {
 		rows = append(rows, i.(*row))
 		return true
-	})
+	}
+	tbl.mu.RLock()
+	if req.Keys.End == nil {
+		tbl.rows.AscendGreaterOrEqual(btreeKey(string(req.Keys.Start)), add)
+	} else {
+		tbl.rows.AscendRange(btreeKey(string(req.Keys.Start)), btreeKey(string(req.Keys.End)), add)
+	}
 	tbl.mu.RUnlock()
 	for _, r := range rows {
 		r.mu.Lock()
 		cells := map[string]map[string][]byte{}
+		holdsCell := false
 		for fname, fam := range r.families {
+			read := slices.Contains(req.Families, fname)
 			for col, cs := range fam.cells {
 				if len(cs) == 0 {
 					continue
+				}
+				holdsCell = true
+				if !read {
+					break
 				}
 				if cells[fname] == nil {
 					cells[fname] = map[string][]byte{}
@@ -339,7 +350,7 @@ func (src *tableSource) Scan(ctx context.Context, name string, fn func(sqlengine
 			}
 		}
 		r.mu.Unlock()
-		if len(cells) == 0 {
+		if !holdsCell {
 			continue
 		}
 		if err := fn(sqlengine.Row{Key: []byte(r.key), Cells: cells}); err != nil {

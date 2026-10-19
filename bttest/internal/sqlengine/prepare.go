@@ -191,6 +191,11 @@ func (c *compiler) scan(n gsql.ResolvedScanNode) (scan, error) {
 		if err != nil {
 			return nil, err
 		}
+		if ts, ok := input.(*tableScan); ok {
+			if err := c.keyBounds(ts, fe); err != nil {
+				return nil, err
+			}
+		}
 		return &filter{input: input, pred: pred}, nil
 	case *gsql.ResolvedProjectScan:
 		input, err := c.input(s.InputScan())
