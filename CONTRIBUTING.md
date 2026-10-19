@@ -74,6 +74,18 @@ go test -tags googlesql ./internal/parity -run 'TestParity$' -real=<project>/<in
 They create materialized views named `better-bttest-parity-<run id>-v<n>` on their case tables, and production takes 1 to 2 minutes to create each.
 The run deletes each view before its table.
 
+To run some of the cases, pass `-cases` a regular expression. The run keeps each case whose name matches it:
+
+```sh
+go test -tags googlesql ./internal/parity -run 'TestParity$' -real=<project>/<instance> -cases 'AddToCell'
+```
+
+The filter applies to the view cases only when you pass `-views` too.
+
+To keep the real table's results, pass `-dump` a file path.
+The run writes them to the file as JSON, keyed by case name.
+It writes the file before it compares the results with the emulator's, so the file holds them even when the comparison fails.
+
 ### Compare Google's emulator
 
 ```sh
