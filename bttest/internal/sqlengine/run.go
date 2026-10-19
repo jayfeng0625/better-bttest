@@ -51,6 +51,8 @@ type execCtx struct {
 // expr evaluates an expression over a row of slots, indexed by resolved column id.
 type expr func(x *execCtx, row []Value) (Value, error)
 
+// scan calls emit with each row it produces. A row's slots belong to the scan, which may reuse them for its next row,
+// so a caller that keeps a row past emit keeps a copy.
 type scan interface {
 	run(x *execCtx, emit func(row []Value) error) error
 }
@@ -223,7 +225,7 @@ type orderBy struct {
 func (o *orderBy) run(x *execCtx, emit func([]Value) error) error {
 	var rows [][]Value
 	if err := o.input.run(x, func(row []Value) error {
-		rows = append(rows, row)
+		rows = append(rows, slices.Clone(row))
 		return nil
 	}); err != nil {
 		return err
@@ -314,10 +316,8 @@ func (a *arrayScan) run(x *execCtx, emit func([]Value) error) error {
 			return err
 		}
 		for _, el := range arr.Elems {
-			// Each output row gets its own slots, since a later scan may keep it.
-			out := slices.Clone(row)
-			out[a.elemID] = el
-			if err := emit(out); err != nil {
+			row[a.elemID] = el
+			if err := emit(row); err != nil {
 				return err
 			}
 		}
@@ -346,6 +346,7 @@ type aggSpec struct {
 type aggregate struct {
 	input      scan
 	groupIDs   []int32
+	groupTypes []Type
 	groupExprs []expr
 	aggs       []aggSpec
 }
@@ -388,7 +389,7 @@ func (a *aggregate) run(x *execCtx, emit func([]Value) error) error {
 				return err
 			}
 			keys[i] = v
-			key = appendGroupKey(key, v)
+			key = appendGroupKey(key, a.groupTypes[i], v)
 		}
 		for i, ag := range a.aggs {
 			if ag.arg == nil {

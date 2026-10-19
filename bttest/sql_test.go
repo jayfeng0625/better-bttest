@@ -197,6 +197,22 @@ func TestSQLOrderBySortsRows(t *testing.T) {
 	}
 }
 
+func TestSQLOrderByOverUnnestReturnsEachElementInItsOwnRow(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+
+	got := f.query(ctx, t, "SELECT _key, x FROM t, UNNEST([3, 1, 2]) AS x WHERE _key IN ('a', 'b') ORDER BY _key DESC, x", nil, nil)
+
+	b := func(s string) []byte { return []byte(s) }
+	want := [][]any{
+		{b("b"), i64(1)}, {b("b"), i64(2)}, {b("b"), i64(3)},
+		{b("a"), i64(1)}, {b("a"), i64(2)}, {b("a"), i64(3)},
+	}
+	if diff := cmp.Diff(want, got.rows); diff != "" {
+		t.Errorf("rows (-want +got):\n%s", diff)
+	}
+}
+
 func TestSQLReturnsRowWhoseCellsAreAllInUnreadFamilies(t *testing.T) {
 	ctx := sqlContext(t)
 	f := newSQLFixture(ctx, t)

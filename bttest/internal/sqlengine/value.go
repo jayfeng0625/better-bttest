@@ -181,22 +181,30 @@ func newMap(entries map[string]Value) Value {
 	return m
 }
 
-// appendGroupKey appends an encoding of v that equals another value's encoding exactly when GROUP BY puts the
-// two values in one group. NULL forms its own group.
-func appendGroupKey(b []byte, v Value) []byte {
+// appendGroupKey appends an encoding of v, of type t, that equals another value's encoding exactly when GROUP BY puts
+// the two values in one group. NULL forms its own group.
+func appendGroupKey(b []byte, t Type, v Value) []byte {
 	if v.Null {
 		return append(b, 0)
 	}
 	b = append(b, 1)
-	b = binary.AppendUvarint(b, uint64(len(v.Bytes)))
-	b = append(b, v.Bytes...)
-	b = binary.BigEndian.AppendUint64(b, uint64(v.Int))
-	b = binary.AppendUvarint(b, uint64(len(v.Elems)))
-	for _, e := range v.Elems {
-		b = appendGroupKey(b, e)
+	switch t.Kind {
+	case KindBytes, KindString:
+		b = binary.AppendUvarint(b, uint64(len(v.Bytes)))
+		return append(b, v.Bytes...)
+	case KindInt64:
+		return binary.BigEndian.AppendUint64(b, uint64(v.Int))
+	case KindBool:
+		if v.Bool {
+			return append(b, 1)
+		}
+		return append(b, 0)
+	case KindArray:
+		b = binary.AppendUvarint(b, uint64(len(v.Elems)))
+		for _, e := range v.Elems {
+			b = appendGroupKey(b, *t.Elem, e)
+		}
+		return b
 	}
-	if v.Bool {
-		return append(b, 1)
-	}
-	return append(b, 0)
+	panic(fmt.Sprintf("sqlengine: cannot group by kind %d", t.Kind))
 }
