@@ -149,7 +149,7 @@ func (s *server) sqlTables(instance string) []sqlengine.Table {
 }
 
 func (s *server) ExecuteQuery(req *btpb.ExecuteQueryRequest, stream btpb.Bigtable_ExecuteQueryServer) error {
-	pq, err := s.preparedQuery(req.GetPreparedQuery())
+	pq, err := s.preparedQuery(req.InstanceName, req.GetPreparedQuery())
 	if err != nil {
 		return err
 	}
@@ -172,13 +172,14 @@ func (s *server) ExecuteQuery(req *btpb.ExecuteQueryRequest, stream btpb.Bigtabl
 }
 
 // preparedQuery finds a prepared query and fails as production does once it has expired: 40 s after prepare, or
-// after a family it reads is dropped. A query of a view fails once the view is deleted.
-func (s *server) preparedQuery(token []byte) (*preparedQuery, error) {
+// after a family it reads is dropped. A query of a view fails once the view is deleted. A query prepared on another
+// instance is unknown on this one.
+func (s *server) preparedQuery(instance string, token []byte) (*preparedQuery, error) {
 	s.sql.mu.Lock()
 	pq := s.sql.queries[string(token)]
 	now := s.sql.clock()
 	s.sql.mu.Unlock()
-	if pq == nil {
+	if pq == nil || pq.instance != instance {
 		if prepared, ok := preparedAt(token); ok && expired(prepared, now) {
 			return nil, expiredError(expiredMessage)
 		}
