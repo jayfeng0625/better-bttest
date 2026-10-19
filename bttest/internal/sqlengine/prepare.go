@@ -121,7 +121,7 @@ func (e *env) analyze(sql string, tables []Table) (*gsql.AnalyzerOutput, map[str
 		if !ok || ti < 0 || added[name] != nil {
 			return nil, nil, status.Error(codes.InvalidArgument, err.Error())
 		}
-		if tables[ti].ViewQuery != "" {
+		if tables[ti].View != nil {
 			if err := e.addView(tables[ti], tables); err != nil {
 				return nil, nil, err
 			}

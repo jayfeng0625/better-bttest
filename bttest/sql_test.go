@@ -39,7 +39,7 @@ type sqlFixture struct {
 	admin  *bigtable.AdminClient
 }
 
-func newSQLFixture(ctx context.Context, t *testing.T) *sqlFixture {
+func newSQLFixture(ctx context.Context, t testing.TB) *sqlFixture {
 	t.Helper()
 	srv, err := NewServer("localhost:0")
 	if err != nil {
@@ -65,7 +65,7 @@ func newSQLFixture(ctx context.Context, t *testing.T) *sqlFixture {
 }
 
 // createTable creates a table with the fixture's families and rows.
-func (f *sqlFixture) createTable(ctx context.Context, t *testing.T, name string) {
+func (f *sqlFixture) createTable(ctx context.Context, t testing.TB, name string) {
 	t.Helper()
 	sum := bigtable.AggregateType{Input: bigtable.Int64Type{}, Aggregator: bigtable.SumAggregator{}}
 	if err := f.admin.CreateTableFromConf(ctx, &bigtable.TableConf{TableID: name, ColumnFamilies: map[string]bigtable.Family{

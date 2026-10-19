@@ -30,7 +30,7 @@ type viewFixture struct {
 
 const expiredViewQuery = "SELECT _key AS rowKey FROM `items-prod` WHERE mark['flag'] IS NULL ORDER BY rowKey"
 
-func newViewFixture(ctx context.Context, t *testing.T, rows []itemRow) *viewFixture {
+func newViewFixture(ctx context.Context, t testing.TB, rows []itemRow) *viewFixture {
 	t.Helper()
 	f := newSQLFixture(ctx, t)
 	iadmin, err := bigtable.NewInstanceAdminClient(ctx, "p", option.WithGRPCConn(f.conn))
@@ -41,7 +41,7 @@ func newViewFixture(ctx context.Context, t *testing.T, rows []itemRow) *viewFixt
 	return &viewFixture{sqlFixture: f, iadmin: iadmin}
 }
 
-func (f *viewFixture) createView(ctx context.Context, t *testing.T, id, query string) {
+func (f *viewFixture) createView(ctx context.Context, t testing.TB, id, query string) {
 	t.Helper()
 	if err := f.iadmin.CreateMaterializedView(ctx, "i", &bigtable.MaterializedViewInfo{MaterializedViewID: id, Query: query}); err != nil {
 		t.Fatalf("CreateMaterializedView(%s): %v", id, err)
@@ -743,4 +743,117 @@ func TestViewReadRowsEscapesTheKeyColumnInsideAMultiPartKey(t *testing.T) {
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("ReadRows on the multi-part _key view (-want +got):\n%s", diff)
 	}
+}
+
+func BenchmarkViewReadRow(b *testing.B) {
+	ctx := context.Background()
+	f := newViewFixture(ctx, b, totalsRows)
+	f.createView(ctx, b, "v_expired", expiredViewQuery)
+	v := f.client.OpenMaterializedView("v_expired")
+	for b.Loop() {
+		r, err := v.ReadRow(ctx, "t1#p1#n#rowB")
+		if err != nil {
+			b.Fatal(err)
+		}
+		if r.Key() != "t1#p1#n#rowB" {
+			b.Fatalf("ReadRow = %v, want row t1#p1#n#rowB", r)
+		}
+	}
+}
+
+func BenchmarkPrepareQueryOverView(b *testing.B) {
+	ctx := context.Background()
+	f := newViewFixture(ctx, b, totalsRows)
+	f.createView(ctx, b, "v_expired", expiredViewQuery)
+	for b.Loop() {
+		if _, err := f.client.PrepareStatement(ctx, "SELECT rowKey FROM v_expired", nil); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// Once a family a view's query reads is dropped or recreated with another type, the view's ReadRows and queries
+// fail as its query does against the table now.
+func TestViewFailsAsItsQueryDoesOnceAFamilyItReadsChanges(t *testing.T) {
+	sum := bigtable.AggregateType{Input: bigtable.Int64Type{}, Aggregator: bigtable.SumAggregator{}}
+	for _, tc := range []struct {
+		name     string
+		recreate *bigtable.Family
+		want     string
+	}{
+		{"dropped", nil, "Unrecognized name: size [at 1:23]"},
+		{"recreated as Sum", &bigtable.Family{GCPolicy: bigtable.NoGcPolicy(), ValueType: sum}, "No matching signature for function BIGTABLE:TO_INT64\n  Argument types: INT64\n  Signature: TO_INT64(BYTES)\n    Argument 1: Unable to coerce type INT64 to expected type BYTES [at 1:14]"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := sqlContext(t)
+			f := newViewFixture(ctx, t, totalsRows)
+			f.createView(ctx, t, "v_bykey", "SELECT _key, TO_INT64(size['bytes']) AS sz FROM `items-prod` ORDER BY _key")
+			if err := f.admin.DeleteColumnFamily(ctx, "items-prod", "size"); err != nil {
+				t.Fatalf("DeleteColumnFamily: %v", err)
+			}
+			if tc.recreate != nil {
+				if err := f.admin.CreateColumnFamilyWithConfig(ctx, "items-prod", "size", *tc.recreate); err != nil {
+					t.Fatalf("CreateColumnFamilyWithConfig: %v", err)
+				}
+			}
+
+			err := f.client.OpenMaterializedView("v_bykey").ReadRows(ctx, bigtable.InfiniteRange(""), func(bigtable.Row) bool { return true })
+			wantStatus(t, err, codes.InvalidArgument, tc.want)
+			_, err = f.client.PrepareStatement(ctx, "SELECT _key FROM v_bykey", nil)
+			wantStatus(t, err, codes.InvalidArgument, tc.want)
+		})
+	}
+}
+
+// Concurrent ReadRows and queries on one view each return the view's rows.
+func TestViewServesConcurrentReadsAndQueries(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newViewFixture(ctx, t, totalsRows)
+	f.createView(ctx, t, "v_expired", expiredViewQuery)
+	wantKeys := []string{"t1#p1#n#rowB", "t2#p1#n#rowD"}
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			var keys []string
+			err := f.client.OpenMaterializedView("v_expired").ReadRows(ctx, bigtable.InfiniteRange(""), func(r bigtable.Row) bool {
+				keys = append(keys, r.Key())
+				return true
+			})
+			if err != nil {
+				t.Errorf("ReadRows: %v", err)
+			}
+			if diff := cmp.Diff(wantKeys, keys); diff != "" {
+				t.Errorf("ReadRows keys (-want +got):\n%s", diff)
+			}
+		})
+		wg.Go(func() {
+			ps, err := f.client.PrepareStatement(ctx, "SELECT rowKey FROM v_expired", nil)
+			if err != nil {
+				t.Errorf("PrepareStatement: %v", err)
+				return
+			}
+			bs, err := ps.Bind(nil)
+			if err != nil {
+				t.Errorf("Bind: %v", err)
+				return
+			}
+			var keys []string
+			err = bs.Execute(ctx, func(r bigtable.ResultRow) bool {
+				var k []byte
+				if err := r.GetByName("rowKey", &k); err != nil {
+					t.Errorf("GetByName: %v", err)
+				}
+				keys = append(keys, string(k))
+				return true
+			})
+			if err != nil {
+				t.Errorf("Execute: %v", err)
+			}
+			if diff := cmp.Diff(wantKeys, keys); diff != "" {
+				t.Errorf("query keys (-want +got):\n%s", diff)
+			}
+		})
+	}
+	wg.Wait()
 }

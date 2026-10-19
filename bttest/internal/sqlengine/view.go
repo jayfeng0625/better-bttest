@@ -70,22 +70,23 @@ func viewFunctionRule(cc *gsql.ResolvedComputedColumn) error {
 	return nil
 }
 
-// CheckView checks a materialized view's query as PrepareView does, and returns the table the query reads.
-func CheckView(sql string, tables []Table) (string, error) {
-	q, err := PrepareView(sql, tables)
-	if err != nil {
-		return "", err
-	}
-	return q.Table, nil
-}
-
-// PrepareView analyzes and compiles a materialized view's query against the tables, and checks it against
+// CheckView analyzes and compiles a materialized view's query against the tables, and checks it against
 // production's view rules with production's messages. A view reads tables only, so a view over a view fails as a
 // missing table.
-func PrepareView(sql string, tables []Table) (*Query, error) {
+func CheckView(sql string, tables []Table) (*View, error) {
+	p, err := compileView(sql, tables)
+	if err != nil {
+		return nil, err
+	}
+	v := &View{sql: sql}
+	v.plan.Store(p)
+	return v, nil
+}
+
+func compileView(sql string, tables []Table) (*viewPlan, error) {
 	var sources []Table
 	for _, t := range tables {
-		if t.ViewQuery == "" {
+		if t.View == nil {
 			sources = append(sources, t)
 		}
 	}
@@ -140,11 +141,28 @@ func PrepareView(sql string, tables []Table) (*Query, error) {
 		inKey := slices.ContainsFunc(keys, func(k keyPart) bool { return k.id == id })
 		q.cells[i] = !inKey || clause == "ORDER BY" && !loneKey
 	}
-	return q, nil
+	return &viewPlan{query: q, families: c.tables[q.Table].Families}, nil
+}
+
+// CurrentView returns the view's compiled query while its source table's families are as they were when the query
+// compiled. Once they differ, it compiles the query again and keeps the result, so the view reads, or fails, as its
+// query does against the table now.
+func CurrentView(v *View, tables []Table) (*Query, error) {
+	p := v.plan.Load()
+	i := slices.IndexFunc(tables, func(t Table) bool { return t.View == nil && t.Name == p.query.Table })
+	if i >= 0 && slices.Equal(p.families, tables[i].Families) {
+		return p.query, nil
+	}
+	p, err := compileView(v.sql, tables)
+	if err != nil {
+		return nil, err
+	}
+	v.plan.Store(p)
+	return p.query, nil
 }
 
 func (e *env) addView(t Table, tables []Table) error {
-	v, err := PrepareView(t.ViewQuery, tables)
+	v, err := CurrentView(t.View, tables)
 	if err != nil {
 		return err
 	}

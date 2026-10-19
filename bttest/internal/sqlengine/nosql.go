@@ -16,13 +16,14 @@ func Prepare(sql string, tables []Table, paramTypes map[string]*btpb.Type) (*Que
 	return nil, errNoSQL
 }
 
-func PrepareView(sql string, tables []Table) (*Query, error) {
-	return nil, errNoSQL
+// CheckView accepts any query and compiles none, so a view is stored unchecked and blocks no DeleteTable.
+func CheckView(sql string, tables []Table) (*View, error) {
+	return nil, nil
 }
 
-// CheckView accepts any query and returns no table, so a view is stored unchecked and blocks no DeleteTable.
-func CheckView(sql string, tables []Table) (string, error) {
-	return "", nil
+// CurrentView returns Unimplemented, so a read of a view stored unchecked fails as a query does.
+func CurrentView(v *View, tables []Table) (*Query, error) {
+	return nil, errNoSQL
 }
 
 var errNoSQL = status.Error(codes.Unimplemented, "the emulator was built without SQL. Use the better-bttest-with-sql image, or build with -tags googlesql")
