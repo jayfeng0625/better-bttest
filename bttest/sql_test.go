@@ -949,3 +949,19 @@ func TestSQLOffsetSubscriptReadsZeroBasedElement(t *testing.T) {
 		t.Errorf("values (-want +got):\n%s", diff)
 	}
 }
+
+func TestSQLJSONQueryArrayReplacesEachSurrogateEscapeWithTheReplacementCharacter(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+
+	got := f.query(ctx, t, `SELECT JSON_QUERY_ARRAY('["\\ud83d\\ude00", "\\ud800", "\\udc00", "\\\\ud83d"]') AS a FROM t WHERE _key = 'a'`, nil, nil)
+
+	want := []string{"\"��\"", "\"�\"", "\"�\"", `"\\ud83d"`}
+	var elems []string
+	for _, e := range got.rows[0][0].([]*string) {
+		elems = append(elems, *e)
+	}
+	if diff := cmp.Diff(want, elems); diff != "" {
+		t.Errorf("elements (-want +got):\n%s", diff)
+	}
+}

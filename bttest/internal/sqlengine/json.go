@@ -16,7 +16,7 @@ import (
 // written. An object keeps its key order and duplicate keys. A JSON null becomes the text null.
 // Invalid JSON and a value that is not an array give NULL.
 func jsonQueryArray(text []byte) Value {
-	d := json.NewDecoder(bytes.NewReader(text))
+	d := json.NewDecoder(bytes.NewReader(replaceSurrogateEscapes(text)))
 	d.UseNumber()
 	if t, err := d.Token(); err != nil || t != json.Delim('[') {
 		return null
@@ -34,6 +34,32 @@ func jsonQueryArray(text []byte) Value {
 	}
 	if _, err := d.Token(); err != io.EOF {
 		return null
+	}
+	return out
+}
+
+// replaceSurrogateEscapes rewrites each \uD800 to \uDFFF escape as \uFFFD. Production replaces every surrogate
+// escape with U+FFFD, even the two halves of a valid pair, where Go's decoder joins a pair into one rune.
+func replaceSurrogateEscapes(text []byte) []byte {
+	var out []byte
+	for i := 0; i < len(text)-1; i++ {
+		if text[i] != '\\' {
+			continue
+		}
+		i++
+		if text[i] != 'u' || i+4 >= len(text) {
+			continue
+		}
+		if r, err := strconv.ParseUint(string(text[i+1:i+5]), 16, 16); err != nil || r < 0xD800 || r > 0xDFFF {
+			continue
+		}
+		if out == nil {
+			out = bytes.Clone(text)
+		}
+		copy(out[i+1:], "FFFD")
+	}
+	if out == nil {
+		return text
 	}
 	return out
 }
