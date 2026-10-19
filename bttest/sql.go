@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"hash/crc32"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -235,12 +236,14 @@ func expiredError(msg string) error {
 	return st.Err()
 }
 
-// queryParams checks each declared parameter's value and type, with production's messages. It keys the values by
-// the lowercased name, the name the analyzer gives a parameter.
+// queryParams checks each declared parameter's value and type, with production's messages. It ignores a value that
+// no parameter declares. Production names one of several bad parameters at random, and queryParams names the first
+// in name order. It keys the values by the lowercased name, the name the analyzer gives a parameter.
 func queryParams(pq *preparedQuery, values map[string]*btpb.Value) (map[string]sqlengine.Value, error) {
 	out := map[string]sqlengine.Value{}
-	for name, t := range pq.paramTypes {
-		v, ok := values[name]
+	for _, name := range slices.Sorted(maps.Keys(pq.paramTypes)) {
+		t := pq.paramTypes[name]
+		v, ok := paramValue(values, name)
 		if !ok {
 			return nil, status.Errorf(codes.InvalidArgument, "params does not contain key '%s'", name)
 		}
@@ -253,6 +256,17 @@ func queryParams(pq *preparedQuery, values map[string]*btpb.Value) (map[string]s
 		out[strings.ToLower(name)] = sqlengine.ValueFromProto(v, pq.params[name])
 	}
 	return out, nil
+}
+
+// paramValue finds a parameter's value under a key that matches its name in any case, as production does. Production
+// reads one of several such keys at random, and paramValue reads the first in name order.
+func paramValue(values map[string]*btpb.Value, name string) (*btpb.Value, bool) {
+	for _, k := range slices.Sorted(maps.Keys(values)) {
+		if strings.EqualFold(k, name) {
+			return values[k], true
+		}
+	}
+	return nil, false
 }
 
 // batchBytes is the batch_data size at which production closes a batch. The row that brings a batch to this size

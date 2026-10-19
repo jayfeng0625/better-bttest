@@ -6,9 +6,13 @@ package sqlengine
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"sync"
 
 	gsql "github.com/goccy/go-googlesql"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var (
@@ -36,8 +40,7 @@ type env struct {
 	lang  *gsql.LanguageOptions
 }
 
-// newEnv builds an analyzer setup with no tables. Prepare adds each table the query names.
-func newEnv(params map[string]Type) (*env, error) {
+func newEnv() (*env, error) {
 	initOnce.Do(func() { initErr = gsql.Init() })
 	if initErr != nil {
 		return nil, initErr
@@ -83,17 +86,23 @@ func newEnv(params map[string]Type) (*env, error) {
 	if err := opts.SetPruneUnusedColumns(true); err != nil {
 		return nil, err
 	}
-	for name, t := range params {
-		gt, err := e.gsqlType(t)
-		if err != nil {
-			return nil, err
-		}
-		if err := opts.AddQueryParameter(name, gt); err != nil {
-			return nil, err
-		}
-	}
 	e.opts = opts
 	return e, nil
+}
+
+// addParams declares the query parameters in name order. The analyzer matches names case-insensitively, so two
+// names that differ only in case fail with InvalidArgument, as on production.
+func (e *env) addParams(params map[string]Type) error {
+	for _, name := range slices.Sorted(maps.Keys(params)) {
+		gt, err := e.gsqlType(params[name])
+		if err != nil {
+			return internal(err)
+		}
+		if err := e.opts.AddQueryParameter(name, gt); err != nil {
+			return status.Error(codes.InvalidArgument, err.Error())
+		}
+	}
+	return nil
 }
 
 // addTable adds a table with a _key column and one map column per family. The analyzer matches column names

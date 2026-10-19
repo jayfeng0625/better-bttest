@@ -366,7 +366,12 @@ func (f *sqlFixture) prepareRaw(ctx context.Context, t *testing.T, sql string) [
 // stream's error.
 func (f *sqlFixture) executeRaw(ctx context.Context, t *testing.T, prepared []byte) ([]*btpb.ExecuteQueryResponse, error) {
 	t.Helper()
-	stream, err := btpb.NewBigtableClient(f.conn).ExecuteQuery(ctx, &btpb.ExecuteQueryRequest{InstanceName: "projects/p/instances/i", PreparedQuery: prepared})
+	return f.executeParams(ctx, t, prepared, nil)
+}
+
+func (f *sqlFixture) executeParams(ctx context.Context, t *testing.T, prepared []byte, params map[string]*btpb.Value) ([]*btpb.ExecuteQueryResponse, error) {
+	t.Helper()
+	stream, err := btpb.NewBigtableClient(f.conn).ExecuteQuery(ctx, &btpb.ExecuteQueryRequest{InstanceName: "projects/p/instances/i", PreparedQuery: prepared, Params: params})
 	if err != nil {
 		t.Fatal(err)
 	}
