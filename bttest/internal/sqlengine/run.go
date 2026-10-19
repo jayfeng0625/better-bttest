@@ -51,8 +51,9 @@ type execCtx struct {
 	staged   []stagedRow
 }
 
-// A sink keeps an evaluated row, as an aggregate adds it to its group or an ORDER BY collects it.
-type sink func(row []Value)
+// A sink keeps an evaluated row, as an aggregate adds it to its group or an ORDER BY collects it. It fails when the
+// row cannot be kept, as when a SUM overflows.
+type sink func(row []Value) error
 
 type stagedRow struct {
 	sink sink
@@ -60,26 +61,31 @@ type stagedRow struct {
 }
 
 // keep passes row to s, or stages a copy of it while a view evaluates a source row.
-func (x *execCtx) keep(s sink, row []Value) {
+func (x *execCtx) keep(s sink, row []Value) error {
 	if !x.inRow {
-		s(row)
-		return
+		return s(row)
 	}
 	x.staged = append(x.staged, stagedRow{sink: s, row: slices.Clone(row)})
+	return nil
 }
 
 // emitSourceRow emits one source row, then passes the rows its sinks staged on to them unless an evaluation failed.
+// A staged row that its sink cannot keep leaves out only what the sink marks, such as the overflowing group.
 func (x *execCtx) emitSourceRow(emit func([]Value) error, row []Value) error {
 	x.inRow = x.leaveOut
 	err := emit(row)
 	x.inRow = false
-	if !evalFailure(err) {
-		for _, s := range x.staged {
-			s.sink(s.row)
+	staged := x.staged
+	x.staged = x.staged[:0]
+	if evalFailure(err) {
+		return x.check(err)
+	}
+	for _, s := range staged {
+		if err := x.check(s.sink(s.row)); err != nil {
+			return err
 		}
 	}
-	x.staged = x.staged[:0]
-	return x.check(err)
+	return err
 }
 
 // expr evaluates an expression over a row of slots, indexed by resolved column id.
@@ -263,10 +269,12 @@ type orderBy struct {
 
 func (o *orderBy) run(x *execCtx, emit func([]Value) error) error {
 	var rows [][]Value
-	collect := func(row []Value) { rows = append(rows, row) }
-	if err := o.input.run(x, func(row []Value) error {
-		x.keep(collect, row)
+	collect := func(row []Value) error {
+		rows = append(rows, row)
 		return nil
+	}
+	if err := o.input.run(x, func(row []Value) error {
+		return x.keep(collect, row)
 	}); err != nil {
 		return err
 	}
@@ -393,8 +401,8 @@ type aggregate struct {
 }
 
 type group struct {
-	row []Value
-	err error // the first failure while accumulating, such as SUM overflow
+	row    []Value
+	failed bool
 }
 
 func (a *aggregate) run(x *execCtx, emit func([]Value) error) error {
@@ -421,7 +429,7 @@ func (a *aggregate) run(x *execCtx, emit func([]Value) error) error {
 	nKeys := len(a.groupExprs)
 	vals := make([]Value, nKeys+len(a.aggs))
 	var key []byte
-	add := func(row []Value) {
+	add := func(row []Value) error {
 		keys, args := row[:nKeys], row[nKeys:]
 		key = key[:0]
 		for _, v := range keys {
@@ -432,14 +440,16 @@ func (a *aggregate) run(x *execCtx, emit func([]Value) error) error {
 			g = newGroup(keys)
 			groups[string(key)] = g
 		}
-		if g.err != nil {
-			return
+		if g.failed {
+			return nil
 		}
 		for i, ag := range a.aggs {
-			if g.err = ag.add(&g.row[ag.id], args[i]); g.err != nil {
-				return
+			if err := ag.add(&g.row[ag.id], args[i]); err != nil {
+				g.failed = true
+				return err
 			}
 		}
+		return nil
 	}
 	err := a.input.run(x, func(row []Value) error {
 		// Evaluate everything the row adds before changing any group, so a failing row changes no group.
@@ -460,18 +470,16 @@ func (a *aggregate) run(x *execCtx, emit func([]Value) error) error {
 			}
 			vals[nKeys+i] = v
 		}
-		x.keep(add, vals)
-		return nil
+		return x.keep(add, vals)
 	})
 	if err != nil {
 		return err
 	}
 	for _, g := range order {
-		err := g.err
-		if err == nil {
-			err = emit(g.row)
+		if g.failed {
+			continue
 		}
-		if err := x.check(err); err != nil {
+		if err := x.check(emit(g.row)); err != nil {
 			return err
 		}
 	}
