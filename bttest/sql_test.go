@@ -366,7 +366,12 @@ func (f *sqlFixture) prepareRaw(ctx context.Context, t *testing.T, sql string) [
 // stream's error.
 func (f *sqlFixture) executeRaw(ctx context.Context, t *testing.T, prepared []byte) ([]*btpb.ExecuteQueryResponse, error) {
 	t.Helper()
-	stream, err := btpb.NewBigtableClient(f.conn).ExecuteQuery(ctx, &btpb.ExecuteQueryRequest{InstanceName: "projects/p/instances/i", PreparedQuery: prepared})
+	return f.executeOn(ctx, t, "projects/p/instances/i", prepared)
+}
+
+func (f *sqlFixture) executeOn(ctx context.Context, t *testing.T, instance string, prepared []byte) ([]*btpb.ExecuteQueryResponse, error) {
+	t.Helper()
+	stream, err := btpb.NewBigtableClient(f.conn).ExecuteQuery(ctx, &btpb.ExecuteQueryRequest{InstanceName: instance, PreparedQuery: prepared})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -577,6 +582,21 @@ func TestSQLExecuteQueryRejectsUnknownPreparedQuery(t *testing.T) {
 	_, err := f.executeRaw(ctx, t, []byte("garbage"))
 
 	wantStatus(t, err, codes.InvalidArgument, "Invalid prepared query. Please retry request with a valid prepared query")
+}
+
+func TestSQLExecuteQueryRejectsQueryPreparedOnAnotherInstance(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+	prepared := f.prepareRaw(ctx, t, "SELECT _key FROM t")
+
+	msgs, err := f.executeOn(ctx, t, "projects/p/instances/other", prepared)
+
+	if err == nil {
+		t.Fatal("ExecuteQuery on another instance succeeded, want an error")
+	}
+	if len(msgs) != 0 {
+		t.Errorf("got %d messages, want none", len(msgs))
+	}
 }
 
 func TestSQLPreparedQueryExpiresWhenItsFamilyIsDropped(t *testing.T) {
