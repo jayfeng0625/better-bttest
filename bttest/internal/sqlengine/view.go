@@ -27,14 +27,14 @@ type viewClause struct {
 	keys  []keyPart
 }
 
-func (vc *viewClause) add(ids []int32, kinds []Kind) {
+func (vc *viewClause) add(ids []int32, types []Type) {
 	if len(ids) == 0 {
 		return
 	}
 	vc.count++
 	vc.keys = make([]keyPart, len(ids))
 	for i, id := range ids {
-		vc.keys[i] = keyPart{id: id, kind: kinds[i]}
+		vc.keys[i] = keyPart{id: id, kind: types[i].Kind}
 	}
 }
 
