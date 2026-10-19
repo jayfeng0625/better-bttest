@@ -8,15 +8,30 @@ import (
 	"slices"
 	"strings"
 
+	btpb "cloud.google.com/go/bigtable/apiv2/bigtablepb"
 	gsql "github.com/goccy/go-googlesql"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 // Prepare analyzes sql against the tables and compiles it. It returns InvalidArgument with the analyzer's one-line
-// message, as production does, and InvalidArgument naming a construct the engine does not support.
-func Prepare(sql string, tables []Table, params map[string]Type) (*Query, error) {
-	return prepare(sql, tables, params, &compiler{})
+// message, as production does, and InvalidArgument naming a construct or a parameter type the engine does not
+// support.
+func Prepare(sql string, tables []Table, paramTypes map[string]*btpb.Type) (*Query, error) {
+	params := map[string]Type{}
+	for name, t := range paramTypes {
+		pt, err := TypeFromProto(t)
+		if err != nil {
+			return nil, err
+		}
+		params[name] = pt
+	}
+	q, err := prepare(sql, tables, params, &compiler{})
+	if err != nil {
+		return nil, err
+	}
+	q.Params = params
+	return q, nil
 }
 
 func prepare(sql string, tables []Table, params map[string]Type, c *compiler) (*Query, error) {

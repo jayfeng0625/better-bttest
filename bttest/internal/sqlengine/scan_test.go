@@ -9,6 +9,7 @@ import (
 	"context"
 	"testing"
 
+	btpb "cloud.google.com/go/bigtable/apiv2/bigtablepb"
 	"github.com/google/go-cmp/cmp"
 )
 
@@ -58,7 +59,8 @@ func TestScanAsksForThePlansFamiliesAndKeyRange(t *testing.T) {
 		return out
 	}
 	b := func(s string) []byte { return []byte(s) }
-	bytesParam := map[string]Type{"k": {Kind: KindBytes}, "lo": {Kind: KindBytes}, "hi": {Kind: KindBytes}}
+	bytesType := Type{Kind: KindBytes}.Proto()
+	bytesParam := map[string]*btpb.Type{"k": bytesType, "lo": bytesType, "hi": bytesType}
 	for _, tc := range []struct {
 		name      string
 		sql       string
