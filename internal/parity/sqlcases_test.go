@@ -130,6 +130,22 @@ func TestRunNamesTheCaseTableInAQueryOnNoTable(t *testing.T) {
 	}
 }
 
+// Production's answer on 2026-10-19, both 5 s and 30 s after DeleteTable.
+func TestRunFailsAQueryWhoseTableIsDeletedWithProductionsNotFound(t *testing.T) {
+	ctx, target := startGate(t)
+	c := Case{Name: "deleted table", Setup: twoRows, Calls: []Call{PrepareQuery{SQL: "SELECT _key FROM `{table}`"}, DeleteTable{}, ExecuteQuery{}}}
+
+	got, err := Run(ctx, target, testRunID, 1, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := Result{Call: "ExecuteQuery", Status: Status{Code: codes.NotFound, Message: "Not found: projects/<project>/instances/<instance>/tables/better-bttest-parity-<run>-t1"}}
+	if d := cmp.Diff(want, Normalize(target.Instance, testRunID, got)[2], protocmp.Transform()); d != "" {
+		t.Errorf("ExecuteQuery (-want +got):\n%s", d)
+	}
+}
+
 // Each SQL case's Setup succeeds on the gate.
 func TestSQLCasesRunOnTheGate(t *testing.T) {
 	_, target := startGate(t)

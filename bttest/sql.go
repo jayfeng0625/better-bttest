@@ -172,7 +172,7 @@ func (s *server) ExecuteQuery(req *btpb.ExecuteQueryRequest, stream btpb.Bigtabl
 }
 
 // preparedQuery finds a prepared query and fails as production does once it has expired: 40 s after prepare, or
-// after a family it reads is dropped. A query of a view fails once the view is deleted.
+// after a family it reads is dropped. A query fails once its table or view is deleted.
 func (s *server) preparedQuery(token []byte) (*preparedQuery, error) {
 	s.sql.mu.Lock()
 	pq := s.sql.queries[string(token)]
@@ -195,6 +195,8 @@ func (s *server) preparedQuery(token []byte) (*preparedQuery, error) {
 		if err := s.viewReplica(pq.instance, pq.query.View); err != nil {
 			return nil, err
 		}
+	} else if s.instanceTable(pq.instance, pq.query.Table) == nil {
+		return nil, tableNotFound(pq.instance + "/tables/" + pq.query.Table)
 	}
 	return pq, nil
 }
@@ -315,7 +317,7 @@ type tableSource struct {
 func (src *tableSource) Scan(ctx context.Context, name string, fn func(sqlengine.Row) error) error {
 	tbl := src.s.instanceTable(src.instance, name)
 	if tbl == nil {
-		return status.Errorf(codes.NotFound, "table %q not found", name)
+		return tableNotFound(src.instance + "/tables/" + name)
 	}
 	var rows []*row
 	tbl.mu.RLock()
