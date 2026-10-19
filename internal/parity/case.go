@@ -142,6 +142,10 @@ type DeleteView struct{}
 // ReadRows over the case's view, keeping each row's key and its cells' raw bytes.
 type ReadView struct{}
 
+// Wait for D before the next call, on every target, so that a case reads a state that production settles seconds after
+// a change.
+type Wait struct{ D time.Duration }
+
 // Builders for mutations at column c and 1000 µs, unless an option says otherwise.
 
 type cellAt struct {
