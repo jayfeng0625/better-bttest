@@ -145,6 +145,9 @@ func TotalsCases() []Case {
 				Query("SELECT SPLIT(_key, '#')[1] AS g, "+sum+" AS s, COUNT(*) AS n FROM `{table}` WHERE STARTS_WITH(_key, 'sum#') GROUP BY g"),
 				Query("SELECT SPLIT(_key, '#')[1] AS g, "+sum+" AS s FROM `{table}` WHERE STARTS_WITH(_key, 'sum#g2#') OR STARTS_WITH(_key, 'sum#g4#') GROUP BY g"),
 				sumCalls,
+				Query("SELECT SPLIT(_key, '#')[0] AS t, "+sum+" AS s FROM `{table}` GROUP BY t LIMIT 1"),
+				Query("SELECT SPLIT(_key, '#')[0] AS t, "+sum+" AS s FROM `{table}` GROUP BY t HAVING DIV(COUNT(*), COUNT(*) - 1) > 0"),
+				Query("SELECT SPLIT(_key, '#')[0] AS t, "+sum+" AS s, DIV(COUNT(*), COUNT(*) - 1) AS d FROM `{table}` GROUP BY t"),
 			),
 		},
 	}

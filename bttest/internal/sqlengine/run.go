@@ -351,8 +351,8 @@ type aggregate struct {
 }
 
 type group struct {
-	row []Value
-	err error // the first failure while accumulating, such as SUM overflow
+	row    []Value
+	failed bool
 }
 
 func (a *aggregate) run(x *execCtx, emit func([]Value) error) error {
@@ -405,12 +405,13 @@ func (a *aggregate) run(x *execCtx, emit func([]Value) error) error {
 			g = newGroup(keys)
 			groups[string(key)] = g
 		}
-		if g.err != nil {
+		if g.failed {
 			return nil
 		}
 		for i, ag := range a.aggs {
-			if g.err = ag.add(&g.row[ag.id], args[i]); g.err != nil {
-				return nil
+			if err := ag.add(&g.row[ag.id], args[i]); err != nil {
+				g.failed = true
+				return x.check(err)
 			}
 		}
 		return nil
@@ -419,11 +420,10 @@ func (a *aggregate) run(x *execCtx, emit func([]Value) error) error {
 		return err
 	}
 	for _, g := range order {
-		err := g.err
-		if err == nil {
-			err = emit(g.row)
+		if g.failed {
+			continue
 		}
-		if err := x.check(err); err != nil {
+		if err := x.check(emit(g.row)); err != nil {
 			return err
 		}
 	}
