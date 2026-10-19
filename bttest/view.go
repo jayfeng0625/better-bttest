@@ -98,14 +98,9 @@ func (s *server) viewTable(ctx context.Context, name string) (*table, error) {
 }
 
 func (s *server) sqlViews(instance string) []sqlengine.Table {
-	prefix := instance + "/materializedViews/"
-	s.views.mu.Lock()
-	defer s.views.mu.Unlock()
 	var out []sqlengine.Table
-	for name, v := range s.views.views {
-		if id, ok := strings.CutPrefix(name, prefix); ok {
-			out = append(out, sqlengine.Table{Name: id, View: v.view})
-		}
+	for id, v := range s.instanceViews(instance) {
+		out = append(out, sqlengine.Table{Name: id, View: v.view})
 	}
 	return out
 }
@@ -165,21 +160,34 @@ func (s *server) GetMaterializedView(ctx context.Context, req *btapb.GetMaterial
 	return proto.Clone(v.mv).(*btapb.MaterializedView), nil
 }
 
-// viewReplica fails a read of a deleted view as production does when the view's replica is gone. The emulator has
-// no cluster, so it names one after the instance.
-func (s *server) viewReplica(instance, id string) error {
+func (s *server) instanceViews(instance string) map[string]*materializedView {
+	prefix := instance + "/materializedViews/"
 	s.views.mu.Lock()
 	defer s.views.mu.Unlock()
-	if _, ok := s.views.views[instance+"/materializedViews/"+id]; ok {
-		return nil
+	out := map[string]*materializedView{}
+	for name, v := range s.views.views {
+		if id, ok := strings.CutPrefix(name, prefix); ok {
+			out[id] = v
+		}
+	}
+	return out
+}
+
+// viewReplica returns the view, and fails a read of a deleted view as production does when the view's replica is
+// gone. The emulator has no cluster, so it names one after the instance.
+func (s *server) viewReplica(instance, id string) (*materializedView, error) {
+	s.views.mu.Lock()
+	defer s.views.mu.Unlock()
+	if v, ok := s.views.views[instance+"/materializedViews/"+id]; ok {
+		return v, nil
 	}
 	project, instanceID, ok := projectInstance(instance)
 	if !ok {
-		return status.Errorf(codes.NotFound, "Failed to read: %s/materializedViews/%s", instance, id)
+		return nil, status.Errorf(codes.NotFound, "Failed to read: %s/materializedViews/%s", instance, id)
 	}
 	cluster := instanceID + "-c1"
 	replica := numberedProject(instance) + "/clusters/" + cluster + "/materializedViews/" + id
-	return status.Errorf(codes.NotFound, "Failed to read: %s : MaterializedViewsReplicas(%s,%s,%s,%s) : Failed to read: %s", replica, project, instanceID, cluster, id, replica)
+	return nil, status.Errorf(codes.NotFound, "Failed to read: %s : MaterializedViewsReplicas(%s,%s,%s,%s) : Failed to read: %s", replica, project, instanceID, cluster, id, replica)
 }
 
 func projectInstance(instance string) (project, id string, ok bool) {

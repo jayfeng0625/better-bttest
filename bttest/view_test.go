@@ -541,6 +541,37 @@ func TestViewExecuteUnderBareInstanceFailsOnceTheViewIsDeleted(t *testing.T) {
 	}
 }
 
+// Production never ran a query prepared on a view after the view was deleted and recreated, as a probe of
+// production recorded on 2026-10-19.
+func TestViewExecuteExpiresOnceTheViewIsRecreated(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newViewFixture(ctx, t, totalsRows)
+	f.createView(ctx, t, "v", expiredViewQuery)
+	f.createView(ctx, t, "v_kept", expiredViewQuery)
+	old := f.prepareRaw(ctx, t, "SELECT rowKey FROM v")
+	kept := f.prepareRaw(ctx, t, "SELECT rowKey FROM v_kept")
+
+	if err := f.iadmin.DeleteMaterializedView(ctx, "i", "v"); err != nil {
+		t.Fatalf("DeleteMaterializedView: %v", err)
+	}
+	f.createView(ctx, t, "v", "SELECT SPLIT(_key, '#')[0] AS tenant, COUNT(*) AS n FROM `items-prod` GROUP BY tenant")
+
+	msgs, err := f.executeRaw(ctx, t, old)
+	checkExpired(t, msgs, err, expiredQuery)
+	if _, err := f.executeRaw(ctx, t, kept); err != nil {
+		t.Errorf("ExecuteQuery on the untouched view: %v", err)
+	}
+	got := f.query(ctx, t, "SELECT tenant, n FROM v ORDER BY tenant", nil, nil)
+	want := sqlResult{
+		cols:  []string{"tenant", "n"},
+		types: []bigtable.SQLType{bigtable.BytesSQLType{}, bigtable.Int64SQLType{}},
+		rows:  [][]any{{[]byte("t1"), i64(3)}, {[]byte("t2"), i64(1)}},
+	}
+	if diff := cmp.Diff(want, got, cmp.AllowUnexported(sqlResult{})); diff != "" {
+		t.Errorf("a fresh query on the recreated view (-want +got):\n%s", diff)
+	}
+}
+
 func (f *viewFixture) readView(ctx context.Context, t *testing.T, id string) []bigtable.Row {
 	t.Helper()
 	var rows []bigtable.Row
