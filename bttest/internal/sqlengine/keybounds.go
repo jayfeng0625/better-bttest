@@ -88,12 +88,11 @@ func (c *compiler) keyBound(ts *tableScan, e gsql.ResolvedExprNode, cmp comparis
 	if err != nil {
 		return err
 	}
-	b := keyBound{value: x, strict: cmp.strict}
 	if cmp.lower {
-		ts.lower = append(ts.lower, b)
+		ts.bounds = append(ts.bounds, keyBound{value: x, strict: cmp.strict})
 	}
 	if cmp.upper {
-		ts.upper = append(ts.upper, b)
+		ts.bounds = append(ts.bounds, keyBound{value: x, strict: cmp.strict, upper: true})
 	}
 	return nil
 }

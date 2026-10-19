@@ -269,8 +269,7 @@ func SQLCases() []Case {
 			Deadline: time.Minute,
 			Calls: []Call{
 				PrepareQuery{SQL: keyRowA}, DeleteTable{},
-				Wait{D: 5 * time.Second}, ExecuteQuery{},
-				Wait{D: 25 * time.Second}, ExecuteQuery{},
+				Wait{D: 30 * time.Second}, ExecuteQuery{},
 			},
 		},
 		readded("plain", &adminpb.ColumnFamily{}, SetCell(Mark, []byte("after"), Col("marker"))),

@@ -130,7 +130,7 @@ func TestRunNamesTheCaseTableInAQueryOnNoTable(t *testing.T) {
 	}
 }
 
-// Production's answer on 2026-10-19, both 5 s and 30 s after DeleteTable.
+// Production's answer on 2026-10-19, 30 s after DeleteTable. Its answer at 5 s varied between runs.
 func TestRunFailsAQueryWhoseTableIsDeletedWithProductionsNotFound(t *testing.T) {
 	ctx, target := startGate(t)
 	c := Case{Name: "deleted table", Setup: twoRows, Calls: []Call{PrepareQuery{SQL: "SELECT _key FROM `{table}`"}, DeleteTable{}, ExecuteQuery{}}}

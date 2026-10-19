@@ -230,6 +230,23 @@ func TestSQLReturnsRowWhoseCellsAreAllInUnreadFamilies(t *testing.T) {
 	}
 }
 
+func TestSQLSkipsRowWhoseCellsAreAllDeleted(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+	m := bigtable.NewMutation()
+	m.DeleteCellsInColumn("size", "bytes")
+	if err := f.client.Open("t").Apply(ctx, "c", m); err != nil {
+		t.Fatal(err)
+	}
+
+	got := f.query(ctx, t, "SELECT _key FROM t WHERE _key >= 'b'", nil, nil)
+
+	want := [][]any{{[]byte("b")}}
+	if diff := cmp.Diff(want, got.rows); diff != "" {
+		t.Errorf("rows (-want +got):\n%s", diff)
+	}
+}
+
 func TestSQLWhereMatchingNothingReturnsNoRows(t *testing.T) {
 	ctx := sqlContext(t)
 	f := newSQLFixture(ctx, t)
