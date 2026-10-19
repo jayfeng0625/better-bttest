@@ -388,7 +388,17 @@ func (f *sqlFixture) executeRaw(ctx context.Context, t *testing.T, prepared []by
 
 func (f *sqlFixture) executeOn(ctx context.Context, t *testing.T, instance string, prepared []byte) ([]*btpb.ExecuteQueryResponse, error) {
 	t.Helper()
-	stream, err := btpb.NewBigtableClient(f.conn).ExecuteQuery(ctx, &btpb.ExecuteQueryRequest{InstanceName: instance, PreparedQuery: prepared})
+	return f.executeRequest(ctx, t, &btpb.ExecuteQueryRequest{InstanceName: instance, PreparedQuery: prepared})
+}
+
+func (f *sqlFixture) executeParams(ctx context.Context, t *testing.T, prepared []byte, params map[string]*btpb.Value) ([]*btpb.ExecuteQueryResponse, error) {
+	t.Helper()
+	return f.executeRequest(ctx, t, &btpb.ExecuteQueryRequest{InstanceName: "projects/p/instances/i", PreparedQuery: prepared, Params: params})
+}
+
+func (f *sqlFixture) executeRequest(ctx context.Context, t *testing.T, req *btpb.ExecuteQueryRequest) ([]*btpb.ExecuteQueryResponse, error) {
+	t.Helper()
+	stream, err := btpb.NewBigtableClient(f.conn).ExecuteQuery(ctx, req)
 	if err != nil {
 		t.Fatal(err)
 	}

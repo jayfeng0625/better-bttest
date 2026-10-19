@@ -172,6 +172,26 @@ func SQLCases() []Case {
 			Setup: sqlFixture(),
 			Calls: Query("SELECT _key, TO_INT64(labels['labels']) AS n FROM `{table}` WHERE _key = 't1#p1#n#rowB'"),
 		},
+		// Production names one of several bad params at random, and reads one of two keys that differ only in case at
+		// random, so no call sends either.
+		{
+			Name:  "SQL query params",
+			Setup: sqlFixture(),
+			Calls: []Call{
+				PrepareQuery{SQL: "SELECT _key FROM `{table}` WHERE " + t1ToT4 + " LIMIT @n", Params: map[string]*btpb.Type{"n": Int64Type}},
+				ExecuteQuery{Params: map[string]*btpb.Value{"n": {Type: Int64Type, Kind: &btpb.Value_StringValue{StringValue: "3"}}}},
+				ExecuteQuery{Params: map[string]*btpb.Value{"n": Int64Param("n", 3).Value, "m": Int64Param("m", 1).Value}},
+				ExecuteQuery{Params: map[string]*btpb.Value{"N": Int64Param("N", 3).Value}},
+				ExecuteQuery{Params: map[string]*btpb.Value{}},
+				ExecuteQuery{Params: map[string]*btpb.Value{"n": {Kind: &btpb.Value_IntValue{IntValue: 3}}}},
+				ExecuteQuery{Params: map[string]*btpb.Value{"n": StringParam("n", "3").Value}},
+				PrepareQuery{SQL: "SELECT @n AS v FROM `{table}` WHERE " + rowA, Params: map[string]*btpb.Type{"n": Int64Type}},
+				ExecuteQuery{Params: map[string]*btpb.Value{"n": {Type: Int64Type, Kind: &btpb.Value_StringValue{StringValue: "3"}}}},
+				PrepareQuery{SQL: "SELECT @s AS v FROM `{table}` WHERE " + rowA, Params: map[string]*btpb.Type{"s": StringType}},
+				ExecuteQuery{Params: map[string]*btpb.Value{"s": {Type: StringType, Kind: &btpb.Value_IntValue{IntValue: 3}}}},
+				PrepareQuery{SQL: "SELECT _key FROM `{table}` WHERE _key = @k", Params: map[string]*btpb.Type{"k": BytesType, "K": BytesType}},
+			},
+		},
 		{
 			Name:  "SQL LIKE on the row key",
 			Setup: likeFixture(),

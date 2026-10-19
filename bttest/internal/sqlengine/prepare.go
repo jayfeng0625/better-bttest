@@ -35,9 +35,12 @@ func Prepare(sql string, tables []Table, paramTypes map[string]*btpb.Type) (*Que
 }
 
 func prepare(sql string, tables []Table, params map[string]Type, c *compiler) (*Query, error) {
-	e, err := newEnv(params)
+	e, err := newEnv()
 	if err != nil {
 		return nil, internal(err)
+	}
+	if err := e.addParams(params); err != nil {
+		return nil, err
 	}
 	out, byName, err := e.analyze(sql, tables)
 	if err != nil {
