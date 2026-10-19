@@ -18,10 +18,12 @@ type Family struct {
 	Int64 bool
 }
 
-// Table is one table as SQL sees it. SELECT * lists the families in the order given.
+// Table is one table or materialized view as SQL sees it. SELECT * lists a table's families in the order given.
 type Table struct {
 	Name     string
 	Families []Family
+	// ViewQuery is a materialized view's query. A view has no families.
+	ViewQuery string
 }
 
 // Column is one output column of a prepared query.
@@ -36,12 +38,24 @@ type Query struct {
 	Columns []Column
 	// Table is the table the query reads.
 	Table string
+	// View is the materialized view the query reads, or empty.
+	View string
 	// Families are the families the query reads.
 	Families []string
 
 	root   scan
 	outIDs []int32
 	nSlots int
+	// keys are a materialized view's key parts, in key order, and cells marks each output column that a view row
+	// stores as a cell. Only PrepareView sets them.
+	keys  []keyPart
+	cells []bool
+}
+
+// scanCol is one column a table scan reads: the slot it fills and the column's index in the table.
+type scanCol struct {
+	id    int32
+	index int
 }
 
 func unsupported(what string) error {

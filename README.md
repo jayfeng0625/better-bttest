@@ -12,7 +12,7 @@ docker compose up --build -d
 ```
 
 The command builds the emulator and starts it on `localhost:8086`, in a container named `bigtable`.
-SQL needs the `googlesql` build tag, which builds the GoogleSQL analyzer in: `TAGS=googlesql docker compose up --build -d`.
+SQL and materialized views need the `googlesql` build tag, which builds the GoogleSQL analyzer in: `TAGS=googlesql docker compose up --build -d`.
 To connect a Bigtable client, set `BIGTABLE_EMULATOR_HOST=localhost:8086`.
 The emulator starts with no tables.
 Create them with your Bigtable admin client, or with [`cbt`](https://cloud.google.com/bigtable/docs/cbt-overview), which reads the same variable and needs no credentials.
@@ -21,10 +21,10 @@ To stop the emulator, run `docker compose down`.
 You can also run the emulator in two other ways:
 
 - Without Docker, as the [`emulator` command docs](https://pkg.go.dev/github.com/jayfeng0625/better-bttest/cmd/emulator) show.
-  For SQL, build the command with `-tags googlesql`.
+  For SQL and views, build the command with `-tags googlesql`.
 - Inside a Go test's own process, as the [`bttest` package docs](https://pkg.go.dev/github.com/jayfeng0625/better-bttest/bttest) show.
   Add the module with `go get github.com/jayfeng0625/better-bttest`.
-  For SQL, run the test with `go test -tags googlesql`.
+  For SQL and views, run the test with `go test -tags googlesql`.
 
 ## What the fork changes
 
@@ -65,11 +65,21 @@ A parity case sends the same requests to a real table and to the emulator.
   - Functions: `STARTS_WITH`, `CAST` between `BYTES` and `STRING`, `TO_INT64`, `COALESCE`, `SPLIT` on `BYTES`, `JSON_QUERY_ARRAY` with the path `$`, and `ARRAY_CONCAT`.
   - Aggregate functions: `COUNT(*)`, `SUM` over `INT64`, and `MAX`.
   - Values: array literals.
-- **[Materialized views](https://cloud.google.com/bigtable/docs/materialized-views).**
-  `CreateMaterializedView` stores a view, and `GetMaterializedView` returns it.
-  A view that does not exist, or an ID that is taken, gets the error that production returns.
-  The emulator does not check the view's query, and does not serve reads of the view.
-  Google's emulator crashes on every materialized view admin call.
+- **[Materialized views](https://cloud.google.com/bigtable/docs/continuous-materialized-views).**
+  `CreateMaterializedView` plans the query, checks [production's view rules](https://cloud.google.com/bigtable/docs/continuous-materialized-view-queries), and returns a finished operation.
+  Without the `googlesql` tag, `CreateMaterializedView` stores the view without checking its query, and a read of the view returns `Unimplemented`.
+  `GetMaterializedView` returns the view, and `ListMaterializedViews` returns the instance's views in name order.
+  `DeleteMaterializedView` deletes the view, and fails with `FailedPrecondition` while deletion protection is on.
+  `DeleteTable` fails with `FailedPrecondition` while a view reads the table, and names the view.
+  `UpdateMaterializedView` changes only deletion protection.
+  It fails with `InvalidArgument` when the update mask names `query` and the query differs from the stored one.
+  A SQL read of a view evaluates its query and returns the rows in production's view key order. The read leaves out each source row or group whose evaluation fails, as production does.
+  Once the view is deleted, `ExecuteQuery` on a query prepared against it fails with `NotFound`, at once, since the emulator has no replication lag.
+  `ReadRows` on a view returns its rows as production stores them: the encoded view key, one family `default`, an empty-qualifier cell with no value, then a cell per stored column, all at timestamp 0.
+  An invalid query fails with the analyzer's message, which differs from production's in two ways.
+  The message has no `while resolving DDL statement` suffix.
+  Its position refers to the query as written, such as `[at 1:8]`. Production's position refers to its reformatted query, such as `[at 4:3]`.
+  Google's emulator crashes on these calls.
 
 Three more changes have nothing to match in production:
 
@@ -84,7 +94,6 @@ Three more changes have nothing to match in production:
 
 - SQL beyond the constructs listed above, such as `LEFT JOIN`, `COUNT(expr)`, and `LIMIT` with `OFFSET`.
 - A runtime SQL error's second line, `(while evaluating <expression>)`.
-- Listing, updating, and deleting materialized views, and reading from a view.
 - HyperLogLog (HLL) aggregate families.
 
 ## Use the published images
@@ -92,7 +101,7 @@ Three more changes have nothing to match in production:
 Each push to `main` publishes two images to the GitHub Container Registry, tagged with the full commit SHA:
 
 - `ghcr.io/jayfeng0625/better-bttest` is the emulator without SQL.
-- `ghcr.io/jayfeng0625/better-bttest-with-sql` is the emulator with SQL, built with the `googlesql` tag.
+- `ghcr.io/jayfeng0625/better-bttest-with-sql` is the emulator with SQL and materialized views, built with the `googlesql` tag.
 
 Each tag runs on linux/amd64 and linux/arm64, and has one digest for both.
 To build the images from a checkout, run `docker build .` for the plain image and `docker build --build-arg TAGS=googlesql .` for the SQL image.

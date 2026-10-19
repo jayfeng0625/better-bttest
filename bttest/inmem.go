@@ -119,8 +119,7 @@ type server struct {
 	instances map[string]*btapb.Instance // keyed by fully qualified name
 	gcc       chan int                   // set when gcloop starts, closed when server shuts down
 	sql       sqlQueries                 // prepared SQL queries
-
-	views map[string]*btapb.MaterializedView // keyed by fully qualified name
+	views     materializedViews
 
 	// newServer sets these to the Unimplemented servers, so an RPC that server does not define returns Unimplemented.
 	btapb.BigtableTableAdminServer
@@ -289,6 +288,9 @@ func (s *server) DeleteTable(ctx context.Context, req *btapb.DeleteTableRequest)
 	}
 	if s.tables[req.Name].isProtected {
 		return nil, status.Errorf(codes.FailedPrecondition, "table %q is protected from deletion", req.Name)
+	}
+	if err := s.viewReferences(req.Name); err != nil {
+		return nil, err
 	}
 	delete(s.tables, req.Name)
 	return &emptypb.Empty{}, nil
@@ -566,6 +568,13 @@ func (s *server) ReadRows(req *btpb.ReadRowsRequest, stream btpb.Bigtable_ReadRo
 	s.mu.Lock()
 	tbl, ok := s.tables[req.TableName]
 	s.mu.Unlock()
+	if req.MaterializedViewName != "" {
+		var err error
+		if tbl, err = s.viewTable(stream.Context(), req.MaterializedViewName); err != nil {
+			return err
+		}
+		ok = true
+	}
 	if !ok {
 		return tableNotFound(req.TableName)
 	}
