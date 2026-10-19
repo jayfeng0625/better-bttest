@@ -18,6 +18,8 @@ import (
 //	GetTable         Table
 //	PrepareQuery     Columns
 //	ExecuteQuery     Rows, Messages
+//	GetView          View
+//	ReadView         ViewRows
 type Result struct {
 	Call     string
 	Status   Status
@@ -29,6 +31,8 @@ type Result struct {
 	Columns  []Column
 	Rows     [][]*btpb.Value
 	Messages []string
+	View     *ViewInfo
+	ViewRows []ViewRow
 }
 
 // A Status is a gRPC status.
@@ -58,4 +62,16 @@ type TableView struct {
 type Column struct {
 	Name string
 	Type *btpb.Type
+}
+
+// A ViewInfo is a materialized view as GetMaterializedView returns it.
+type ViewInfo struct {
+	Query              string
+	DeletionProtection bool
+}
+
+// A ViewRow is one row of a ReadRows over a view: its key, and its cells as raw bytes.
+type ViewRow struct {
+	Key   Hex
+	Cells []Cell
 }

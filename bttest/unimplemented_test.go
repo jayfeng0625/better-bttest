@@ -8,9 +8,35 @@ import (
 
 	"cloud.google.com/go/bigtable"
 	btpb "cloud.google.com/go/bigtable/apiv2/bigtablepb"
+	"github.com/jayfeng0625/better-bttest/bttest"
 	"google.golang.org/api/option"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
+
+func newConn(t *testing.T) *grpc.ClientConn {
+	t.Helper()
+	srv, err := bttest.NewServer("localhost:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(srv.Close)
+	conn, err := grpc.NewClient(srv.Addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	return conn
+}
+
+func wantStatus(t *testing.T, err error, code codes.Code, msg string) {
+	t.Helper()
+	if s, _ := status.FromError(err); s.Code() != code || s.Message() != msg {
+		t.Errorf("error = %v, want %v %q", err, code, msg)
+	}
+}
 
 // An RPC that the emulator does not serve returns Unimplemented, and the emulator keeps serving.
 func TestUnservedCallsReturnUnimplemented(t *testing.T) {
@@ -32,10 +58,10 @@ func TestUnservedCallsReturnUnimplemented(t *testing.T) {
 		call func() error
 		want string
 	}{
-		{"ListMaterializedViews", func() error {
-			_, err := iadmin.MaterializedViews(ctx, "i")
+		{"ListLogicalViews", func() error {
+			_, err := iadmin.LogicalViews(ctx, "i")
 			return err
-		}, "method ListMaterializedViews not implemented"},
+		}, "method ListLogicalViews not implemented"},
 		{"ListBackups", func() error {
 			_, err := admin.Backups(ctx, "c").Next()
 			return err

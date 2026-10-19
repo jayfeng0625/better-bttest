@@ -13,9 +13,9 @@ CI runs it on the latest Go 1.26 patch release, with `GOTOOLCHAIN=local`.
 ## Keep SQL behind the build tag
 
 The SQL planner in `bttest/internal/sqlengine` imports go-googlesql, which makes the emulator binary about ten times larger, so it builds only with the `googlesql` tag.
-Start a file that imports go-googlesql with `//go:build googlesql`, and a test that runs SQL on the emulator too.
+Start a file that imports go-googlesql with `//go:build googlesql`, and a test that runs SQL or creates a view on the emulator too.
 The plan types in `plan.go` and the code that runs a plan build either way.
-Without the tag, `nosql.go` answers every `Prepare` with `Unimplemented`.
+Without the tag, `nosql.go` answers `Prepare` and `PrepareView` with `Unimplemented`, and its `CheckView` accepts any view query.
 
 ## Change an upstream file
 
@@ -65,6 +65,15 @@ A case that creates a table names it `better-bttest-parity-<run id>-t<n>`.
 When the test ends, it deletes the rows that its cases wrote and the tables that they created, and fails if any remain.
 An interrupted run leaves its rows and tables, and a run that starts an hour or more later deletes them.
 
+The view cases run only with `-views`:
+
+```sh
+go test -tags googlesql ./internal/parity -run 'TestParity$' -real=<project>/<instance> -views -timeout 40m
+```
+
+They create materialized views named `better-bttest-parity-<run id>-v<n>` on their case tables, and production takes 1 to 2 minutes to create each.
+The run deletes each view before its table.
+
 ### Compare Google's emulator
 
 ```sh
@@ -95,6 +104,10 @@ Add SQL cases to `SQLCases` in `internal/parity/sqlcases.go`.
 A case for GROUP BY, UNNEST, or a function that `totalsQuery` calls goes in `TotalsCases` in `internal/parity/totalscases.go`.
 
 Each case has 30 s for its calls. Set the case's `Deadline` when its calls take longer on production, as a family drop does.
+
+A view case creates its view with `CreateView`, and `{view}` in its SQL stands for the view.
+`viewFixture(query)` writes the SQL fixture, then creates the view, so that the view holds every row.
+Add it to `ViewCases` in `internal/parity/viewcases.go`, which gives every view case `viewDeadline`.
 
 ## Sync with upstream
 

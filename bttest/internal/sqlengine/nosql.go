@@ -15,4 +15,13 @@ func Prepare(sql string, tables []Table, params map[string]Type) (*Query, error)
 	return nil, errNoSQL
 }
 
+func PrepareView(sql string, tables []Table) (*Query, error) {
+	return nil, errNoSQL
+}
+
+// CheckView accepts any query and returns no table, so a view is stored unchecked and blocks no DeleteTable.
+func CheckView(sql string, tables []Table) (string, error) {
+	return "", nil
+}
+
 var errNoSQL = status.Error(codes.Unimplemented, "the emulator was built without SQL. Use the better-bttest-with-sql image, or build with -tags googlesql")
