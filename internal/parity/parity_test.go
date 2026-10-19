@@ -4,7 +4,11 @@ package parity
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
+	"os"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +29,8 @@ func deadline(c Case) time.Duration {
 var (
 	realInstance = flag.String("real", "", "run the cases on the parity table in the real instance <project>/<instance>, and check the gate against it")
 	views        = flag.Bool("views", false, "with -real, run the view cases too. They create materialized views in the instance, and each create takes production 1 to 2 minutes")
+	only         = flag.String("cases", "", "with -real, run only the cases whose name matches this regular expression")
+	dump         = flag.String("dump", "", "with -real, write the real table's results to this file as JSON")
 )
 
 // TestParity runs every case on the real table and on the gate, and checks the gate's results against the real
@@ -37,8 +43,21 @@ func TestParity(t *testing.T) {
 	if *views {
 		cases = append(cases, ViewCases()...)
 	}
+	if *only != "" {
+		re := regexp.MustCompile(*only)
+		cases = slices.DeleteFunc(cases, func(c Case) bool { return !re.MatchString(c.Name) })
+	}
 	runID := NewRunID(time.Now())
 	real := realResults(t, cases, runID)
+	if *dump != "" {
+		b, err := json.MarshalIndent(real, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(*dump, b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), caseDeadline)
 	defer cancel()

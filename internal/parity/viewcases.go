@@ -5,6 +5,8 @@ package parity
 import (
 	"slices"
 	"time"
+
+	"cloud.google.com/go/bigtable/admin/apiv2/adminpb"
 )
 
 // A view case waits on production's create, which takes 1 to 2 minutes, before its calls.
@@ -27,6 +29,8 @@ func ViewCases() []Case {
 		usage    = "SELECT tenantId, SUM(tenantPartitionType_itemCount) AS itemCount, SUM(tenantPartitionType_bytes) AS bytes FROM `{view}` WHERE labelId = '$'"
 		bySizeID = "SELECT TO_INT64(size['bytes']) AS sz, _key AS rk FROM `{table}`"
 		grouped  = "SELECT SPLIT(_key, '#')[0] AS t, COUNT(*) AS n FROM `{table}` GROUP BY t"
+		// byLabel keys a row per label by the source key alone, so rows with two labels share a key.
+		byLabel = "SELECT _key, l FROM `{table}`, UNNEST(JSON_QUERY_ARRAY(CAST(labels['labels'] AS STRING))) AS l ORDER BY _key"
 	)
 	rejects := func(name string, queries ...string) Case {
 		c := Case{Name: name, Setup: sqlFixture()}
@@ -101,12 +105,57 @@ func ViewCases() []Case {
 			"SELECT SPLIT(_key, '#')[0] AS t, STRING_AGG(_key) AS ks, COUNT(*) AS n FROM `{table}` GROUP BY t",
 		),
 		{
+			// One case answers every view probe with two creates: the first view, then the same id recreated with
+			// another query, which a prepared query needs anyway. The first view's WHERE fails on the unnested 0, which
+			// t1's rows unnest after a 1 and the other rows before one, so its rows show what a source row that fails
+			// after or before one of its unnested rows passes leaves in the view. While the first view holds the id, a create
+			// gets the query's error when production rejects the query, and AlreadyExists when it accepts it.
+			Name:  "view probes: a failing unnested row, volatile functions, a recreated view, duplicate keys, a dropped family",
+			Setup: sqlFixture(),
+			Calls: slices.Concat(
+				[]Call{CreateView{Query: "SELECT SPLIT(_key, '#')[0] AS t, COUNT(*) AS n FROM `{table}`, UNNEST(CASE WHEN STARTS_WITH(_key, 't1') THEN [1, 0] ELSE [0, 1] END) AS d WHERE DIV(1, d) > 0 GROUP BY t"}, ReadView{}},
+				Query("SELECT * FROM `{view}`"),
+				[]Call{
+					CreateView{Query: "SELECT SPLIT(_key, '#')[0] AS t, CAST(RAND() AS STRING) AS r, COUNT(*) AS n FROM `{table}` GROUP BY t"},
+					CreateView{Query: "SELECT SPLIT(_key, '#')[0] AS t, CONCAT(GENERATE_UUID(), 'x') AS u, COUNT(*) AS n FROM `{table}` GROUP BY t"},
+					CreateView{Query: "SELECT SPLIT(_key, '#')[0] AS t, COUNT(*) AS n FROM `{table}` WHERE RAND() < 0.5 GROUP BY t"},
+					CreateView{Query: "SELECT _key, TO_INT64(size['bytes']) AS sz FROM `{table}` WHERE RAND() < 0.5 ORDER BY _key"},
+					CreateView{Query: byLabel},
+					PrepareQuery{SQL: "SELECT * FROM `{view}`"}, ExecuteQuery{},
+					DeleteView{}, Wait{D: 15 * time.Second}, CreateView{Query: byLabel},
+					ExecuteQuery{}, Wait{D: 15 * time.Second}, ExecuteQuery{},
+					ReadView{},
+				},
+				Query("SELECT * FROM `{view}`"),
+				[]Call{
+					ModifyColumnFamilies{Mods: []*adminpb.ModifyColumnFamiliesRequest_Modification{DropFamily(string(Labels))}},
+					ReadView{},
+				},
+				Query("SELECT * FROM `{view}`"),
+				[]Call{Wait{D: 15 * time.Second}, GetView{}, ReadView{}},
+				Query("SELECT * FROM `{view}`"),
+			),
+			Deadline: 12 * time.Minute,
+		},
+		{
+			// The recreated view's old query is 2 minutes old or more when it runs. This case runs a table's query as
+			// old, to tell the recreated view from the token's age.
+			Name:  "query prepared on a table, run 2 minutes later",
+			Setup: sqlFixture(),
+			Calls: slices.Concat(
+				Query("SELECT _key FROM `{table}` WHERE _key = 't1#p1#n#rowA'"),
+				[]Call{Wait{D: 2 * time.Minute}, ExecuteQuery{}},
+			),
+		},
+		{
 			Name:  "view admin calls on a view that does not exist",
 			Calls: []Call{GetView{}, SetViewDeletionProtection{On: true}, SetViewDeletionProtection{On: false}, DeleteView{}},
 		},
 	}
 	for i := range cases {
-		cases[i].Deadline = viewDeadline
+		if cases[i].Deadline == 0 {
+			cases[i].Deadline = viewDeadline
+		}
 	}
 	return cases
 }

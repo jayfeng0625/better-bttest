@@ -413,6 +413,15 @@ func (ReadView) run(ctx context.Context, r *runner) (Result, error) {
 	return Result{ViewRows: rows}, err
 }
 
+func (c Wait) run(ctx context.Context, _ *runner) (Result, error) {
+	select {
+	case <-time.After(c.D):
+		return Result{}, nil
+	case <-ctx.Done():
+		return Result{}, ctx.Err()
+	}
+}
+
 // Pass each response on the stream to f, until the stream ends.
 func recvAll[T any](stream interface{ Recv() (T, error) }, f func(T)) error {
 	for {
