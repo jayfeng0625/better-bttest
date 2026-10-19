@@ -561,18 +561,9 @@ func (s *server) ReadRows(req *btpb.ReadRowsRequest, stream btpb.Bigtable_ReadRo
 	featureFlags := featureFlagsFromContext(stream.Context())
 
 	start := time.Now()
-	s.mu.Lock()
-	tbl, ok := s.tables[req.TableName]
-	s.mu.Unlock()
-	if req.MaterializedViewName != "" {
-		var err error
-		if tbl, err = s.viewTable(stream.Context(), req.MaterializedViewName); err != nil {
-			return err
-		}
-		ok = true
-	}
-	if !ok {
-		return tableNotFound(req.TableName)
+	tbl, err := s.readRowsTable(stream.Context(), req)
+	if err != nil {
+		return err
 	}
 
 	if err := validateRowRanges(req); err != nil {
