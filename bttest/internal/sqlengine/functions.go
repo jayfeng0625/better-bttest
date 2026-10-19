@@ -21,8 +21,8 @@ const toInt64 = "TO_INT64"
 
 // function compiles a call to the function go-googlesql resolved as name, such as $equal or starts_with. consts
 // holds the value of each argument that is a literal, and nil for the others. It returns nil for a function the
-// engine does not support.
-func function(name string, xs []expr, ts []Type, consts []*Value) expr {
+// engine does not support, and an error for a call it rejects.
+func function(name string, xs []expr, ts []Type, consts []*Value) (expr, error) {
 	// A strict function returns NULL when any argument is NULL.
 	strict := func(f func(args []Value) (Value, error)) expr {
 		return func(x *execCtx, row []Value) (Value, error) {
@@ -45,35 +45,43 @@ func function(name string, xs []expr, ts []Type, consts []*Value) expr {
 	}
 	switch name {
 	case "$equal":
-		return cmp(func(c int) bool { return c == 0 })
+		return cmp(func(c int) bool { return c == 0 }), nil
 	case "$not_equal":
-		return cmp(func(c int) bool { return c != 0 })
+		return cmp(func(c int) bool { return c != 0 }), nil
 	case "$less":
-		return cmp(func(c int) bool { return c < 0 })
+		return cmp(func(c int) bool { return c < 0 }), nil
 	case "$less_or_equal":
-		return cmp(func(c int) bool { return c <= 0 })
+		return cmp(func(c int) bool { return c <= 0 }), nil
 	case "$greater":
-		return cmp(func(c int) bool { return c > 0 })
+		return cmp(func(c int) bool { return c > 0 }), nil
 	case "$greater_or_equal":
-		return cmp(func(c int) bool { return c >= 0 })
+		return cmp(func(c int) bool { return c >= 0 }), nil
 	case "$between":
 		// GoogleSQL defines v BETWEEN lo AND hi as lo <= v AND v <= hi, so a NULL bound yields false when the other
 		// comparison is false.
-		le := func(i, j int) expr {
+		le := func(i, j int) (expr, error) {
 			return function("$less_or_equal", []expr{xs[i], xs[j]}, []Type{ts[i], ts[j]}, []*Value{consts[i], consts[j]})
 		}
-		return logical(true, []expr{le(1, 0), le(0, 2)})
+		lo, err := le(1, 0)
+		if err != nil {
+			return nil, err
+		}
+		hi, err := le(0, 2)
+		if err != nil {
+			return nil, err
+		}
+		return logical(true, []expr{lo, hi}), nil
 	case "$and", "$or":
-		return logical(name == "$and", xs)
+		return logical(name == "$and", xs), nil
 	case "$not":
-		return strict(func(a []Value) (Value, error) { return Value{Bool: !a[0].Bool}, nil })
+		return strict(func(a []Value) (Value, error) { return Value{Bool: !a[0].Bool}, nil }), nil
 	case "$is_null":
 		return func(x *execCtx, row []Value) (Value, error) {
 			v, err := xs[0](x, row)
 			return Value{Bool: v.Null}, err
-		}
+		}, nil
 	case "$in":
-		return in(xs, ts[0].Kind)
+		return in(xs, ts[0].Kind), nil
 	case "$like":
 		isString := ts[0].Kind == KindString
 		pattern := func(a []Value) (func([]byte) bool, error) { return like(a[1].Bytes, isString) }
@@ -87,12 +95,12 @@ func function(name string, xs []expr, ts []Type, consts []*Value) expr {
 				return Value{}, err
 			}
 			return Value{Bool: match(a[0].Bytes)}, nil
-		})
+		}), nil
 	case "starts_with":
-		return strict(func(a []Value) (Value, error) { return Value{Bool: bytes.HasPrefix(a[0].Bytes, a[1].Bytes)}, nil })
+		return strict(func(a []Value) (Value, error) { return Value{Bool: bytes.HasPrefix(a[0].Bytes, a[1].Bytes)}, nil }), nil
 	case "$subscript":
 		if ts[0].Kind != KindMap {
-			return nil
+			return nil, nil
 		}
 		return strict(func(a []Value) (Value, error) {
 			m, k := a[0], a[1]
@@ -100,10 +108,10 @@ func function(name string, xs []expr, ts []Type, consts []*Value) expr {
 				return m.Vals[i], nil
 			}
 			return null, nil
-		})
+		}), nil
 	case "$subtract":
 		if ts[0].Kind != KindInt64 {
-			return nil
+			return nil, nil
 		}
 		return strict(func(a []Value) (Value, error) {
 			x, y := a[0].Int, a[1].Int
@@ -113,10 +121,10 @@ func function(name string, xs []expr, ts []Type, consts []*Value) expr {
 				return Value{}, status.Errorf(codes.OutOfRange, "int64 overflow: %d - %d", x, y)
 			}
 			return Value{Int: r}, nil
-		})
+		}), nil
 	case "div":
 		if ts[0].Kind != KindInt64 {
-			return nil
+			return nil, nil
 		}
 		return strict(func(a []Value) (Value, error) {
 			x, y := a[0].Int, a[1].Int
@@ -128,7 +136,7 @@ func function(name string, xs []expr, ts []Type, consts []*Value) expr {
 				return Value{}, status.Errorf(codes.OutOfRange, "int64 overflow: DIV(%d, %d)", x, y)
 			}
 			return Value{Int: x / y}, nil
-		})
+		}), nil
 	case "$array_at_offset":
 		return strict(func(a []Value) (Value, error) {
 			arr, i := a[0].Elems, a[1].Int
@@ -139,15 +147,18 @@ func function(name string, xs []expr, ts []Type, consts []*Value) expr {
 				return Value{}, status.Errorf(codes.OutOfRange, "Array index %d is out of bounds", i)
 			}
 			return arr[i], nil
-		})
+		}), nil
 	case "split":
 		if ts[0].Kind != KindBytes {
-			return nil
+			return nil, nil
 		}
-		return strict(func(a []Value) (Value, error) { return splitBytes(a[0].Bytes, a[1].Bytes), nil })
+		return strict(func(a []Value) (Value, error) { return splitBytes(a[0].Bytes, a[1].Bytes), nil }), nil
 	case "json_query_array":
-		// go-googlesql passes the default path $ when the query omits it. compiler.call rejects any other path.
-		return strict(func(a []Value) (Value, error) { return jsonQueryArray(a[0].Bytes), nil })
+		// go-googlesql passes the default path $ when the query omits it.
+		if consts[1] == nil || string(consts[1].Bytes) != "$" {
+			return nil, unsupported("JSON_QUERY_ARRAY with a JSONPath other than $")
+		}
+		return strict(func(a []Value) (Value, error) { return jsonQueryArray(a[0].Bytes), nil }), nil
 	case "array_concat":
 		return strict(func(a []Value) (Value, error) {
 			out := Value{Elems: []Value{}}
@@ -155,7 +166,7 @@ func function(name string, xs []expr, ts []Type, consts []*Value) expr {
 				out.Elems = append(out.Elems, v.Elems...)
 			}
 			return out, nil
-		})
+		}), nil
 	case "$make_array":
 		return func(x *execCtx, row []Value) (Value, error) {
 			out := Value{Elems: make([]Value, len(xs))}
@@ -167,7 +178,7 @@ func function(name string, xs []expr, ts []Type, consts []*Value) expr {
 				out.Elems[i] = v
 			}
 			return out, nil
-		}
+		}, nil
 	case "coalesce":
 		return func(x *execCtx, row []Value) (Value, error) {
 			for _, a := range xs {
@@ -177,7 +188,7 @@ func function(name string, xs []expr, ts []Type, consts []*Value) expr {
 				}
 			}
 			return null, nil
-		}
+		}, nil
 	case "$case_no_value":
 		// CASE WHEN c1 THEN v1 ... [ELSE e] END resolves to its conditions and values in pairs, then the ELSE value
 		// when the count is odd. The engine evaluates only the chosen value.
@@ -196,16 +207,16 @@ func function(name string, xs []expr, ts []Type, consts []*Value) expr {
 				return xs[n-1](x, row)
 			}
 			return null, nil
-		}
+		}, nil
 	case toInt64:
 		return strict(func(a []Value) (Value, error) {
 			if len(a[0].Bytes) != 8 {
 				return Value{}, status.Errorf(codes.InvalidArgument, "incorrect value size. expected: 8 bytes, actual: %d bytes", len(a[0].Bytes))
 			}
 			return Value{Int: int64(binary.BigEndian.Uint64(a[0].Bytes))}, nil
-		})
+		}), nil
 	}
-	return nil
+	return nil, nil
 }
 
 // splitBytes splits s at each d. An empty d splits s into single bytes. An empty s gives one empty element.

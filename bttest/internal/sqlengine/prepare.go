@@ -484,7 +484,7 @@ func (c *compiler) aggregateCall(cc *gsql.ResolvedComputedColumn) (aggSpec, erro
 		ag.fn = aggCountStar
 	case name == "sum" && t.Kind == KindInt64:
 		ag.fn = aggSum
-	case name == "max" && t.Kind != KindArray && t.Kind != KindMap:
+	case name == "max":
 		ag.fn = aggMax
 	default:
 		return aggSpec{}, unsupported(sqlName)
@@ -713,11 +713,8 @@ func (c *compiler) call(e *gsql.ResolvedFunctionCall) (expr, error) {
 		xs = append(xs, x)
 		ts = append(ts, t)
 	}
-	if name == "json_query_array" && (consts[1] == nil || string(consts[1].Bytes) != "$") {
-		return nil, unsupported("JSON_QUERY_ARRAY with a JSONPath other than $")
-	}
-	if f := function(name, xs, ts, consts); f != nil {
-		return f, nil
+	if f, err := function(name, xs, ts, consts); f != nil || err != nil {
+		return f, err
 	}
 	sqlName, err := fn.SQLName()
 	if err != nil {
