@@ -70,22 +70,13 @@ func viewFunctionRule(cc *gsql.ResolvedComputedColumn) error {
 	return nil
 }
 
-// CheckView checks a materialized view's query as PrepareView does, and returns the table the query reads.
-func CheckView(sql string, tables []Table) (string, error) {
-	q, err := PrepareView(sql, tables)
-	if err != nil {
-		return "", err
-	}
-	return q.Table, nil
-}
-
-// PrepareView analyzes and compiles a materialized view's query against the tables, and checks it against
+// CheckView analyzes and compiles a materialized view's query against the tables, and checks it against
 // production's view rules with production's messages. A view reads tables only, so a view over a view fails as a
 // missing table.
-func PrepareView(sql string, tables []Table) (*Query, error) {
+func CheckView(sql string, tables []Table) (*Query, error) {
 	var sources []Table
 	for _, t := range tables {
-		if t.ViewQuery == "" {
+		if t.View == nil {
 			sources = append(sources, t)
 		}
 	}
@@ -136,11 +127,26 @@ func PrepareView(sql string, tables []Table) (*Query, error) {
 		inKey := slices.ContainsFunc(keys, func(k keyPart) bool { return k.id == id })
 		q.cells[i] = !inKey || clause == "ORDER BY" && !loneKey
 	}
+	q.sql = sql
+	q.sources = slices.DeleteFunc(slices.Clone(c.tables[q.Table].Families), func(f Family) bool {
+		return !slices.Contains(q.Families, f.Name)
+	})
 	return q, nil
 }
 
+// CurrentView returns the view's query as CheckView compiled it, while the families the query reads are as they
+// were then. Once one is dropped or recreated with another type, it compiles the query again, so the view fails or
+// reads as its query does against the table now.
+func CurrentView(v *Query, tables []Table) (*Query, error) {
+	i := slices.IndexFunc(tables, func(t Table) bool { return t.View == nil && t.Name == v.Table })
+	if i >= 0 && !slices.ContainsFunc(v.sources, func(f Family) bool { return !slices.Contains(tables[i].Families, f) }) {
+		return v, nil
+	}
+	return CheckView(v.sql, tables)
+}
+
 func (e *env) addView(t Table, tables []Table) error {
-	v, err := PrepareView(t.ViewQuery, tables)
+	v, err := CurrentView(t.View, tables)
 	if err != nil {
 		return err
 	}

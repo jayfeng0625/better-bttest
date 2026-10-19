@@ -20,16 +20,18 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-// materializedViews holds the server's materialized views, keyed by their full names. A view stores only its
-// query, and each SQL read of the view evaluates it.
+// materializedViews holds the server's materialized views, keyed by their full names. A view stores its query as
+// create compiled it, and each SQL read of the view evaluates it.
 type materializedViews struct {
 	mu    sync.Mutex
 	views map[string]*materializedView
 }
 
-// materializedView is a stored view and the full name of the table its query reads, empty in a build without SQL.
+// materializedView is a stored view, its compiled query, and the full name of the table its query reads. A build
+// without SQL compiles no query and leaves the table empty.
 type materializedView struct {
 	mv    *btapb.MaterializedView
+	query *sqlengine.Query
 	table string
 }
 
@@ -75,7 +77,7 @@ func (s *server) viewTable(ctx context.Context, name string) (*table, error) {
 		return nil, tableNotFound(name)
 	}
 	instance, _, _ := strings.Cut(name, "/materializedViews/")
-	q, err := sqlengine.PrepareView(v.mv.Query, s.sqlTables(instance))
+	q, err := sqlengine.CurrentView(v.query, s.sqlTables(instance))
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +104,7 @@ func (s *server) sqlViews(instance string) []sqlengine.Table {
 	var out []sqlengine.Table
 	for name, v := range s.views.views {
 		if id, ok := strings.CutPrefix(name, prefix); ok {
-			out = append(out, sqlengine.Table{Name: id, ViewQuery: v.mv.Query})
+			out = append(out, sqlengine.Table{Name: id, View: v.query})
 		}
 	}
 	return out
@@ -112,7 +114,7 @@ func (s *server) sqlViews(instance string) []sqlengine.Table {
 // so the Go client's Wait makes no GetOperation call.
 func (s *server) CreateMaterializedView(ctx context.Context, req *btapb.CreateMaterializedViewRequest) (*longrunning.Operation, error) {
 	query := req.GetMaterializedView().GetQuery()
-	source, err := sqlengine.CheckView(query, s.sqlTables(req.GetParent()))
+	q, err := sqlengine.CheckView(query, s.sqlTables(req.GetParent()))
 	if err != nil {
 		return nil, err
 	}
@@ -122,9 +124,9 @@ func (s *server) CreateMaterializedView(ctx context.Context, req *btapb.CreateMa
 		Query:              query,
 		DeletionProtection: req.GetMaterializedView().GetDeletionProtection(),
 	}
-	v := &materializedView{mv: mv}
-	if source != "" {
-		v.table = req.GetParent() + "/tables/" + source
+	v := &materializedView{mv: mv, query: q}
+	if q != nil {
+		v.table = req.GetParent() + "/tables/" + q.Table
 	}
 	// CheckView ran without a lock, so a DeleteTable may have removed the table since. Holding s.mu until the view
 	// is stored makes the check and the store one step against DeleteTable, which takes s.mu then s.views.mu too.

@@ -30,7 +30,7 @@ func str(v string) *string { return &v }
 
 // createItemsTable creates a table with families size, labels, and mark, and writes the rows. A size is 8
 // big-endian bytes, as the Node client writes a number.
-func (f *sqlFixture) createItemsTable(ctx context.Context, t *testing.T, name string, rows []itemRow) {
+func (f *sqlFixture) createItemsTable(ctx context.Context, t testing.TB, name string, rows []itemRow) {
 	t.Helper()
 	if err := f.admin.CreateTableFromConf(ctx, &bigtable.TableConf{TableID: name, ColumnFamilies: map[string]bigtable.Family{
 		"size":   {GCPolicy: bigtable.NoGcPolicy()},

@@ -22,8 +22,8 @@ type Family struct {
 type Table struct {
 	Name     string
 	Families []Family
-	// ViewQuery is a materialized view's query. A view has no families.
-	ViewQuery string
+	// View is a materialized view's query as CheckView compiled it. A view has no families.
+	View *Query
 }
 
 // Column is one output column of a prepared query.
@@ -49,9 +49,12 @@ type Query struct {
 	outIDs []int32
 	nSlots int
 	// keys are a materialized view's key parts, in key order, and cells marks each output column that a view row
-	// stores as a cell. Only PrepareView sets them.
-	keys  []keyPart
-	cells []bool
+	// stores as a cell. sql is the view's query, and sources are the families it reads as they were when it compiled.
+	// Only CheckView sets them.
+	keys    []keyPart
+	cells   []bool
+	sql     string
+	sources []Family
 }
 
 // scanCol is one column a table scan reads: the slot it fills and the column's index in the table.
