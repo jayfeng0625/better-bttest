@@ -54,7 +54,6 @@ type preparedQuery struct {
 	query      *sqlengine.Query
 	instance   string
 	paramTypes map[string]*btpb.Type
-	params     map[string]sqlengine.Type
 	prepared   time.Time
 	// familyDropped is set on the first execute after a family the query reads is dropped.
 	familyDropped atomic.Bool
@@ -87,15 +86,7 @@ func (sq *sqlQueries) clock() time.Time {
 }
 
 func (s *server) PrepareQuery(ctx context.Context, req *btpb.PrepareQueryRequest) (*btpb.PrepareQueryResponse, error) {
-	params := map[string]sqlengine.Type{}
-	for name, t := range req.ParamTypes {
-		pt, err := sqlengine.TypeFromProto(t)
-		if err != nil {
-			return nil, err
-		}
-		params[name] = pt
-	}
-	q, err := sqlengine.Prepare(req.Query, s.sqlTables(req.InstanceName), params)
+	q, err := sqlengine.Prepare(req.Query, s.sqlTables(req.InstanceName), req.ParamTypes)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +101,7 @@ func (s *server) PrepareQuery(ctx context.Context, req *btpb.PrepareQueryRequest
 			delete(s.sql.queries, k)
 		}
 	}
-	s.sql.queries[string(token)] = &preparedQuery{query: q, instance: req.InstanceName, paramTypes: req.ParamTypes, params: params, prepared: now}
+	s.sql.queries[string(token)] = &preparedQuery{query: q, instance: req.InstanceName, paramTypes: req.ParamTypes, prepared: now}
 	s.sql.mu.Unlock()
 
 	cols := make([]*btpb.ColumnMetadata, len(q.Columns))
@@ -250,7 +241,7 @@ func queryParams(pq *preparedQuery, values map[string]*btpb.Value) (map[string]s
 		if !proto.Equal(v.GetType(), t) {
 			return nil, status.Errorf(codes.InvalidArgument, "params '%s' has type %s but expected type %s", name, sqlengine.TypeName(v.GetType()), sqlengine.TypeName(t))
 		}
-		out[strings.ToLower(name)] = sqlengine.ValueFromProto(v, pq.params[name])
+		out[strings.ToLower(name)] = sqlengine.ValueFromProto(v, pq.query.Params[name])
 	}
 	return out, nil
 }
