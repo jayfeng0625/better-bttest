@@ -401,6 +401,65 @@ func TestViewLeavesOutWholeSourceRowWhenALaterUnnestedRowFails(t *testing.T) {
 	}
 }
 
+// labelRows are the SQL fixture's rows that have labels. rowA's two labels give it two view rows under one key in a
+// view keyed by _key alone.
+var labelRows = []itemRow{
+	{key: "t1#p1#n#rowA", labels: str(`["default","b2"]`)},
+	{key: "t1#p1#n#rowB", labels: str(`["default"]`)},
+	{key: "t2#p1#n#rowD", labels: str(`[]`)},
+	{key: "t3#p1#m#rowE", labels: str(`["a\"b"]`)},
+	{key: "t3#p1#n#rowF", labels: str(`["default"]`)},
+}
+
+// Production's view over the SQL fixture on 2026-10-19 left out rowA, whose two labels share the key, on ReadRows and
+// SQL alike.
+func TestViewLeavesOutSourceRowWhoseUnnestedRowsShareAKey(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newViewFixture(ctx, t, labelRows)
+	f.createView(ctx, t, "v_bylabel", "SELECT _key, l FROM `items-prod`, UNNEST(JSON_QUERY_ARRAY(CAST(labels['labels'] AS STRING))) AS l ORDER BY _key")
+
+	read := f.readView(ctx, t, "v_bylabel")
+	got := f.query(ctx, t, "SELECT * FROM v_bylabel", nil, nil)
+
+	wantRead := []bigtable.Row{
+		viewRow("t1#p1#n#rowB", bigtable.ReadItem{Column: "l", Value: []byte(`"default"`)}),
+		viewRow("t3#p1#m#rowE", bigtable.ReadItem{Column: "l", Value: []byte(`"a\"b"`)}),
+		viewRow("t3#p1#n#rowF", bigtable.ReadItem{Column: "l", Value: []byte(`"default"`)}),
+	}
+	if diff := cmp.Diff(wantRead, read); diff != "" {
+		t.Errorf("ReadRows on the label view (-want +got):\n%s", diff)
+	}
+	wantSQL := [][]any{
+		{[]byte("t1#p1#n#rowB"), str(`"default"`)},
+		{[]byte("t3#p1#m#rowE"), str(`"a\"b"`)},
+		{[]byte("t3#p1#n#rowF"), str(`"default"`)},
+	}
+	if diff := cmp.Diff(wantSQL, got.rows); diff != "" {
+		t.Errorf("SELECT * on the label view (-want +got):\n%s", diff)
+	}
+}
+
+// In a view keyed by _key and the label, only rowG's repeated label shares a key, and the whole of rowG is left out.
+// rowA's two distinct labels keep both its rows.
+func TestViewLeavesOutWholeSourceRowWhenTwoOfItsRowsShareAKey(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newViewFixture(ctx, t, append(slices.Clone(labelRows), itemRow{key: "t4#rowG", labels: str(`["x","y","x"]`)}))
+	f.createView(ctx, t, "v_bykeylabel", "SELECT _key, l FROM `items-prod`, UNNEST(JSON_QUERY_ARRAY(CAST(labels['labels'] AS STRING))) AS l ORDER BY _key, l")
+
+	got := f.query(ctx, t, "SELECT * FROM v_bykeylabel", nil, nil)
+
+	want := [][]any{
+		{[]byte("t1#p1#n#rowA"), str(`"b2"`)},
+		{[]byte("t1#p1#n#rowA"), str(`"default"`)},
+		{[]byte("t1#p1#n#rowB"), str(`"default"`)},
+		{[]byte("t3#p1#m#rowE"), str(`"a\"b"`)},
+		{[]byte("t3#p1#n#rowF"), str(`"default"`)},
+	}
+	if diff := cmp.Diff(want, got.rows); diff != "" {
+		t.Errorf("SELECT * on the key and label view (-want +got):\n%s", diff)
+	}
+}
+
 func TestViewExposesKeyOnlyAsAnOutputColumn(t *testing.T) {
 	ctx := sqlContext(t)
 	f := newViewFixture(ctx, t, totalsRows)
