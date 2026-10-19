@@ -81,13 +81,13 @@ type tableCol struct {
 type tableScan struct {
 	table string
 	cols  []tableCol
-	// lower and upper come from the WHERE clause's comparisons of _key. The filter still decides each row.
-	lower, upper []keyBound
+	// bounds come from the WHERE clause's comparisons of _key. The filter still decides each row.
+	bounds []keyBound
 }
 
 type keyBound struct {
-	value  expr
-	strict bool
+	value         expr
+	strict, upper bool
 }
 
 func (s *tableScan) run(x *execCtx, emit func([]Value) error) error {
@@ -131,32 +131,25 @@ func (s *tableScan) run(x *execCtx, emit func([]Value) error) error {
 // keyRange is the tightest range the scan's bounds allow. nonEmpty is false when no key can pass: a bound is NULL,
 // or _key must be below the empty key.
 func (s *tableScan) keyRange(x *execCtx) (r KeyRange, nonEmpty bool, err error) {
-	for _, b := range s.lower {
+	for _, b := range s.bounds {
 		v, err := b.value(x, nil)
 		if err != nil || v.Null {
 			return r, false, err
 		}
-		start := v.Bytes
-		if b.strict {
-			start = append(slices.Clone(start), 0)
+		// A range holds its Start and stops before its End, so both _key > v and _key <= v put the bound at v's successor.
+		key := v.Bytes
+		if b.strict != b.upper {
+			key = append(slices.Clone(key), 0)
 		}
-		if bytes.Compare(start, r.Start) > 0 {
-			r.Start = start
-		}
-	}
-	for _, b := range s.upper {
-		v, err := b.value(x, nil)
-		if err != nil || v.Null {
-			return r, false, err
-		}
-		end := v.Bytes
-		if !b.strict {
-			end = append(slices.Clone(end), 0)
-		} else if len(end) == 0 {
+		switch {
+		case !b.upper:
+			if bytes.Compare(key, r.Start) > 0 {
+				r.Start = key
+			}
+		case len(key) == 0:
 			return r, false, nil
-		}
-		if r.End == nil || bytes.Compare(end, r.End) < 0 {
-			r.End = end
+		case r.End == nil || bytes.Compare(key, r.End) < 0:
+			r.End = key
 		}
 	}
 	return r, true, nil
