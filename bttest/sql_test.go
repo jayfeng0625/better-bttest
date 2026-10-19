@@ -197,6 +197,23 @@ func TestSQLOrderBySortsRows(t *testing.T) {
 	}
 }
 
+func TestSQLReturnsRowWhoseCellsAreAllInUnreadFamilies(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+	m := bigtable.NewMutation()
+	m.AddIntToCell("total", "n", 0, 1)
+	if err := f.client.Open("t").Apply(ctx, "d", m); err != nil {
+		t.Fatal(err)
+	}
+
+	got := f.query(ctx, t, "SELECT _key, TO_INT64(size['bytes']) AS bytes FROM t WHERE _key >= 'c'", nil, nil)
+
+	want := [][]any{{[]byte("c"), i64(200)}, {[]byte("d"), (*int64)(nil)}}
+	if diff := cmp.Diff(want, got.rows); diff != "" {
+		t.Errorf("rows (-want +got):\n%s", diff)
+	}
+}
+
 func TestSQLWhereMatchingNothingReturnsNoRows(t *testing.T) {
 	ctx := sqlContext(t)
 	f := newSQLFixture(ctx, t)
