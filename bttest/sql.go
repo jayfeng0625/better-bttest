@@ -88,8 +88,10 @@ func (sq *sqlQueries) clock() time.Time {
 }
 
 func (s *server) PrepareQuery(ctx context.Context, req *btpb.PrepareQueryRequest) (*btpb.PrepareQueryResponse, error) {
+	// Prepare compiles against the same views that stamp the query, so a view recreated meanwhile does not stamp a
+	// query compiled against its new query with the old view.
 	views := s.instanceViews(req.InstanceName)
-	q, err := sqlengine.Prepare(req.Query, s.sqlTables(req.InstanceName), req.ParamTypes)
+	q, err := sqlengine.Prepare(req.Query, s.sqlTables(req.InstanceName, views), req.ParamTypes)
 	if err != nil {
 		return nil, err
 	}
@@ -119,8 +121,8 @@ func (s *server) PrepareQuery(ctx context.Context, req *btpb.PrepareQueryRequest
 }
 
 // sqlTables lists the instance's tables as SQL sees them: families in byte order, with Sum, Min and Max families
-// typed INT64. Then it lists the instance's materialized views.
-func (s *server) sqlTables(instance string) []sqlengine.Table {
+// typed INT64. Then it lists the views, which the caller takes from instanceViews.
+func (s *server) sqlTables(instance string, views map[string]*materializedView) []sqlengine.Table {
 	prefix := instance + "/tables/"
 	s.mu.Lock()
 	byName := map[string]*table{}
@@ -139,7 +141,10 @@ func (s *server) sqlTables(instance string) []sqlengine.Table {
 		slices.SortFunc(t.Families, func(a, b sqlengine.Family) int { return strings.Compare(a.Name, b.Name) })
 		out = append(out, t)
 	}
-	return append(out, s.sqlViews(instance)...)
+	for id, v := range views {
+		out = append(out, sqlengine.Table{Name: id, View: v.view})
+	}
+	return out
 }
 
 func (s *server) ExecuteQuery(req *btpb.ExecuteQueryRequest, stream btpb.Bigtable_ExecuteQueryServer) error {

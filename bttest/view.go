@@ -77,7 +77,7 @@ func (s *server) viewTable(ctx context.Context, name string) (*table, error) {
 		return nil, tableNotFound(name)
 	}
 	instance, _, _ := strings.Cut(name, "/materializedViews/")
-	q, err := sqlengine.CurrentView(v.view, s.sqlTables(instance))
+	q, err := sqlengine.CurrentView(v.view, s.sqlTables(instance, s.instanceViews(instance)))
 	if err != nil {
 		return nil, err
 	}
@@ -97,19 +97,11 @@ func (s *server) viewTable(ctx context.Context, name string) (*table, error) {
 	return tbl, nil
 }
 
-func (s *server) sqlViews(instance string) []sqlengine.Table {
-	var out []sqlengine.Table
-	for id, v := range s.instanceViews(instance) {
-		out = append(out, sqlengine.Table{Name: id, View: v.view})
-	}
-	return out
-}
-
 // CreateMaterializedView checks the query with CheckView, then stores the view. It returns a finished operation,
 // so the Go client's Wait makes no GetOperation call.
 func (s *server) CreateMaterializedView(ctx context.Context, req *btapb.CreateMaterializedViewRequest) (*longrunning.Operation, error) {
 	query := req.GetMaterializedView().GetQuery()
-	view, err := sqlengine.CheckView(query, s.sqlTables(req.GetParent()))
+	view, err := sqlengine.CheckView(query, s.sqlTables(req.GetParent(), s.instanceViews(req.GetParent())))
 	if err != nil {
 		return nil, err
 	}
