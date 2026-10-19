@@ -43,9 +43,43 @@ type execCtx struct {
 	src    Source
 	params map[string]Value
 	nSlots int
-	// failed receives each source row's and each group's evaluation failure, and returns the error that ends the
-	// query, or nil to go on without that row or group. A plain query fails at the first.
-	failed func(error) error
+	// leaveOut makes a view go on without each source row and each group whose evaluation fails, where a plain
+	// query fails at the first. A left-out source row leaves nothing in the groups, not even the unnested rows that
+	// passed before one failed, so while a view evaluates a source row its sinks stage the rows they keep.
+	leaveOut bool
+	inRow    bool
+	staged   []stagedRow
+}
+
+// A sink keeps an evaluated row, as an aggregate adds it to its group or an ORDER BY collects it.
+type sink func(row []Value)
+
+type stagedRow struct {
+	sink sink
+	row  []Value
+}
+
+// keep passes row to s, or stages a copy of it while a view evaluates a source row.
+func (x *execCtx) keep(s sink, row []Value) {
+	if !x.inRow {
+		s(row)
+		return
+	}
+	x.staged = append(x.staged, stagedRow{sink: s, row: slices.Clone(row)})
+}
+
+// emitSourceRow emits one source row, then passes the rows its sinks staged on to them unless an evaluation failed.
+func (x *execCtx) emitSourceRow(emit func([]Value) error, row []Value) error {
+	x.inRow = x.leaveOut
+	err := emit(row)
+	x.inRow = false
+	if !evalFailure(err) {
+		for _, s := range x.staged {
+			s.sink(s.row)
+		}
+	}
+	x.staged = x.staged[:0]
+	return x.check(err)
 }
 
 // expr evaluates an expression over a row of slots, indexed by resolved column id.
@@ -60,7 +94,7 @@ var errStop = errors.New("stop")
 
 // Run executes the query and calls emit with each output row, in output column order.
 func (q *Query) Run(ctx context.Context, src Source, params map[string]Value, emit func([]Value) error) error {
-	x := &execCtx{ctx: ctx, src: src, params: params, nSlots: q.nSlots, failed: func(err error) error { return err }}
+	x := &execCtx{ctx: ctx, src: src, params: params, nSlots: q.nSlots}
 	return q.root.run(x, func(row []Value) error { return emit(q.output(row)) })
 }
 
@@ -124,7 +158,7 @@ func (s *tableScan) run(x *execCtx, emit func([]Value) error) error {
 			}
 			row[c.id] = newMap(entries)
 		}
-		return x.check(emit(row))
+		return x.emitSourceRow(emit, row)
 	})
 }
 
@@ -162,13 +196,20 @@ func (s *tableScan) keyRange(x *execCtx) (r KeyRange, nonEmpty bool, err error) 
 	return r, true, nil
 }
 
-// check passes an evaluation failure to x.failed, and returns any other error as is.
+// check drops an evaluation failure in a view, and returns any other error as is.
 func (x *execCtx) check(err error) error {
-	switch status.Code(err) {
-	case codes.InvalidArgument, codes.OutOfRange:
-		return x.failed(err)
+	if x.leaveOut && evalFailure(err) {
+		return nil
 	}
 	return err
+}
+
+func evalFailure(err error) bool {
+	switch status.Code(err) {
+	case codes.InvalidArgument, codes.OutOfRange:
+		return true
+	}
+	return false
 }
 
 type filter struct {
@@ -222,8 +263,9 @@ type orderBy struct {
 
 func (o *orderBy) run(x *execCtx, emit func([]Value) error) error {
 	var rows [][]Value
+	collect := func(row []Value) { rows = append(rows, row) }
 	if err := o.input.run(x, func(row []Value) error {
-		rows = append(rows, row)
+		x.keep(collect, row)
 		return nil
 	}); err != nil {
 		return err
@@ -376,19 +418,37 @@ func (a *aggregate) run(x *execCtx, emit func([]Value) error) error {
 	if len(a.groupExprs) == 0 {
 		groups[""] = newGroup(nil)
 	}
-	keys := make([]Value, len(a.groupExprs))
-	args := make([]Value, len(a.aggs))
+	nKeys := len(a.groupExprs)
+	vals := make([]Value, nKeys+len(a.aggs))
 	var key []byte
+	add := func(row []Value) {
+		keys, args := row[:nKeys], row[nKeys:]
+		key = key[:0]
+		for _, v := range keys {
+			key = appendGroupKey(key, v)
+		}
+		g, ok := groups[string(key)]
+		if !ok {
+			g = newGroup(keys)
+			groups[string(key)] = g
+		}
+		if g.err != nil {
+			return
+		}
+		for i, ag := range a.aggs {
+			if g.err = ag.add(&g.row[ag.id], args[i]); g.err != nil {
+				return
+			}
+		}
+	}
 	err := a.input.run(x, func(row []Value) error {
 		// Evaluate everything the row adds before changing any group, so a failing row changes no group.
-		key = key[:0]
 		for i, g := range a.groupExprs {
 			v, err := g(x, row)
 			if err != nil {
 				return err
 			}
-			keys[i] = v
-			key = appendGroupKey(key, v)
+			vals[i] = v
 		}
 		for i, ag := range a.aggs {
 			if ag.arg == nil {
@@ -398,21 +458,9 @@ func (a *aggregate) run(x *execCtx, emit func([]Value) error) error {
 			if err != nil {
 				return err
 			}
-			args[i] = v
+			vals[nKeys+i] = v
 		}
-		g, ok := groups[string(key)]
-		if !ok {
-			g = newGroup(keys)
-			groups[string(key)] = g
-		}
-		if g.err != nil {
-			return nil
-		}
-		for i, ag := range a.aggs {
-			if g.err = ag.add(&g.row[ag.id], args[i]); g.err != nil {
-				return nil
-			}
-		}
+		x.keep(add, vals)
 		return nil
 	})
 	if err != nil {

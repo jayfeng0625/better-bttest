@@ -372,6 +372,28 @@ func TestViewLeavesOutRowWhoseAggregateArgumentFails(t *testing.T) {
 	}
 }
 
+// Production's view over the SQL fixture on 2026-10-19 held no rows: each t1 row unnests a 1 that passes, then a 0
+// that fails, and production left the whole source row out.
+func TestViewLeavesOutWholeSourceRowWhenALaterUnnestedRowFails(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newViewFixture(ctx, t, []itemRow{{key: "t1#a", size: i64(1)}, {key: "t1#b", size: i64(1)}, {key: "t2#c", size: i64(1)}})
+	const unnest = "SELECT SPLIT(_key, '#')[0] AS t, COUNT(*) AS n FROM `items-prod`, UNNEST(CASE WHEN STARTS_WITH(_key, 't1') THEN [1, 0] ELSE %s END) AS d WHERE DIV(1, d) > 0 GROUP BY t"
+	f.createView(ctx, t, "v_allfail", fmt.Sprintf(unnest, "[0, 1]"))
+	f.createView(ctx, t, "v_t2passes", fmt.Sprintf(unnest, "[1]"))
+
+	allFailRead := f.readView(ctx, t, "v_allfail")
+	allFailSQL := f.query(ctx, t, "SELECT * FROM v_allfail", nil, nil)
+	t2Passes := f.readView(ctx, t, "v_t2passes")
+
+	if len(allFailRead) != 0 || len(allFailSQL.rows) != 0 {
+		t.Errorf("view whose every source row fails: ReadRows = %v, SQL rows = %v, want none", allFailRead, allFailSQL.rows)
+	}
+	want := []bigtable.Row{viewRow("t2", bigtable.ReadItem{Column: "n", Value: be(1)})}
+	if diff := cmp.Diff(want, t2Passes); diff != "" {
+		t.Errorf("ReadRows on the view whose t2 row passes (-want +got):\n%s", diff)
+	}
+}
+
 func TestViewExposesKeyOnlyAsAnOutputColumn(t *testing.T) {
 	ctx := sqlContext(t)
 	f := newViewFixture(ctx, t, totalsRows)

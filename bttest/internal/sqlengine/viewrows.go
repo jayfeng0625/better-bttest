@@ -38,7 +38,7 @@ func (s *viewScan) run(x *execCtx, emit func([]Value) error) error {
 // viewRows evaluates the view's query as production maintains the view: it leaves out each source row and each
 // group whose evaluation fails, and passes each row's encoded key and output values to emit in key order.
 func (q *Query) viewRows(ctx context.Context, src Source, emit func(key []byte, out []Value) error) error {
-	vx := &execCtx{ctx: ctx, src: src, nSlots: q.nSlots, failed: func(error) error { return nil }}
+	vx := &execCtx{ctx: ctx, src: src, nSlots: q.nSlots, leaveOut: true}
 	type keyedRow struct {
 		key []byte
 		row []Value
