@@ -366,12 +366,22 @@ func (f *sqlFixture) prepareRaw(ctx context.Context, t *testing.T, sql string) [
 // stream's error.
 func (f *sqlFixture) executeRaw(ctx context.Context, t *testing.T, prepared []byte) ([]*btpb.ExecuteQueryResponse, error) {
 	t.Helper()
-	return f.executeParams(ctx, t, prepared, nil)
+	return f.executeOn(ctx, t, "projects/p/instances/i", prepared)
+}
+
+func (f *sqlFixture) executeOn(ctx context.Context, t *testing.T, instance string, prepared []byte) ([]*btpb.ExecuteQueryResponse, error) {
+	t.Helper()
+	return f.executeRequest(ctx, t, &btpb.ExecuteQueryRequest{InstanceName: instance, PreparedQuery: prepared})
 }
 
 func (f *sqlFixture) executeParams(ctx context.Context, t *testing.T, prepared []byte, params map[string]*btpb.Value) ([]*btpb.ExecuteQueryResponse, error) {
 	t.Helper()
-	stream, err := btpb.NewBigtableClient(f.conn).ExecuteQuery(ctx, &btpb.ExecuteQueryRequest{InstanceName: "projects/p/instances/i", PreparedQuery: prepared, Params: params})
+	return f.executeRequest(ctx, t, &btpb.ExecuteQueryRequest{InstanceName: "projects/p/instances/i", PreparedQuery: prepared, Params: params})
+}
+
+func (f *sqlFixture) executeRequest(ctx context.Context, t *testing.T, req *btpb.ExecuteQueryRequest) ([]*btpb.ExecuteQueryResponse, error) {
+	t.Helper()
+	stream, err := btpb.NewBigtableClient(f.conn).ExecuteQuery(ctx, req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -584,6 +594,21 @@ func TestSQLExecuteQueryRejectsUnknownPreparedQuery(t *testing.T) {
 	wantStatus(t, err, codes.InvalidArgument, "Invalid prepared query. Please retry request with a valid prepared query")
 }
 
+func TestSQLExecuteQueryRejectsQueryPreparedOnAnotherInstance(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+	prepared := f.prepareRaw(ctx, t, "SELECT _key FROM t")
+
+	msgs, err := f.executeOn(ctx, t, "projects/p/instances/other", prepared)
+
+	if err == nil {
+		t.Fatal("ExecuteQuery on another instance succeeded, want an error")
+	}
+	if len(msgs) != 0 {
+		t.Errorf("got %d messages, want none", len(msgs))
+	}
+}
+
 func TestSQLPreparedQueryExpiresWhenItsFamilyIsDropped(t *testing.T) {
 	ctx := sqlContext(t)
 	f := newSQLFixture(ctx, t)
@@ -602,6 +627,22 @@ func TestSQLPreparedQueryExpiresWhenItsFamilyIsDropped(t *testing.T) {
 	if _, err := f.executeRaw(ctx, t, readsNoFamily); err != nil {
 		t.Errorf("ExecuteQuery of a query that reads no family: %v", err)
 	}
+}
+
+func TestSQLPreparedQueryFailsNotFoundOnceItsTableIsDeleted(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+	prepared := f.prepareRaw(ctx, t, "SELECT _key FROM t WHERE _key = 'a'")
+
+	if err := f.admin.DeleteTable(ctx, "t"); err != nil {
+		t.Fatal(err)
+	}
+
+	msgs, err := f.executeRaw(ctx, t, prepared)
+	if len(msgs) != 0 {
+		t.Errorf("got %d messages before the error, want none", len(msgs))
+	}
+	wantStatus(t, err, codes.NotFound, "Not found: projects/p/instances/i/tables/t")
 }
 
 func TestSQLGoClientRepreparesAfterFamilyDrop(t *testing.T) {

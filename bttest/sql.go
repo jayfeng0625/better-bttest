@@ -55,7 +55,6 @@ type preparedQuery struct {
 	query      *sqlengine.Query
 	instance   string
 	paramTypes map[string]*btpb.Type
-	params     map[string]sqlengine.Type
 	prepared   time.Time
 	// familyDropped is set on the first execute after a family the query reads is dropped.
 	familyDropped atomic.Bool
@@ -88,15 +87,7 @@ func (sq *sqlQueries) clock() time.Time {
 }
 
 func (s *server) PrepareQuery(ctx context.Context, req *btpb.PrepareQueryRequest) (*btpb.PrepareQueryResponse, error) {
-	params := map[string]sqlengine.Type{}
-	for name, t := range req.ParamTypes {
-		pt, err := sqlengine.TypeFromProto(t)
-		if err != nil {
-			return nil, err
-		}
-		params[name] = pt
-	}
-	q, err := sqlengine.Prepare(req.Query, s.sqlTables(req.InstanceName), params)
+	q, err := sqlengine.Prepare(req.Query, s.sqlTables(req.InstanceName), req.ParamTypes)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +102,7 @@ func (s *server) PrepareQuery(ctx context.Context, req *btpb.PrepareQueryRequest
 			delete(s.sql.queries, k)
 		}
 	}
-	s.sql.queries[string(token)] = &preparedQuery{query: q, instance: req.InstanceName, paramTypes: req.ParamTypes, params: params, prepared: now}
+	s.sql.queries[string(token)] = &preparedQuery{query: q, instance: req.InstanceName, paramTypes: req.ParamTypes, prepared: now}
 	s.sql.mu.Unlock()
 
 	cols := make([]*btpb.ColumnMetadata, len(q.Columns))
@@ -150,7 +141,7 @@ func (s *server) sqlTables(instance string) []sqlengine.Table {
 }
 
 func (s *server) ExecuteQuery(req *btpb.ExecuteQueryRequest, stream btpb.Bigtable_ExecuteQueryServer) error {
-	pq, err := s.preparedQuery(req.GetPreparedQuery())
+	pq, err := s.preparedQuery(req.InstanceName, req.GetPreparedQuery())
 	if err != nil {
 		return err
 	}
@@ -173,13 +164,14 @@ func (s *server) ExecuteQuery(req *btpb.ExecuteQueryRequest, stream btpb.Bigtabl
 }
 
 // preparedQuery finds a prepared query and fails as production does once it has expired: 40 s after prepare, or
-// after a family it reads is dropped. A query of a view fails once the view is deleted.
-func (s *server) preparedQuery(token []byte) (*preparedQuery, error) {
+// after a family it reads is dropped. A query fails once its table or view is deleted. A query prepared on another
+// instance is unknown on this one.
+func (s *server) preparedQuery(instance string, token []byte) (*preparedQuery, error) {
 	s.sql.mu.Lock()
 	pq := s.sql.queries[string(token)]
 	now := s.sql.clock()
 	s.sql.mu.Unlock()
-	if pq == nil {
+	if pq == nil || pq.instance != instance {
 		if prepared, ok := preparedAt(token); ok && expired(prepared, now) {
 			return nil, expiredError(expiredMessage)
 		}
@@ -196,6 +188,8 @@ func (s *server) preparedQuery(token []byte) (*preparedQuery, error) {
 		if err := s.viewReplica(pq.instance, pq.query.View); err != nil {
 			return nil, err
 		}
+	} else if s.instanceTable(pq.instance, pq.query.Table) == nil {
+		return nil, tableNotFound(pq.instance + "/tables/" + pq.query.Table)
 	}
 	return pq, nil
 }
@@ -253,7 +247,7 @@ func queryParams(pq *preparedQuery, values map[string]*btpb.Value) (map[string]s
 		if !proto.Equal(v.GetType(), t) {
 			return nil, status.Errorf(codes.InvalidArgument, "params '%s' has type %s but expected type %s", name, sqlengine.TypeName(v.GetType()), sqlengine.TypeName(t))
 		}
-		out[strings.ToLower(name)] = sqlengine.ValueFromProto(v, pq.params[name])
+		out[strings.ToLower(name)] = sqlengine.ValueFromProto(v, pq.query.Params[name])
 	}
 	return out, nil
 }
@@ -329,7 +323,7 @@ type tableSource struct {
 func (src *tableSource) Scan(ctx context.Context, name string, fn func(sqlengine.Row) error) error {
 	tbl := src.s.instanceTable(src.instance, name)
 	if tbl == nil {
-		return status.Errorf(codes.NotFound, "table %q not found", name)
+		return tableNotFound(src.instance + "/tables/" + name)
 	}
 	var rows []*row
 	tbl.mu.RLock()
