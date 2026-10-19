@@ -339,17 +339,16 @@ func (src *tableSource) Scan(ctx context.Context, req sqlengine.ScanRequest, fn 
 	tbl.mu.RUnlock()
 	for _, r := range rows {
 		r.mu.Lock()
+		empty := r.isEmpty()
 		cells := map[string]map[string][]byte{}
-		holdsCell := false
-		for fname, fam := range r.families {
-			read := slices.Contains(req.Families, fname)
+		for _, fname := range req.Families {
+			fam := r.families[fname]
+			if fam == nil {
+				continue
+			}
 			for col, cs := range fam.cells {
 				if len(cs) == 0 {
 					continue
-				}
-				holdsCell = true
-				if !read {
-					break
 				}
 				if cells[fname] == nil {
 					cells[fname] = map[string][]byte{}
@@ -358,7 +357,7 @@ func (src *tableSource) Scan(ctx context.Context, req sqlengine.ScanRequest, fn 
 			}
 		}
 		r.mu.Unlock()
-		if !holdsCell {
+		if empty {
 			continue
 		}
 		if err := fn(sqlengine.Row{Key: []byte(r.key), Cells: cells}); err != nil {
