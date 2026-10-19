@@ -15,7 +15,7 @@ CI runs it on the latest Go 1.26 patch release, with `GOTOOLCHAIN=local`.
 The SQL planner in `bttest/internal/sqlengine` imports go-googlesql, which makes the emulator binary about ten times larger, so it builds only with the `googlesql` tag.
 Start a file that imports go-googlesql with `//go:build googlesql`, and a test that runs SQL or creates a view on the emulator too.
 The plan types in `plan.go` and the code that runs a plan build either way.
-Without the tag, `nosql.go` answers `Prepare` and `PrepareView` with `Unimplemented`, and its `CheckView` accepts any view query.
+Without the tag, `nosql.go` answers `Prepare` and a view read with `Unimplemented`, and its `CheckView` accepts any view query.
 
 ## Change an upstream file
 

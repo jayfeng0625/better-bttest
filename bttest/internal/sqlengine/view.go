@@ -74,6 +74,16 @@ func viewFunctionRule(cc *gsql.ResolvedComputedColumn) error {
 // production's view rules with production's messages. A view reads tables only, so a view over a view fails as a
 // missing table.
 func CheckView(sql string, tables []Table) (*View, error) {
+	p, err := compileView(sql, tables)
+	if err != nil {
+		return nil, err
+	}
+	v := &View{sql: sql}
+	v.plan.Store(p)
+	return v, nil
+}
+
+func compileView(sql string, tables []Table) (*viewPlan, error) {
 	var sources []Table
 	for _, t := range tables {
 		if t.View == nil {
@@ -127,25 +137,24 @@ func CheckView(sql string, tables []Table) (*View, error) {
 		inKey := slices.ContainsFunc(keys, func(k keyPart) bool { return k.id == id })
 		q.cells[i] = !inKey || clause == "ORDER BY" && !loneKey
 	}
-	read := slices.DeleteFunc(slices.Clone(c.tables[q.Table].Families), func(f Family) bool {
-		return !slices.Contains(q.Families, f.Name)
-	})
-	return &View{Query: q, sql: sql, sources: read}, nil
+	return &viewPlan{query: q, families: c.tables[q.Table].Families}, nil
 }
 
-// CurrentView returns the view's compiled query while the families it reads are unchanged, and otherwise compiles
-// the query again against the tables, so a view whose family is dropped or recreated with another type fails or
-// reads as its query does now.
+// CurrentView returns the view's compiled query while its source table's families are as they were when the query
+// compiled. Once they differ, it compiles the query again and keeps the result, so the view reads, or fails, as its
+// query does against the table now.
 func CurrentView(v *View, tables []Table) (*Query, error) {
-	i := slices.IndexFunc(tables, func(t Table) bool { return t.View == nil && t.Name == v.Query.Table })
-	if i >= 0 && !slices.ContainsFunc(v.sources, func(f Family) bool { return !slices.Contains(tables[i].Families, f) }) {
-		return v.Query, nil
+	p := v.plan.Load()
+	i := slices.IndexFunc(tables, func(t Table) bool { return t.View == nil && t.Name == p.query.Table })
+	if i >= 0 && slices.Equal(p.families, tables[i].Families) {
+		return p.query, nil
 	}
-	nv, err := CheckView(v.sql, tables)
+	p, err := compileView(v.sql, tables)
 	if err != nil {
 		return nil, err
 	}
-	return nv.Query, nil
+	v.plan.Store(p)
+	return p.query, nil
 }
 
 func (e *env) addView(t Table, tables []Table) error {

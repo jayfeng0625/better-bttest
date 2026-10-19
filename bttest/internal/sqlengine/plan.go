@@ -7,6 +7,8 @@
 package sqlengine
 
 import (
+	"sync/atomic"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -26,13 +28,20 @@ type Table struct {
 	View *View
 }
 
-// View is a materialized view's compiled query, with the query's text and the families it read when it compiled,
-// so that CurrentView can tell when the families have changed since.
+// View is a materialized view's query and its compiled plan. It is safe for concurrent use.
 type View struct {
-	Query   *Query
-	sql     string
-	sources []Family
+	sql  string
+	plan atomic.Pointer[viewPlan]
 }
+
+// viewPlan is a view's compiled query and the source table's families it compiled against.
+type viewPlan struct {
+	query    *Query
+	families []Family
+}
+
+// Table is the table the view's query reads.
+func (v *View) Table() string { return v.plan.Load().query.Table }
 
 // Column is one output column of a prepared query.
 type Column struct {

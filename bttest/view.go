@@ -126,7 +126,7 @@ func (s *server) CreateMaterializedView(ctx context.Context, req *btapb.CreateMa
 	}
 	v := &materializedView{mv: mv, view: view}
 	if view != nil {
-		v.table = req.GetParent() + "/tables/" + view.Query.Table
+		v.table = req.GetParent() + "/tables/" + view.Table()
 	}
 	// CheckView ran without a lock, so a DeleteTable may have removed the table since. Holding s.mu until the view
 	// is stored makes the check and the store one step against DeleteTable, which takes s.mu then s.views.mu too.
