@@ -19,6 +19,14 @@ type keyPart struct {
 	raw  bool
 }
 
+// viewLayout is how a view stores its query's rows: the key parts, in key order, which output columns it stores as
+// cells, and the output column that carries the source table's _key in an ORDER BY view's key.
+type viewLayout struct {
+	keys      []keyPart
+	cells     []bool
+	sourceCol int
+}
+
 // viewScan reads a view. Each column's index is the view's output column index.
 type viewScan struct {
 	view *Query
@@ -42,13 +50,13 @@ func (q *Query) viewRows(ctx context.Context, src Source, emit func(key []byte, 
 	vx := &execCtx{ctx: ctx, src: src, nSlots: q.nSlots, leaveOut: true}
 	var rows []keyedRow
 	if err := q.root.run(vx, func(row []Value) error {
-		rows = append(rows, keyedRow{key: encodeKey(row, q.keys), row: q.output(row)})
+		rows = append(rows, keyedRow{key: encodeKey(row, q.layout.keys), row: q.output(row)})
 		return nil
 	}); err != nil {
 		return err
 	}
 	slices.SortStableFunc(rows, func(a, b keyedRow) int { return bytes.Compare(a.key, b.key) })
-	rows = leaveOutSourceRowsThatShareAKey(rows, q.sourceCol)
+	rows = leaveOutSourceRowsThatShareAKey(rows, q.layout.sourceCol)
 	for _, r := range rows {
 		if err := emit(r.key, r.row); err != nil {
 			return err
@@ -91,7 +99,7 @@ func (q *Query) ViewRows(ctx context.Context, src Source, emit func(key []byte, 
 	return q.viewRows(ctx, src, func(key []byte, out []Value) error {
 		var cells []ViewCell
 		for i, v := range out {
-			if v.Null || !q.cells[i] {
+			if v.Null || !q.layout.cells[i] {
 				continue
 			}
 			c := ViewCell{Column: q.Columns[i].Name}
