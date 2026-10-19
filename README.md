@@ -70,7 +70,8 @@ A parity case sends the same requests to a real table and to the emulator.
   Without the `googlesql` tag, `CreateMaterializedView` stores the view without checking its query, and a read of the view returns `Unimplemented`.
   `GetMaterializedView` returns the view, and `ListMaterializedViews` returns the instance's views in name order.
   `DeleteMaterializedView` deletes the view, and fails with `FailedPrecondition` while deletion protection is on.
-  `DeleteTable` fails with `FailedPrecondition` while a view reads the table, and names the view.
+  With the `googlesql` tag, as in the `better-bttest-with-sql` image, `DeleteTable` fails with `FailedPrecondition` while a view reads the table, and names the view.
+  Without the tag, a view records no source table, and `DeleteTable` succeeds.
   `UpdateMaterializedView` changes only deletion protection.
   It fails with `InvalidArgument` when the update mask names `query` and the query differs from the stored one.
   A SQL read of a view evaluates its query and returns the rows in production's view key order. The read leaves out each source row or group whose evaluation fails, as production does.
