@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math"
-	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -319,7 +318,7 @@ func like(pattern []byte, isString bool) (func([]byte) bool, error) {
 // castExpr compiles CAST between BYTES and STRING, and to a value's own type.
 func castExpr(x expr, from, to Type) (expr, error) {
 	switch {
-	case reflect.DeepEqual(from, to):
+	case from.Equal(to):
 		return x, nil
 	case from.Kind == KindString && to.Kind == KindBytes:
 		return x, nil
