@@ -325,7 +325,7 @@ func (c PrepareQuery) run(ctx context.Context, r *runner) (Result, error) {
 var errNoPreparedQuery = status.Error(codes.FailedPrecondition, "the case has no prepared query")
 
 // ExecuteQuery returns the rows, split from each batch's values by the prepared column count, and one line for each
-// message.
+// message. A reset drops the rows and values received since the last resume token.
 func (c ExecuteQuery) run(ctx context.Context, r *runner) (Result, error) {
 	if r.prepared == nil {
 		return Result{}, errNoPreparedQuery
@@ -336,9 +336,15 @@ func (c ExecuteQuery) run(ctx context.Context, r *runner) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	return decodeQuery(stream, len(r.columns))
+}
+
+func decodeQuery(stream interface {
+	Recv() (*btpb.ExecuteQueryResponse, error)
+}, width int) (Result, error) {
 	var res Result
 	var pending []*btpb.Value
-	width := len(r.columns)
+	resumable := 0
 	for {
 		resp, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
@@ -349,6 +355,9 @@ func (c ExecuteQuery) run(ctx context.Context, r *runner) (Result, error) {
 		}
 		var parts []string
 		if results := resp.GetResults(); results != nil {
+			if results.Reset_ {
+				res.Rows, pending = res.Rows[:resumable], nil
+			}
 			if batch := results.GetProtoRowsBatch(); batch != nil {
 				var rows btpb.ProtoRows
 				if err := proto.Unmarshal(batch.BatchData, &rows); err != nil {
@@ -369,6 +378,7 @@ func (c ExecuteQuery) run(ctx context.Context, r *runner) (Result, error) {
 				parts = append(parts, "checksum")
 			}
 			if len(results.ResumeToken) > 0 {
+				resumable = len(res.Rows)
 				parts = append(parts, "token")
 			}
 		}
