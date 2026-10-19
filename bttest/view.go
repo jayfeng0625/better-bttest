@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	btapb "cloud.google.com/go/bigtable/admin/apiv2/adminpb"
+	btpb "cloud.google.com/go/bigtable/apiv2/bigtablepb"
 	longrunning "cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"github.com/google/btree"
 	"github.com/jayfeng0625/better-bttest/bttest/internal/sqlengine"
@@ -47,6 +48,21 @@ func (s *server) viewReferences(table string) error {
 	}
 	slices.Sort(refs)
 	return status.Errorf(codes.FailedPrecondition, "Unable to delete resource %s because the resource is referenced by another resource. The existing references are: {%s}", table, strings.Join(refs, ", "))
+}
+
+// readRowsTable returns the table that a ReadRows reads: the request's materialized view, evaluated, when it names
+// one, and its table otherwise.
+func (s *server) readRowsTable(ctx context.Context, req *btpb.ReadRowsRequest) (*table, error) {
+	if req.MaterializedViewName != "" {
+		return s.viewTable(ctx, req.MaterializedViewName)
+	}
+	s.mu.Lock()
+	tbl, ok := s.tables[req.TableName]
+	s.mu.Unlock()
+	if !ok {
+		return nil, tableNotFound(req.TableName)
+	}
+	return tbl, nil
 }
 
 // viewTable evaluates the view into a table as production's ReadRows shows a view: one family, default, where each

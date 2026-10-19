@@ -54,6 +54,13 @@ func TestGetMissingMaterializedViewReturnsNotFound(t *testing.T) {
 	wantStatus(t, err, codes.NotFound, "Failed to read: projects/{p}/instances/i/materializedViews/missing")
 }
 
+func TestReadRowsOnMissingViewReturnsNotFound(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newViewFixture(ctx, t, nil)
+	err := f.client.OpenMaterializedView("missing").ReadRows(ctx, bigtable.InfiniteRange(""), func(bigtable.Row) bool { return true })
+	wantStatus(t, err, codes.NotFound, "Not found: projects/p/instances/i/materializedViews/missing")
+}
+
 func TestViewAdminRoundTrips(t *testing.T) {
 	ctx := sqlContext(t)
 	f := newViewFixture(ctx, t, totalsRows)
