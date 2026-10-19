@@ -36,13 +36,10 @@ func (s *viewScan) run(x *execCtx, emit func([]Value) error) error {
 }
 
 // viewRows evaluates the view's query as production maintains the view: it leaves out each source row and each
-// group whose evaluation fails, and passes each row's encoded key and output values to emit in key order.
+// group whose evaluation fails, and each source row whose view rows share a key. It passes each row's encoded key and
+// output values to emit in key order.
 func (q *Query) viewRows(ctx context.Context, src Source, emit func(key []byte, out []Value) error) error {
 	vx := &execCtx{ctx: ctx, src: src, nSlots: q.nSlots, leaveOut: true}
-	type keyedRow struct {
-		key []byte
-		row []Value
-	}
 	var rows []keyedRow
 	if err := q.root.run(vx, func(row []Value) error {
 		rows = append(rows, keyedRow{key: encodeKey(row, q.keys), row: q.output(row)})
@@ -51,12 +48,33 @@ func (q *Query) viewRows(ctx context.Context, src Source, emit func(key []byte, 
 		return err
 	}
 	slices.SortStableFunc(rows, func(a, b keyedRow) int { return bytes.Compare(a.key, b.key) })
+	rows = leaveOutSourceRowsThatShareAKey(rows, q.sourceCol)
 	for _, r := range rows {
 		if err := emit(r.key, r.row); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+type keyedRow struct {
+	key []byte
+	row []Value
+}
+
+// leaveOutSourceRowsThatShareAKey drops every row of each source row that has two rows under one key, from rows in key
+// order. Only an ORDER BY view's rows can share a key, and its key holds the source key, output column sourceCol.
+func leaveOutSourceRowsThatShareAKey(rows []keyedRow, sourceCol int) []keyedRow {
+	shared := map[string]bool{}
+	for i := 1; i < len(rows); i++ {
+		if bytes.Equal(rows[i].key, rows[i-1].key) {
+			shared[string(rows[i].row[sourceCol].Bytes)] = true
+		}
+	}
+	if len(shared) == 0 {
+		return rows
+	}
+	return slices.DeleteFunc(rows, func(r keyedRow) bool { return shared[string(r.row[sourceCol].Bytes)] })
 }
 
 // A ViewCell is one cell of a materialized view row as production stores it: the output column's name, and its

@@ -115,8 +115,12 @@ func PrepareView(sql string, tables []Table) (*Query, error) {
 		keys[i].raw = len(keys) == 1 && q.Columns[j].Name == "_key"
 	}
 	isKey := func(k keyPart) bool { return c.shape.keyIDs[k.id] }
-	if clause == "ORDER BY" && !slices.ContainsFunc(keys, isKey) {
-		return nil, status.Error(codes.InvalidArgument, "queries must select and order by the unmodified _key column from the source table")
+	if clause == "ORDER BY" {
+		i := slices.IndexFunc(keys, isKey)
+		if i < 0 {
+			return nil, status.Error(codes.InvalidArgument, "queries must select and order by the unmodified _key column from the source table")
+		}
+		q.sourceCol = slices.Index(q.outIDs, keys[i].id)
 	}
 	hint := slices.ContainsFunc(q.Columns, func(c Column) bool { return c.Name == "_key" })
 	if clause == "GROUP BY" && hint && !(len(keys) == 1 && isKey(keys[0])) {
