@@ -240,13 +240,14 @@ func viewRules(qs *gsql.ResolvedQueryStmt) (*viewLayout, error) {
 		keys[i] = keyPart{id: id, kind: t.Kind, raw: len(cols) == 1 && names[j] == "_key"}
 	}
 	isKey := func(k keyPart) bool { return s.isKey(k.id) }
-	var sourceCol int
+	var sourceCol *int
 	if clause == "ORDER BY" {
 		i := slices.IndexFunc(keys, isKey)
 		if i < 0 {
 			return nil, status.Error(codes.InvalidArgument, "queries must select and order by the unmodified _key column from the source table")
 		}
-		sourceCol = slices.Index(outIDs, keys[i].id)
+		c := slices.Index(outIDs, keys[i].id)
+		sourceCol = &c
 	}
 	hint := slices.Contains(names, "_key")
 	if clause == "GROUP BY" && hint && !(len(keys) == 1 && isKey(keys[0])) {

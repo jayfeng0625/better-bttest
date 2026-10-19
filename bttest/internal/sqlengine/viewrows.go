@@ -19,12 +19,13 @@ type keyPart struct {
 	raw  bool
 }
 
-// viewLayout is how a view stores its query's rows: the key parts, in key order, which output columns it stores as
-// cells, and the output column that carries the source table's _key in an ORDER BY view's key.
+// viewLayout is how a view stores its query's rows: the key parts, in key order, and which output columns it stores
+// as cells. sourceCol is the output column that carries the source table's _key in an ORDER BY view's key, and nil
+// in a GROUP BY view, whose rows never share a key.
 type viewLayout struct {
 	keys      []keyPart
 	cells     []bool
-	sourceCol int
+	sourceCol *int
 }
 
 // viewScan reads a view. Each column's index is the view's output column index.
@@ -56,7 +57,9 @@ func (q *Query) viewRows(ctx context.Context, src Source, emit func(key []byte, 
 		return err
 	}
 	slices.SortStableFunc(rows, func(a, b keyedRow) int { return bytes.Compare(a.key, b.key) })
-	rows = leaveOutSourceRowsThatShareAKey(rows, q.layout.sourceCol)
+	if c := q.layout.sourceCol; c != nil {
+		rows = leaveOutSourceRowsThatShareAKey(rows, *c)
+	}
 	for _, r := range rows {
 		if err := emit(r.key, r.row); err != nil {
 			return err
@@ -71,7 +74,7 @@ type keyedRow struct {
 }
 
 // leaveOutSourceRowsThatShareAKey drops every row of each source row that has two rows under one key, from rows in key
-// order. Only an ORDER BY view's rows can share a key, and its key holds the source key, output column sourceCol.
+// order. An ORDER BY view's key holds the source key, output column sourceCol.
 func leaveOutSourceRowsThatShareAKey(rows []keyedRow, sourceCol int) []keyedRow {
 	shared := map[string]bool{}
 	for i := 1; i < len(rows); i++ {
