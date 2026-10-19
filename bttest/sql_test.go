@@ -862,6 +862,34 @@ func TestSQLPreparedQueryReadsFamilyReaddedBeforeExecute(t *testing.T) {
 	}
 }
 
+// Production refuses to change a family's value type, so a query reads a plain family's cells as bytes whatever their
+// length, as a parity run recorded.
+func TestSQLReadsAPlainFamilyAfterARefusedUpdateToSum(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+	m := bigtable.NewMutation()
+	m.Set("size", "bytes", 0, []byte("abc"))
+	if err := f.client.Open("t").Apply(ctx, "d", m); err != nil {
+		t.Fatal(err)
+	}
+
+	sum := bigtable.AggregateType{Input: bigtable.Int64Type{}, Aggregator: bigtable.SumAggregator{}}
+	err := f.admin.UpdateFamily(ctx, "t", "size", bigtable.Family{ValueType: sum})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Errorf("UpdateFamily to Sum: got %v, want InvalidArgument", err)
+	}
+	got := f.query(ctx, t, "SELECT _key, size FROM t WHERE _key = 'd'", nil, nil)
+
+	want := sqlResult{
+		cols:  []string{"_key", "size"},
+		types: []bigtable.SQLType{bigtable.BytesSQLType{}, bigtable.MapSQLType{KeyType: bigtable.BytesSQLType{}, ValueType: bigtable.BytesSQLType{}}},
+		rows:  [][]any{{[]byte("d"), map[string][]byte{"Ynl0ZXM=": []byte("abc")}}},
+	}
+	if diff := cmp.Diff(want, got, cmp.AllowUnexported(sqlResult{})); diff != "" {
+		t.Errorf("result (-want +got):\n%s", diff)
+	}
+}
+
 func TestSQLOffsetSubscriptReadsZeroBasedElement(t *testing.T) {
 	ctx := sqlContext(t)
 	f := newSQLFixture(ctx, t)
