@@ -15,6 +15,8 @@ import (
 	"rsc.io/binaryregexp"
 )
 
+const toInt64 = "TO_INT64"
+
 // function compiles a call to the function go-googlesql resolved as name, such as $equal or starts_with. consts
 // holds the value of each argument that is a literal, and nil for the others. It returns nil for a function the
 // engine does not support.

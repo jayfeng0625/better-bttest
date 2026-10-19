@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
+//go:build googlesql
+
 package sqlengine
 
 import (
@@ -10,26 +12,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
-
-// Column is one output column of a prepared query.
-type Column struct {
-	Name string
-	Type Type
-}
-
-// Query is a prepared query. It holds no go-googlesql handle, so it is safe for concurrent use.
-type Query struct {
-	// Columns are the output columns, in order.
-	Columns []Column
-	// Table is the table the query reads.
-	Table string
-	// Families are the families the query reads.
-	Families []string
-
-	root   scan
-	outIDs []int32
-	nSlots int
-}
 
 // Prepare analyzes sql against the tables and compiles it. It returns InvalidArgument with the analyzer's one-line
 // message, as production does, and InvalidArgument naming a construct the engine does not support.
@@ -127,10 +109,6 @@ func missingTable(msg string) (string, bool) {
 }
 
 func internal(err error) error { return status.Errorf(codes.Internal, "sql engine: %v", err) }
-
-func unsupported(what string) error {
-	return status.Errorf(codes.InvalidArgument, "The emulator does not support %s", what)
-}
 
 func colInfo(c *gsql.ResolvedColumn) (int32, Type, error) {
 	id, err := c.ColumnId()

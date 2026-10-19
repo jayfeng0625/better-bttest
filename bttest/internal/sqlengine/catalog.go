@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package sqlengine runs Bigtable's GoogleSQL queries over one table. go-googlesql parses and types each query
-// against a catalog built from the table's families. The engine compiles the resolved tree into Go operators that
-// read rows through a Source.
+//go:build googlesql
+
 package sqlengine
 
 import (
@@ -11,19 +10,6 @@ import (
 
 	gsql "github.com/goccy/go-googlesql"
 )
-
-// Family is one column family as SQL sees it. Int64 marks a Sum, Min or Max family, whose values SQL types as
-// INT64.
-type Family struct {
-	Name  string
-	Int64 bool
-}
-
-// Table is one table as SQL sees it. SELECT * lists the families in the order given.
-type Table struct {
-	Name     string
-	Families []Family
-}
 
 var (
 	initOnce sync.Once
@@ -177,8 +163,6 @@ func (e *env) addToInt64() error {
 	}
 	return e.cat.AddFunction(fn)
 }
-
-const toInt64 = "TO_INT64"
 
 func (e *env) gsqlType(t Type) (gsql.Googlesql_TypeNode, error) {
 	switch t.Kind {
