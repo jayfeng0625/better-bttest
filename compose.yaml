@@ -1,8 +1,12 @@
 # A setup that runs Google's emulator in a container named bigtable on port
 # 8086 can stop that container and start this one in its place.
+# TAGS=googlesql builds SQL in.
 services:
   bigtable:
-    build: .
+    build:
+      context: .
+      args:
+        TAGS: ${TAGS:-}
     image: better-bttest
     container_name: bigtable
     ports:

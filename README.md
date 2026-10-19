@@ -12,6 +12,7 @@ docker compose up --build -d
 ```
 
 The command builds the emulator and starts it on `localhost:8086`, in a container named `bigtable`.
+SQL needs the `googlesql` build tag, which builds the GoogleSQL analyzer in: `TAGS=googlesql docker compose up --build -d`.
 To connect a Bigtable client, set `BIGTABLE_EMULATOR_HOST=localhost:8086`.
 The emulator starts with no tables.
 Create them with your Bigtable admin client, or with [`cbt`](https://cloud.google.com/bigtable/docs/cbt-overview), which reads the same variable and needs no credentials.
@@ -20,8 +21,10 @@ To stop the emulator, run `docker compose down`.
 You can also run the emulator in two other ways:
 
 - Without Docker, as the [`emulator` command docs](https://pkg.go.dev/github.com/jayfeng0625/better-bttest/cmd/emulator) show.
+  For SQL, build the command with `-tags googlesql`.
 - Inside a Go test's own process, as the [`bttest` package docs](https://pkg.go.dev/github.com/jayfeng0625/better-bttest/bttest) show.
   Add the module with `go get github.com/jayfeng0625/better-bttest`.
+  For SQL, run the test with `go test -tags googlesql`.
 
 ## What the fork changes
 
@@ -48,6 +51,8 @@ A parity case sends the same requests to a real table and to the emulator.
   Google's emulator crashes on a missing value.
 - **[SQL queries](https://cloud.google.com/bigtable/docs/googlesql-overview).**
   `PrepareQuery` and `ExecuteQuery` run a `SELECT` on one table. The analyzer in [go-googlesql](https://github.com/goccy/go-googlesql) checks the types in each query.
+  Only a build with the `googlesql` tag serves them, such as the `better-bttest-with-sql` image.
+  Without the tag, `PrepareQuery` returns `Unimplemented` and names that image.
   A prepared query expires 40 s after `PrepareQuery`, or once a family it reads is dropped.
   `ExecuteQuery` then fails as production does, with `FailedPrecondition` and a `PREPARED_QUERY_EXPIRED` violation.
   Google's emulator returns `Unimplemented`.
@@ -80,11 +85,15 @@ Three more changes have nothing to match in production:
 - Listing, updating, and deleting materialized views, and reading from a view.
 - HyperLogLog (HLL) aggregate families.
 
-## Use the published image
+## Use the published images
 
-Each push to `main` publishes the emulator to the GitHub Container Registry as `ghcr.io/jayfeng0625/better-bttest`, tagged with the full commit SHA.
+Each push to `main` publishes two images to the GitHub Container Registry, tagged with the full commit SHA:
+
+- `ghcr.io/jayfeng0625/better-bttest` is the emulator without SQL.
+- `ghcr.io/jayfeng0625/better-bttest-with-sql` is the emulator with SQL, built with the `googlesql` tag.
+
 Each tag runs on linux/amd64 and linux/arm64, and has one digest for both.
-To build the image from a checkout, run `docker build .`.
+To build the images from a checkout, run `docker build .` for the plain image and `docker build --build-arg TAGS=googlesql .` for the SQL image.
 
 ### Pin an image by digest
 
@@ -97,7 +106,7 @@ docker buildx imagetools inspect ghcr.io/jayfeng0625/better-bttest:<commit SHA> 
 
 ### Check how an image was built
 
-Each publish adds a signed build record to the image, with the [`actions/attest` action](https://github.com/actions/attest#readme).
+Each publish adds a signed build record to each image, with the [`actions/attest` action](https://github.com/actions/attest#readme).
 The record names the repository, the workflow, and the commit that built the image.
 To check it, run [`gh attestation verify`](https://cli.github.com/manual/gh_attestation_verify):
 

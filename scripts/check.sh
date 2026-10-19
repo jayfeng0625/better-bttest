@@ -52,15 +52,23 @@ GOBIN=$staticcheck_bin go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
 
 # The with-sql image builds with the googlesql tag, so vet, staticcheck, and
 # the tests run on the plain build and on the tagged build.
-for tags in '' googlesql; do
-    go vet -tags "$tags" ./...
-    findings=$("$staticcheck_bin/staticcheck" -tags "$tags" ./... 2>&1 |
+# Usage: check_build <build tags> [pattern of findings to skip]
+check_build() {
+    go vet -tags "$1" ./...
+    findings=$("$staticcheck_bin/staticcheck" -tags "$1" ./... 2>&1 |
         grep -v -e '^bttest/example_test.go:[0-9:]* google.golang.org/grpc.Dial is deprecated' \
             -e '^bttest/inmem.go:[0-9:]* const maxValidMilliSeconds is unused' \
-            -e '^cmd/emulator/cbtemulator.go:[0-9:]* should use a simple channel send/receive' || true)
+            -e '^cmd/emulator/cbtemulator.go:[0-9:]* should use a simple channel send/receive' \
+            ${2:+-e "$2"} || true)
     if [ -n "$findings" ]; then
         echo "$findings" >&2
         exit 1
     fi
-    go test -race -tags "$tags" ./...
-done
+    go test -race -tags "$1" ./...
+}
+
+# The plain build leaves out the SQL planner, which is the only code that
+# builds the plan nodes in sqlengine, so that package's unused findings count
+# on the tagged build alone.
+check_build '' '^bttest/internal/sqlengine/[a-z_]*\.go:[0-9:]* .* is unused (U1000)$'
+check_build googlesql
