@@ -314,6 +314,11 @@ func TableCases() []Case {
 	cell := Mutations(SetCell("cf", []byte("v"), Col("q")))
 	write := func(key Row) MutateRow { return MutateRow{CaseTable: true, Row: key, Mutations: cell} }
 	emptyRule := &adminpb.ColumnFamily{GcRule: &adminpb.GcRule{}}
+	update := func(ms ...*adminpb.ModifyColumnFamiliesRequest_Modification) ModifyColumnFamilies {
+		return ModifyColumnFamilies{Mods: ms}
+	}
+	sumOneVersion := families()[string(Sum)]
+	sumOneVersion.GcRule = &adminpb.GcRule{Rule: &adminpb.GcRule_MaxNumVersions{MaxNumVersions: 1}}
 	return append(cases,
 		Case{
 			Name:  "CreateTable with the parity table's families",
@@ -333,6 +338,24 @@ func TableCases() []Case {
 				}},
 				GetTable{},
 				ModifyColumnFamilies{Mods: []*adminpb.ModifyColumnFamiliesRequest_Modification{UpdateFamily("cf", emptyRule)}},
+				GetTable{},
+			},
+		},
+		Case{
+			Name:     "ModifyColumnFamilies that updates a family's value type",
+			Setup:    []Call{CreateTable{Families: families()}},
+			Deadline: adminDeadline,
+			Calls: []Call{
+				update(UpdateFamily(string(Plain), &adminpb.ColumnFamily{}, "value_type")),
+				update(UpdateFamily(string(Sum), families()[string(Sum)], "value_type")),
+				update(UpdateFamily(string(Sum), families()[string(Min)], "value_type")),
+				update(UpdateFamily(string(Sum), &adminpb.ColumnFamily{}, "value_type")),
+				update(UpdateFamily(string(Plain), families()[string(Sum)])),
+				update(UpdateFamily(string(Sum), &adminpb.ColumnFamily{})),
+				update(UpdateFamily(string(Plain), sumOneVersion, "gc_rule", "value_type")),
+				update(CreateFamily("cf2", &adminpb.ColumnFamily{}), UpdateFamily(string(Plain), families()[string(Sum)], "value_type")),
+				update(CreateFamily("cf3", &adminpb.ColumnFamily{}), UpdateFamily("cf3", families()[string(Sum)], "value_type")),
+				update(DropFamily(string(Min)), CreateFamily(string(Min), &adminpb.ColumnFamily{})),
 				GetTable{},
 			},
 		},

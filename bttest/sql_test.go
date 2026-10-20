@@ -197,6 +197,40 @@ func TestSQLOrderBySortsRows(t *testing.T) {
 	}
 }
 
+func TestSQLReturnsRowWhoseCellsAreAllInUnreadFamilies(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+	m := bigtable.NewMutation()
+	m.AddIntToCell("total", "n", 0, 1)
+	if err := f.client.Open("t").Apply(ctx, "d", m); err != nil {
+		t.Fatal(err)
+	}
+
+	got := f.query(ctx, t, "SELECT _key, TO_INT64(size['bytes']) AS bytes FROM t WHERE _key >= 'c'", nil, nil)
+
+	want := [][]any{{[]byte("c"), i64(200)}, {[]byte("d"), (*int64)(nil)}}
+	if diff := cmp.Diff(want, got.rows); diff != "" {
+		t.Errorf("rows (-want +got):\n%s", diff)
+	}
+}
+
+func TestSQLSkipsRowWhoseCellsAreAllDeleted(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+	m := bigtable.NewMutation()
+	m.DeleteCellsInColumn("size", "bytes")
+	if err := f.client.Open("t").Apply(ctx, "c", m); err != nil {
+		t.Fatal(err)
+	}
+
+	got := f.query(ctx, t, "SELECT _key FROM t WHERE _key >= 'b'", nil, nil)
+
+	want := [][]any{{[]byte("b")}}
+	if diff := cmp.Diff(want, got.rows); diff != "" {
+		t.Errorf("rows (-want +got):\n%s", diff)
+	}
+}
+
 func TestSQLWhereMatchingNothingReturnsNoRows(t *testing.T) {
 	ctx := sqlContext(t)
 	f := newSQLFixture(ctx, t)
@@ -366,7 +400,22 @@ func (f *sqlFixture) prepareRaw(ctx context.Context, t *testing.T, sql string) [
 // stream's error.
 func (f *sqlFixture) executeRaw(ctx context.Context, t *testing.T, prepared []byte) ([]*btpb.ExecuteQueryResponse, error) {
 	t.Helper()
-	stream, err := btpb.NewBigtableClient(f.conn).ExecuteQuery(ctx, &btpb.ExecuteQueryRequest{InstanceName: "projects/p/instances/i", PreparedQuery: prepared})
+	return f.executeOn(ctx, t, "projects/p/instances/i", prepared)
+}
+
+func (f *sqlFixture) executeOn(ctx context.Context, t *testing.T, instance string, prepared []byte) ([]*btpb.ExecuteQueryResponse, error) {
+	t.Helper()
+	return f.executeRequest(ctx, t, &btpb.ExecuteQueryRequest{InstanceName: instance, PreparedQuery: prepared})
+}
+
+func (f *sqlFixture) executeParams(ctx context.Context, t *testing.T, prepared []byte, params map[string]*btpb.Value) ([]*btpb.ExecuteQueryResponse, error) {
+	t.Helper()
+	return f.executeRequest(ctx, t, &btpb.ExecuteQueryRequest{InstanceName: "projects/p/instances/i", PreparedQuery: prepared, Params: params})
+}
+
+func (f *sqlFixture) executeRequest(ctx context.Context, t *testing.T, req *btpb.ExecuteQueryRequest) ([]*btpb.ExecuteQueryResponse, error) {
+	t.Helper()
+	stream, err := btpb.NewBigtableClient(f.conn).ExecuteQuery(ctx, req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -579,6 +628,21 @@ func TestSQLExecuteQueryRejectsUnknownPreparedQuery(t *testing.T) {
 	wantStatus(t, err, codes.InvalidArgument, "Invalid prepared query. Please retry request with a valid prepared query")
 }
 
+func TestSQLExecuteQueryRejectsQueryPreparedOnAnotherInstance(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+	prepared := f.prepareRaw(ctx, t, "SELECT _key FROM t")
+
+	msgs, err := f.executeOn(ctx, t, "projects/p/instances/other", prepared)
+
+	if err == nil {
+		t.Fatal("ExecuteQuery on another instance succeeded, want an error")
+	}
+	if len(msgs) != 0 {
+		t.Errorf("got %d messages, want none", len(msgs))
+	}
+}
+
 func TestSQLPreparedQueryExpiresWhenItsFamilyIsDropped(t *testing.T) {
 	ctx := sqlContext(t)
 	f := newSQLFixture(ctx, t)
@@ -597,6 +661,22 @@ func TestSQLPreparedQueryExpiresWhenItsFamilyIsDropped(t *testing.T) {
 	if _, err := f.executeRaw(ctx, t, readsNoFamily); err != nil {
 		t.Errorf("ExecuteQuery of a query that reads no family: %v", err)
 	}
+}
+
+func TestSQLPreparedQueryFailsNotFoundOnceItsTableIsDeleted(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+	prepared := f.prepareRaw(ctx, t, "SELECT _key FROM t WHERE _key = 'a'")
+
+	if err := f.admin.DeleteTable(ctx, "t"); err != nil {
+		t.Fatal(err)
+	}
+
+	msgs, err := f.executeRaw(ctx, t, prepared)
+	if len(msgs) != 0 {
+		t.Errorf("got %d messages before the error, want none", len(msgs))
+	}
+	wantStatus(t, err, codes.NotFound, "Not found: projects/p/instances/i/tables/t")
 }
 
 func TestSQLGoClientRepreparesAfterFamilyDrop(t *testing.T) {
@@ -823,6 +903,34 @@ func TestSQLPreparedQueryReadsFamilyReaddedBeforeExecute(t *testing.T) {
 				t.Errorf("result (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// Production refuses to change a family's value type, so a query reads a plain family's cells as bytes whatever their
+// length, as a parity run recorded.
+func TestSQLReadsAPlainFamilyAfterARefusedUpdateToSum(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+	m := bigtable.NewMutation()
+	m.Set("size", "bytes", 0, []byte("abc"))
+	if err := f.client.Open("t").Apply(ctx, "d", m); err != nil {
+		t.Fatal(err)
+	}
+
+	sum := bigtable.AggregateType{Input: bigtable.Int64Type{}, Aggregator: bigtable.SumAggregator{}}
+	err := f.admin.UpdateFamily(ctx, "t", "size", bigtable.Family{ValueType: sum})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Errorf("UpdateFamily to Sum: got %v, want InvalidArgument", err)
+	}
+	got := f.query(ctx, t, "SELECT _key, size FROM t WHERE _key = 'd'", nil, nil)
+
+	want := sqlResult{
+		cols:  []string{"_key", "size"},
+		types: []bigtable.SQLType{bigtable.BytesSQLType{}, bigtable.MapSQLType{KeyType: bigtable.BytesSQLType{}, ValueType: bigtable.BytesSQLType{}}},
+		rows:  [][]any{{[]byte("d"), map[string][]byte{"Ynl0ZXM=": []byte("abc")}}},
+	}
+	if diff := cmp.Diff(want, got, cmp.AllowUnexported(sqlResult{})); diff != "" {
+		t.Errorf("result (-want +got):\n%s", diff)
 	}
 }
 

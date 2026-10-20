@@ -42,6 +42,8 @@ type Query struct {
 	View string
 	// Families are the families the query reads.
 	Families []string
+	// Params are the declared parameters' types, by their declared name.
+	Params map[string]Type
 
 	root   scan
 	outIDs []int32
