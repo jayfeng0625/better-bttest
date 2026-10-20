@@ -294,9 +294,9 @@ func (c *compiler) input(n gsql.ResolvedScanNode, err error) (scan, error) {
 	return c.scan(n)
 }
 
-func (c *compiler) computed(cols []*gsql.ResolvedComputedColumn) ([]int32, []Kind, []expr, error) {
+func (c *compiler) computed(cols []*gsql.ResolvedComputedColumn) ([]int32, []Type, []expr, error) {
 	var ids []int32
-	var kinds []Kind
+	var types []Type
 	var exprs []expr
 	for _, cc := range cols {
 		if c.view {
@@ -326,10 +326,10 @@ func (c *compiler) computed(cols []*gsql.ResolvedComputedColumn) ([]int32, []Kin
 			return nil, nil, nil, err
 		}
 		ids = append(ids, id)
-		kinds = append(kinds, t.Kind)
+		types = append(types, t)
 		exprs = append(exprs, x)
 	}
-	return ids, kinds, exprs, nil
+	return ids, types, exprs, nil
 }
 
 // arrayScan compiles a comma join or CROSS JOIN with UNNEST of one array.
@@ -399,12 +399,11 @@ func (c *compiler) aggregate(s *gsql.ResolvedAggregateScan) (scan, error) {
 	if err != nil {
 		return nil, internal(err)
 	}
-	var kinds []Kind
-	if a.groupIDs, kinds, a.groupExprs, err = c.computed(gb); err != nil {
+	if a.groupIDs, a.groupTypes, a.groupExprs, err = c.computed(gb); err != nil {
 		return nil, err
 	}
 	if c.view {
-		c.shape.group.add(a.groupIDs, kinds)
+		c.shape.group.add(a.groupIDs, a.groupTypes)
 	}
 	al, err := s.AggregateList()
 	if err != nil {
@@ -484,7 +483,7 @@ func (c *compiler) aggregateCall(cc *gsql.ResolvedComputedColumn) (aggSpec, erro
 		ag.fn = aggCountStar
 	case name == "sum" && t.Kind == KindInt64:
 		ag.fn = aggSum
-	case name == "max" && t.Kind != KindArray && t.Kind != KindMap:
+	case name == "max":
 		ag.fn = aggMax
 	default:
 		return aggSpec{}, unsupported(sqlName)
@@ -508,7 +507,7 @@ func (c *compiler) orderBy(s *gsql.ResolvedOrderByScan) (scan, error) {
 		return nil, internal(err)
 	}
 	var ids []int32
-	var kinds []Kind
+	var types []Type
 	for _, it := range items {
 		ref, err := it.ColumnRef()
 		if err != nil {
@@ -543,10 +542,10 @@ func (c *compiler) orderBy(s *gsql.ResolvedOrderByScan) (scan, error) {
 		}
 		o.keys = append(o.keys, sortKey{id: id, kind: t.Kind, desc: desc, nullsFirst: nullsFirst})
 		ids = append(ids, id)
-		kinds = append(kinds, t.Kind)
+		types = append(types, t)
 	}
 	if c.view {
-		c.shape.order.add(ids, kinds)
+		c.shape.order.add(ids, types)
 	}
 	return o, nil
 }
@@ -713,11 +712,8 @@ func (c *compiler) call(e *gsql.ResolvedFunctionCall) (expr, error) {
 		xs = append(xs, x)
 		ts = append(ts, t)
 	}
-	if name == "json_query_array" && (consts[1] == nil || string(consts[1].Bytes) != "$") {
-		return nil, unsupported("JSON_QUERY_ARRAY with a JSONPath other than $")
-	}
-	if f := function(name, xs, ts, consts); f != nil {
-		return f, nil
+	if f, err := function(name, xs, ts, consts); f != nil || err != nil {
+		return f, err
 	}
 	sqlName, err := fn.SQLName()
 	if err != nil {

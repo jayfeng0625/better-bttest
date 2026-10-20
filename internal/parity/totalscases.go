@@ -89,6 +89,10 @@ func TotalsCases() []Case {
 				Query(`SELECT JSON_QUERY_ARRAY('"x"') AS a, JSON_QUERY_ARRAY('') AS b`+rowA),
 				Query(`SELECT JSON_QUERY_ARRAY('[{"a":1,"a":2}]') AS a`+rowA),
 				Query(`SELECT JSON_QUERY_ARRAY('[12345678901234567890, 0.1, -0, 1E400]') AS a`+rowA),
+				Query(`SELECT JSON_QUERY_ARRAY('["\\ud800"]') AS a, JSON_QUERY_ARRAY('["\\udc00"]') AS b`+rowA),
+				Query(`SELECT JSON_QUERY_ARRAY('["\\ud83d\\ude00"]') AS a, JSON_QUERY_ARRAY('["\\udc00\\ud800"]') AS b`+rowA),
+				Query(`SELECT JSON_QUERY_ARRAY('["x\\ud800y", "\\ud800\\u0041"]') AS a, JSON_QUERY_ARRAY('[{"\\ud800":1}]') AS b`+rowA),
+				Query(`SELECT JSON_QUERY_ARRAY('["\\\\ud83d"]') AS a, JSON_QUERY_ARRAY('["\\ud8zz"]') AS b`+rowA),
 			),
 		},
 		{
@@ -145,6 +149,9 @@ func TotalsCases() []Case {
 				Query("SELECT SPLIT(_key, '#')[1] AS g, "+sum+" AS s, COUNT(*) AS n FROM `{table}` WHERE STARTS_WITH(_key, 'sum#') GROUP BY g"),
 				Query("SELECT SPLIT(_key, '#')[1] AS g, "+sum+" AS s FROM `{table}` WHERE STARTS_WITH(_key, 'sum#g2#') OR STARTS_WITH(_key, 'sum#g4#') GROUP BY g"),
 				sumCalls,
+				Query("SELECT SPLIT(_key, '#')[0] AS t, "+sum+" AS s FROM `{table}` GROUP BY t LIMIT 1"),
+				Query("SELECT SPLIT(_key, '#')[0] AS t, "+sum+" AS s FROM `{table}` GROUP BY t HAVING DIV(COUNT(*), COUNT(*) - 1) > 0"),
+				Query("SELECT SPLIT(_key, '#')[0] AS t, "+sum+" AS s, DIV(COUNT(*), COUNT(*) - 1) AS d FROM `{table}` GROUP BY t"),
 			),
 		},
 	}

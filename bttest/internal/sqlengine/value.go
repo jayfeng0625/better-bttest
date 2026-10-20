@@ -84,6 +84,19 @@ func (t Type) Proto() *btpb.Type {
 	panic(fmt.Sprintf("sqlengine: no proto for kind %d", t.Kind))
 }
 
+// Equal reports whether t and u are the same type, comparing a map's key and value types and an array's element type.
+func (t Type) Equal(u Type) bool {
+	switch {
+	case t.Kind != u.Kind:
+		return false
+	case t.Kind == KindMap:
+		return t.Key.Equal(*u.Key) && t.Elem.Equal(*u.Elem)
+	case t.Kind == KindArray:
+		return t.Elem.Equal(*u.Elem)
+	}
+	return true
+}
+
 // ValueFromProto converts a query parameter value of type t. A value with no kind is NULL.
 func ValueFromProto(v *btpb.Value, t Type) Value {
 	if v.GetKind() == nil {
@@ -168,22 +181,30 @@ func newMap(entries map[string]Value) Value {
 	return m
 }
 
-// appendGroupKey appends an encoding of v that equals another value's encoding exactly when GROUP BY puts the
-// two values in one group. NULL forms its own group.
-func appendGroupKey(b []byte, v Value) []byte {
+// appendGroupKey appends an encoding of v, of type t, that equals another value's encoding exactly when GROUP BY puts
+// the two values in one group. NULL forms its own group.
+func appendGroupKey(b []byte, t Type, v Value) []byte {
 	if v.Null {
 		return append(b, 0)
 	}
 	b = append(b, 1)
-	b = binary.AppendUvarint(b, uint64(len(v.Bytes)))
-	b = append(b, v.Bytes...)
-	b = binary.BigEndian.AppendUint64(b, uint64(v.Int))
-	b = binary.AppendUvarint(b, uint64(len(v.Elems)))
-	for _, e := range v.Elems {
-		b = appendGroupKey(b, e)
+	switch t.Kind {
+	case KindBytes, KindString:
+		b = binary.AppendUvarint(b, uint64(len(v.Bytes)))
+		return append(b, v.Bytes...)
+	case KindInt64:
+		return binary.BigEndian.AppendUint64(b, uint64(v.Int))
+	case KindBool:
+		if v.Bool {
+			return append(b, 1)
+		}
+		return append(b, 0)
+	case KindArray:
+		b = binary.AppendUvarint(b, uint64(len(v.Elems)))
+		for _, e := range v.Elems {
+			b = appendGroupKey(b, *t.Elem, e)
+		}
+		return b
 	}
-	if v.Bool {
-		return append(b, 1)
-	}
-	return append(b, 0)
+	panic(fmt.Sprintf("sqlengine: cannot group by kind %d", t.Kind))
 }

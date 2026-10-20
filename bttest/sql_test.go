@@ -197,6 +197,22 @@ func TestSQLOrderBySortsRows(t *testing.T) {
 	}
 }
 
+func TestSQLOrderByOverUnnestReturnsEachElementInItsOwnRow(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+
+	got := f.query(ctx, t, "SELECT _key, x FROM t, UNNEST([3, 1, 2]) AS x WHERE _key IN ('a', 'b') ORDER BY _key DESC, x", nil, nil)
+
+	b := func(s string) []byte { return []byte(s) }
+	want := [][]any{
+		{b("b"), i64(1)}, {b("b"), i64(2)}, {b("b"), i64(3)},
+		{b("a"), i64(1)}, {b("a"), i64(2)}, {b("a"), i64(3)},
+	}
+	if diff := cmp.Diff(want, got.rows); diff != "" {
+		t.Errorf("rows (-want +got):\n%s", diff)
+	}
+}
+
 func TestSQLReturnsRowWhoseCellsAreAllInUnreadFamilies(t *testing.T) {
 	ctx := sqlContext(t)
 	f := newSQLFixture(ctx, t)
@@ -380,6 +396,28 @@ func TestSQLSelectListTypesAliasesAndStar(t *testing.T) {
 			map[string][]byte{"Ynl0ZXM=": binary.BigEndian.AppendUint64(nil, 100)},
 			map[string]*int64{"bg==": &n},
 		}},
+	}
+	if diff := cmp.Diff(want, got, cmp.AllowUnexported(sqlResult{})); diff != "" {
+		t.Errorf("result (-want +got):\n%s", diff)
+	}
+}
+
+func TestSQLCastToOwnTypeReturnsTheValue(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+
+	got := f.query(ctx, t, "SELECT CAST(_key AS BYTES) AS k, CAST(SPLIT(_key, b',') AS ARRAY<BYTES>) AS a, CAST(total AS MAP<BYTES, INT64>) AS m FROM t WHERE _key = 'b'", nil, nil)
+
+	n := int64(7)
+	want := sqlResult{
+		cols: []string{"k", "a", "m"},
+		types: []bigtable.SQLType{
+			bigtable.BytesSQLType{},
+			bigtable.ArraySQLType{ElemType: bigtable.BytesSQLType{}},
+			bigtable.MapSQLType{KeyType: bigtable.BytesSQLType{}, ValueType: bigtable.Int64SQLType{}},
+		},
+		// The client keys a BYTES map by the base64 of each key: bg== is "n".
+		rows: [][]any{{[]byte("b"), [][]byte{[]byte("b")}, map[string]*int64{"bg==": &n}}},
 	}
 	if diff := cmp.Diff(want, got, cmp.AllowUnexported(sqlResult{})); diff != "" {
 		t.Errorf("result (-want +got):\n%s", diff)
@@ -942,5 +980,21 @@ func TestSQLOffsetSubscriptReadsZeroBasedElement(t *testing.T) {
 
 	if diff := cmp.Diff([]string{"z"}, got.keys()); diff != "" {
 		t.Errorf("values (-want +got):\n%s", diff)
+	}
+}
+
+func TestSQLJSONQueryArrayReplacesEachSurrogateEscapeWithTheReplacementCharacter(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+
+	got := f.query(ctx, t, `SELECT JSON_QUERY_ARRAY('["\\ud83d\\ude00", "\\ud800", "\\udc00", "\\\\ud83d"]') AS a FROM t WHERE _key = 'a'`, nil, nil)
+
+	want := []string{"\"��\"", "\"�\"", "\"�\"", `"\\ud83d"`}
+	var elems []string
+	for _, e := range got.rows[0][0].([]*string) {
+		elems = append(elems, *e)
+	}
+	if diff := cmp.Diff(want, elems); diff != "" {
+		t.Errorf("elements (-want +got):\n%s", diff)
 	}
 }
