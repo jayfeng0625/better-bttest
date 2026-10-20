@@ -19,6 +19,15 @@ type keyPart struct {
 	raw  bool
 }
 
+// viewLayout is how a view stores its query's rows: the key parts, in key order, and which output columns it stores
+// as cells. sourceCol is the output column that carries the source table's _key in an ORDER BY view's key, and nil
+// in a GROUP BY view, whose rows never share a key.
+type viewLayout struct {
+	keys      []keyPart
+	cells     []bool
+	sourceCol *int
+}
+
 // viewScan reads a view. Each column's index is the view's output column index.
 type viewScan struct {
 	view *Query
@@ -36,27 +45,47 @@ func (s *viewScan) run(x *execCtx, emit func([]Value) error) error {
 }
 
 // viewRows evaluates the view's query as production maintains the view: it leaves out each source row and each
-// group whose evaluation fails, and passes each row's encoded key and output values to emit in key order.
+// group whose evaluation fails, and each source row whose view rows share a key. It passes each row's encoded key and
+// output values to emit in key order.
 func (q *Query) viewRows(ctx context.Context, src Source, emit func(key []byte, out []Value) error) error {
 	vx := &execCtx{ctx: ctx, src: src, nSlots: q.nSlots, leaveOut: true}
-	type keyedRow struct {
-		key []byte
-		row []Value
-	}
 	var rows []keyedRow
 	if err := q.root.run(vx, func(row []Value) error {
-		rows = append(rows, keyedRow{key: encodeKey(row, q.keys), row: q.output(row)})
+		rows = append(rows, keyedRow{key: encodeKey(row, q.layout.keys), row: q.output(row)})
 		return nil
 	}); err != nil {
 		return err
 	}
 	slices.SortStableFunc(rows, func(a, b keyedRow) int { return bytes.Compare(a.key, b.key) })
+	if c := q.layout.sourceCol; c != nil {
+		rows = leaveOutSourceRowsThatShareAKey(rows, *c)
+	}
 	for _, r := range rows {
 		if err := emit(r.key, r.row); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+type keyedRow struct {
+	key []byte
+	row []Value
+}
+
+// leaveOutSourceRowsThatShareAKey drops every row of each source row that has two rows under one key, from rows in key
+// order. An ORDER BY view's key holds the source key, output column sourceCol.
+func leaveOutSourceRowsThatShareAKey(rows []keyedRow, sourceCol int) []keyedRow {
+	shared := map[string]bool{}
+	for i := 1; i < len(rows); i++ {
+		if bytes.Equal(rows[i].key, rows[i-1].key) {
+			shared[string(rows[i].row[sourceCol].Bytes)] = true
+		}
+	}
+	if len(shared) == 0 {
+		return rows
+	}
+	return slices.DeleteFunc(rows, func(r keyedRow) bool { return shared[string(r.row[sourceCol].Bytes)] })
 }
 
 // A ViewCell is one cell of a materialized view row as production stores it: the output column's name, and its
@@ -73,7 +102,7 @@ func (q *Query) ViewRows(ctx context.Context, src Source, emit func(key []byte, 
 	return q.viewRows(ctx, src, func(key []byte, out []Value) error {
 		var cells []ViewCell
 		for i, v := range out {
-			if v.Null || !q.cells[i] {
+			if v.Null || !q.layout.cells[i] {
 				continue
 			}
 			c := ViewCell{Column: q.Columns[i].Name}

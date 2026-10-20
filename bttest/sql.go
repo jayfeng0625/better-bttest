@@ -52,10 +52,11 @@ type sqlQueries struct {
 }
 
 type preparedQuery struct {
-	query      *sqlengine.Query
-	instance   string
-	paramTypes map[string]*btpb.Type
-	prepared   time.Time
+	query         *sqlengine.Query
+	instance      string
+	paramTypes    map[string]*btpb.Type
+	prepared      time.Time
+	viewAtPrepare *materializedView
 	// familyDropped is set on the first execute after a family the query reads is dropped.
 	familyDropped atomic.Bool
 }
@@ -87,7 +88,10 @@ func (sq *sqlQueries) clock() time.Time {
 }
 
 func (s *server) PrepareQuery(ctx context.Context, req *btpb.PrepareQueryRequest) (*btpb.PrepareQueryResponse, error) {
-	q, err := sqlengine.Prepare(req.Query, s.sqlTables(req.InstanceName), req.ParamTypes)
+	// Prepare compiles against the same views that stamp the query, so a view recreated meanwhile does not stamp a
+	// query compiled against its new query with the old view.
+	views := s.instanceViews(req.InstanceName)
+	q, err := sqlengine.Prepare(req.Query, s.sqlTables(req.InstanceName, views), req.ParamTypes)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +106,7 @@ func (s *server) PrepareQuery(ctx context.Context, req *btpb.PrepareQueryRequest
 			delete(s.sql.queries, k)
 		}
 	}
-	s.sql.queries[string(token)] = &preparedQuery{query: q, instance: req.InstanceName, paramTypes: req.ParamTypes, prepared: now}
+	s.sql.queries[string(token)] = &preparedQuery{query: q, instance: req.InstanceName, paramTypes: req.ParamTypes, prepared: now, viewAtPrepare: views[q.View]}
 	s.sql.mu.Unlock()
 
 	cols := make([]*btpb.ColumnMetadata, len(q.Columns))
@@ -117,8 +121,8 @@ func (s *server) PrepareQuery(ctx context.Context, req *btpb.PrepareQueryRequest
 }
 
 // sqlTables lists the instance's tables as SQL sees them: families in byte order, with Sum, Min and Max families
-// typed INT64. Then it lists the instance's materialized views.
-func (s *server) sqlTables(instance string) []sqlengine.Table {
+// typed INT64. Then it lists the views, which the caller takes from instanceViews.
+func (s *server) sqlTables(instance string, views map[string]*materializedView) []sqlengine.Table {
 	prefix := instance + "/tables/"
 	s.mu.Lock()
 	byName := map[string]*table{}
@@ -137,7 +141,10 @@ func (s *server) sqlTables(instance string) []sqlengine.Table {
 		slices.SortFunc(t.Families, func(a, b sqlengine.Family) int { return strings.Compare(a.Name, b.Name) })
 		out = append(out, t)
 	}
-	return append(out, s.sqlViews(instance)...)
+	for id, v := range views {
+		out = append(out, sqlengine.Table{Name: id, View: v.view})
+	}
+	return out
 }
 
 func (s *server) ExecuteQuery(req *btpb.ExecuteQueryRequest, stream btpb.Bigtable_ExecuteQueryServer) error {
@@ -163,9 +170,9 @@ func (s *server) ExecuteQuery(req *btpb.ExecuteQueryRequest, stream btpb.Bigtabl
 	return w.close()
 }
 
-// preparedQuery finds a prepared query and fails as production does once it has expired: 40 s after prepare, or
-// after a family it reads is dropped. A query fails once its table or view is deleted. A query prepared on another
-// instance is unknown on this one.
+// preparedQuery finds a prepared query and fails as production does once it has expired: 40 s after prepare, after
+// a family it reads is dropped, or after its view is recreated. A query fails once its table or view is deleted. A
+// query prepared on another instance is unknown on this one.
 func (s *server) preparedQuery(instance string, token []byte) (*preparedQuery, error) {
 	s.sql.mu.Lock()
 	pq := s.sql.queries[string(token)]
@@ -185,8 +192,12 @@ func (s *server) preparedQuery(instance string, token []byte) (*preparedQuery, e
 		return nil, expiredError(expiredMessage + " : " + expiredMessage)
 	}
 	if pq.query.View != "" {
-		if err := s.viewReplica(pq.instance, pq.query.View); err != nil {
+		v, err := s.viewReplica(pq.instance, pq.query.View)
+		if err != nil {
 			return nil, err
+		}
+		if v != pq.viewAtPrepare {
+			return nil, expiredError(expiredMessage)
 		}
 	} else if s.instanceTable(pq.instance, pq.query.Table) == nil {
 		return nil, tableNotFound(pq.instance + "/tables/" + pq.query.Table)

@@ -7,6 +7,8 @@
 package sqlengine
 
 import (
+	"sync/atomic"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -22,9 +24,27 @@ type Family struct {
 type Table struct {
 	Name     string
 	Families []Family
-	// ViewQuery is a materialized view's query. A view has no families.
-	ViewQuery string
+	// View is a materialized view as CheckView compiled it. A view has no families.
+	View *View
 }
+
+// View is a materialized view's query and its compiled plan. It is safe for concurrent use.
+type View struct {
+	sql  string
+	plan atomic.Pointer[viewPlan]
+}
+
+// viewPlan is a view's compiled query and the source table's families it compiled against.
+type viewPlan struct {
+	query    *Query
+	families []Family
+}
+
+// Table is the table the view's query reads.
+func (v *View) Table() string { return v.plan.Load().query.Table }
+
+// Families are the source table's families the view's query reads.
+func (v *View) Families() []string { return v.plan.Load().query.Families }
 
 // Column is one output column of a prepared query.
 type Column struct {
@@ -48,10 +68,8 @@ type Query struct {
 	root   scan
 	outIDs []int32
 	nSlots int
-	// keys are a materialized view's key parts, in key order, and cells marks each output column that a view row
-	// stores as a cell. Only PrepareView sets them.
-	keys  []keyPart
-	cells []bool
+	// layout is how a materialized view stores the query's rows. Only CheckView sets it.
+	layout *viewLayout
 }
 
 // scanCol is one column a table scan reads: the slot it fills and the column's index in the table.

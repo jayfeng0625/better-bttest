@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	btapb "cloud.google.com/go/bigtable/admin/apiv2/adminpb"
+	btpb "cloud.google.com/go/bigtable/apiv2/bigtablepb"
 	longrunning "cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"github.com/google/btree"
 	"github.com/jayfeng0625/better-bttest/bttest/internal/sqlengine"
@@ -19,16 +20,18 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-// materializedViews holds the server's materialized views, keyed by their full names. A view stores only its
-// query, and each SQL read of the view evaluates it.
+// materializedViews holds the server's materialized views, keyed by their full names. A view stores its query as
+// create compiled it, and each SQL read of the view evaluates it.
 type materializedViews struct {
 	mu    sync.Mutex
 	views map[string]*materializedView
 }
 
-// materializedView is a stored view and the full name of the table its query reads, empty in a build without SQL.
+// materializedView is a stored view, its compiled query, and the full name of the table its query reads. A build
+// without SQL compiles no query and leaves the table empty.
 type materializedView struct {
 	mv    *btapb.MaterializedView
+	view  *sqlengine.View
 	table string
 }
 
@@ -49,6 +52,44 @@ func (s *server) viewReferences(table string) error {
 	return status.Errorf(codes.FailedPrecondition, "Unable to delete resource %s because the resource is referenced by another resource. The existing references are: {%s}", table, strings.Join(refs, ", "))
 }
 
+// familyReferences fails a drop of a table's family while a view reads it, with production's message.
+func (s *server) familyReferences(table string, mods []*btapb.ModifyColumnFamiliesRequest_Modification) error {
+	s.views.mu.Lock()
+	defer s.views.mu.Unlock()
+	for _, mod := range mods {
+		if !mod.GetDrop() {
+			continue
+		}
+		var refs []string
+		for name, v := range s.views.views {
+			if v.table == table && slices.Contains(v.view.Families(), mod.Id) {
+				refs = append(refs, name)
+			}
+		}
+		if len(refs) == 0 {
+			continue
+		}
+		slices.Sort(refs)
+		return status.Errorf(codes.FailedPrecondition, "Unable to delete the column family: %s/columnFamilies/%s because it is currently referenced by the following resources: {%s}.", table, mod.Id, strings.Join(refs, ", "))
+	}
+	return nil
+}
+
+// readRowsTable returns the table that a ReadRows reads: the request's materialized view, evaluated, when it names
+// one, and its table otherwise.
+func (s *server) readRowsTable(ctx context.Context, req *btpb.ReadRowsRequest) (*table, error) {
+	if req.MaterializedViewName != "" {
+		return s.viewTable(ctx, req.MaterializedViewName)
+	}
+	s.mu.Lock()
+	tbl, ok := s.tables[req.TableName]
+	s.mu.Unlock()
+	if !ok {
+		return nil, tableNotFound(req.TableName)
+	}
+	return tbl, nil
+}
+
 // viewTable evaluates the view into a table as production's ReadRows shows a view: one family, default, where each
 // row has an empty-qualifier cell with an empty value, then a cell per stored column, all at timestamp 0.
 func (s *server) viewTable(ctx context.Context, name string) (*table, error) {
@@ -59,7 +100,7 @@ func (s *server) viewTable(ctx context.Context, name string) (*table, error) {
 		return nil, tableNotFound(name)
 	}
 	instance, _, _ := strings.Cut(name, "/materializedViews/")
-	q, err := sqlengine.PrepareView(v.mv.Query, s.sqlTables(instance))
+	q, err := sqlengine.CurrentView(v.view, s.sqlTables(instance, s.instanceViews(instance)))
 	if err != nil {
 		return nil, err
 	}
@@ -79,24 +120,11 @@ func (s *server) viewTable(ctx context.Context, name string) (*table, error) {
 	return tbl, nil
 }
 
-func (s *server) sqlViews(instance string) []sqlengine.Table {
-	prefix := instance + "/materializedViews/"
-	s.views.mu.Lock()
-	defer s.views.mu.Unlock()
-	var out []sqlengine.Table
-	for name, v := range s.views.views {
-		if id, ok := strings.CutPrefix(name, prefix); ok {
-			out = append(out, sqlengine.Table{Name: id, ViewQuery: v.mv.Query})
-		}
-	}
-	return out
-}
-
 // CreateMaterializedView checks the query with CheckView, then stores the view. It returns a finished operation,
 // so the Go client's Wait makes no GetOperation call.
 func (s *server) CreateMaterializedView(ctx context.Context, req *btapb.CreateMaterializedViewRequest) (*longrunning.Operation, error) {
 	query := req.GetMaterializedView().GetQuery()
-	source, err := sqlengine.CheckView(query, s.sqlTables(req.GetParent()))
+	view, err := sqlengine.CheckView(query, s.sqlTables(req.GetParent(), s.instanceViews(req.GetParent())))
 	if err != nil {
 		return nil, err
 	}
@@ -106,9 +134,9 @@ func (s *server) CreateMaterializedView(ctx context.Context, req *btapb.CreateMa
 		Query:              query,
 		DeletionProtection: req.GetMaterializedView().GetDeletionProtection(),
 	}
-	v := &materializedView{mv: mv}
-	if source != "" {
-		v.table = req.GetParent() + "/tables/" + source
+	v := &materializedView{mv: mv, view: view}
+	if view != nil {
+		v.table = req.GetParent() + "/tables/" + view.Table()
 	}
 	// CheckView ran without a lock, so a DeleteTable may have removed the table since. Holding s.mu until the view
 	// is stored makes the check and the store one step against DeleteTable, which takes s.mu then s.views.mu too.
@@ -147,23 +175,42 @@ func (s *server) GetMaterializedView(ctx context.Context, req *btapb.GetMaterial
 	return proto.Clone(v.mv).(*btapb.MaterializedView), nil
 }
 
-// viewReplica fails a read of a deleted view as production does when the view's replica is gone. The emulator has
-// no cluster, so it names one after the instance.
-func (s *server) viewReplica(instance, id string) error {
+func (s *server) instanceViews(instance string) map[string]*materializedView {
+	prefix := instance + "/materializedViews/"
 	s.views.mu.Lock()
 	defer s.views.mu.Unlock()
-	if _, ok := s.views.views[instance+"/materializedViews/"+id]; ok {
-		return nil
+	out := map[string]*materializedView{}
+	for name, v := range s.views.views {
+		if id, ok := strings.CutPrefix(name, prefix); ok {
+			out[id] = v
+		}
 	}
-	project, instanceID := projectInstance(instance)
-	cluster := instanceID + "-c1"
-	replica := numberedProject(instance) + "/clusters/" + cluster + "/materializedViews/" + id
-	return status.Errorf(codes.NotFound, "Failed to read: %s : MaterializedViewsReplicas(%s,%s,%s,%s) : Failed to read: %s", replica, project, instanceID, cluster, id, replica)
+	return out
 }
 
-func projectInstance(instance string) (project, id string) {
+// viewReplica returns the view, and fails a read of a deleted view as production does when the view's replica is
+// gone. The emulator has no cluster, so it names one after the instance.
+func (s *server) viewReplica(instance, id string) (*materializedView, error) {
+	s.views.mu.Lock()
+	defer s.views.mu.Unlock()
+	if v, ok := s.views.views[instance+"/materializedViews/"+id]; ok {
+		return v, nil
+	}
+	project, instanceID, ok := projectInstance(instance)
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "Failed to read: %s/materializedViews/%s", instance, id)
+	}
+	cluster := instanceID + "-c1"
+	replica := numberedProject(instance) + "/clusters/" + cluster + "/materializedViews/" + id
+	return nil, status.Errorf(codes.NotFound, "Failed to read: %s : MaterializedViewsReplicas(%s,%s,%s,%s) : Failed to read: %s", replica, project, instanceID, cluster, id, replica)
+}
+
+func projectInstance(instance string) (project, id string, ok bool) {
 	parts := strings.Split(instance, "/")
-	return parts[1], parts[3]
+	if len(parts) != 4 || parts[0] != "projects" || parts[2] != "instances" {
+		return "", "", false
+	}
+	return parts[1], parts[3], true
 }
 
 // ListMaterializedViews returns the instance's views in name order, in one page.

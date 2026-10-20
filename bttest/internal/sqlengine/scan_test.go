@@ -40,10 +40,12 @@ func (s *recordingSource) Scan(_ context.Context, req ScanRequest, fn func(Row) 
 }
 
 func TestScanAsksForThePlansFamiliesAndKeyRange(t *testing.T) {
-	tables := []Table{
-		{Name: "t", Families: []Family{{Name: "size"}, {Name: "total", Int64: true}}},
-		{Name: "v", ViewQuery: "SELECT _key, size['n'] AS s FROM t ORDER BY _key"},
+	tables := []Table{{Name: "t", Families: []Family{{Name: "size"}, {Name: "total", Int64: true}}}}
+	view, err := CheckView("SELECT _key, size['n'] AS s FROM t ORDER BY _key", tables)
+	if err != nil {
+		t.Fatalf("CheckView: %v", err)
 	}
+	tables = append(tables, Table{Name: "v", View: view})
 	cell := func(v string) map[string][]byte { return map[string][]byte{"n": []byte(v)} }
 	int64Cell := func(v uint64) map[string][]byte { return map[string][]byte{"n": binary.BigEndian.AppendUint64(nil, v)} }
 	rows := []Row{

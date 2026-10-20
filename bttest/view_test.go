@@ -14,6 +14,8 @@ import (
 	"testing"
 
 	"cloud.google.com/go/bigtable"
+	btapb "cloud.google.com/go/bigtable/admin/apiv2/adminpb"
+	btpb "cloud.google.com/go/bigtable/apiv2/bigtablepb"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc/codes"
@@ -28,7 +30,7 @@ type viewFixture struct {
 
 const expiredViewQuery = "SELECT _key AS rowKey FROM `items-prod` WHERE mark['flag'] IS NULL ORDER BY rowKey"
 
-func newViewFixture(ctx context.Context, t *testing.T, rows []itemRow) *viewFixture {
+func newViewFixture(ctx context.Context, t testing.TB, rows []itemRow) *viewFixture {
 	t.Helper()
 	f := newSQLFixture(ctx, t)
 	iadmin, err := bigtable.NewInstanceAdminClient(ctx, "p", option.WithGRPCConn(f.conn))
@@ -39,7 +41,7 @@ func newViewFixture(ctx context.Context, t *testing.T, rows []itemRow) *viewFixt
 	return &viewFixture{sqlFixture: f, iadmin: iadmin}
 }
 
-func (f *viewFixture) createView(ctx context.Context, t *testing.T, id, query string) {
+func (f *viewFixture) createView(ctx context.Context, t testing.TB, id, query string) {
 	t.Helper()
 	if err := f.iadmin.CreateMaterializedView(ctx, "i", &bigtable.MaterializedViewInfo{MaterializedViewID: id, Query: query}); err != nil {
 		t.Fatalf("CreateMaterializedView(%s): %v", id, err)
@@ -52,6 +54,13 @@ func TestGetMissingMaterializedViewReturnsNotFound(t *testing.T) {
 	f := newViewFixture(ctx, t, nil)
 	_, err := f.iadmin.MaterializedViewInfo(ctx, "i", "missing")
 	wantStatus(t, err, codes.NotFound, "Failed to read: projects/{p}/instances/i/materializedViews/missing")
+}
+
+func TestReadRowsOnMissingViewReturnsNotFound(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newViewFixture(ctx, t, nil)
+	err := f.client.OpenMaterializedView("missing").ReadRows(ctx, bigtable.InfiniteRange(""), func(bigtable.Row) bool { return true })
+	wantStatus(t, err, codes.NotFound, "Not found: projects/p/instances/i/materializedViews/missing")
 }
 
 func TestViewAdminRoundTrips(t *testing.T) {
@@ -212,6 +221,22 @@ func TestViewCreateRejectsQueriesAsProductionDoes(t *testing.T) {
 		{
 			"CURRENT_DATE", "v_bad", "SELECT SPLIT(_key, '#')[0] AS t, CURRENT_DATE() AS d, COUNT(*) AS n FROM `items-prod` GROUP BY t",
 			codes.InvalidArgument, "Only immutable functions are supported in materialized views (GoogleSQL:current_date is not immutable)",
+		},
+		{
+			"RAND under CAST", "v_bad", "SELECT SPLIT(_key, '#')[0] AS t, CAST(RAND() AS STRING) AS r, COUNT(*) AS n FROM `items-prod` GROUP BY t",
+			codes.InvalidArgument, "Only immutable functions are supported in materialized views (GoogleSQL:rand is not immutable)",
+		},
+		{
+			"GENERATE_UUID under CONCAT", "v_bad", "SELECT SPLIT(_key, '#')[0] AS t, CONCAT(GENERATE_UUID(), 'x') AS u, COUNT(*) AS n FROM `items-prod` GROUP BY t",
+			codes.InvalidArgument, "Only immutable functions are supported in materialized views (GoogleSQL:generate_uuid is not immutable)",
+		},
+		{
+			"RAND in WHERE of a GROUP BY view", "v_bad", "SELECT SPLIT(_key, '#')[0] AS t, COUNT(*) AS n FROM `items-prod` WHERE RAND() < 0.5 GROUP BY t",
+			codes.InvalidArgument, "Only immutable functions are supported in materialized views (GoogleSQL:rand is not immutable)",
+		},
+		{
+			"RAND in WHERE of an ORDER BY view", "v_bad", "SELECT _key, TO_INT64(size['bytes']) AS sz FROM `items-prod` WHERE RAND() < 0.5 ORDER BY _key",
+			codes.InvalidArgument, "Only immutable functions are supported in materialized views (GoogleSQL:rand is not immutable)",
 		},
 		{
 			"ARRAY_AGG", "v_bad", "SELECT SPLIT(_key, '#')[0] AS t, ARRAY_AGG(_key) AS ks, COUNT(*) AS n FROM `items-prod` GROUP BY t",
@@ -394,6 +419,65 @@ func TestViewLeavesOutWholeSourceRowWhenALaterUnnestedRowFails(t *testing.T) {
 	}
 }
 
+// labelRows are the SQL fixture's rows that have labels. rowA's two labels give it two view rows under one key in a
+// view keyed by _key alone.
+var labelRows = []itemRow{
+	{key: "t1#p1#n#rowA", labels: str(`["default","b2"]`)},
+	{key: "t1#p1#n#rowB", labels: str(`["default"]`)},
+	{key: "t2#p1#n#rowD", labels: str(`[]`)},
+	{key: "t3#p1#m#rowE", labels: str(`["a\"b"]`)},
+	{key: "t3#p1#n#rowF", labels: str(`["default"]`)},
+}
+
+// Production's view over the SQL fixture on 2026-10-19 left out rowA, whose two labels share the key, on ReadRows and
+// SQL alike.
+func TestViewLeavesOutSourceRowWhoseUnnestedRowsShareAKey(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newViewFixture(ctx, t, labelRows)
+	f.createView(ctx, t, "v_bylabel", "SELECT _key, l FROM `items-prod`, UNNEST(JSON_QUERY_ARRAY(CAST(labels['labels'] AS STRING))) AS l ORDER BY _key")
+
+	read := f.readView(ctx, t, "v_bylabel")
+	got := f.query(ctx, t, "SELECT * FROM v_bylabel", nil, nil)
+
+	wantRead := []bigtable.Row{
+		viewRow("t1#p1#n#rowB", bigtable.ReadItem{Column: "l", Value: []byte(`"default"`)}),
+		viewRow("t3#p1#m#rowE", bigtable.ReadItem{Column: "l", Value: []byte(`"a\"b"`)}),
+		viewRow("t3#p1#n#rowF", bigtable.ReadItem{Column: "l", Value: []byte(`"default"`)}),
+	}
+	if diff := cmp.Diff(wantRead, read); diff != "" {
+		t.Errorf("ReadRows on the label view (-want +got):\n%s", diff)
+	}
+	wantSQL := [][]any{
+		{[]byte("t1#p1#n#rowB"), str(`"default"`)},
+		{[]byte("t3#p1#m#rowE"), str(`"a\"b"`)},
+		{[]byte("t3#p1#n#rowF"), str(`"default"`)},
+	}
+	if diff := cmp.Diff(wantSQL, got.rows); diff != "" {
+		t.Errorf("SELECT * on the label view (-want +got):\n%s", diff)
+	}
+}
+
+// In a view keyed by _key and the label, only rowG's repeated label shares a key, and the whole of rowG is left out.
+// rowA's two distinct labels keep both its rows.
+func TestViewLeavesOutWholeSourceRowWhenTwoOfItsRowsShareAKey(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newViewFixture(ctx, t, append(slices.Clone(labelRows), itemRow{key: "t4#rowG", labels: str(`["x","y","x"]`)}))
+	f.createView(ctx, t, "v_bykeylabel", "SELECT _key, l FROM `items-prod`, UNNEST(JSON_QUERY_ARRAY(CAST(labels['labels'] AS STRING))) AS l ORDER BY _key, l")
+
+	got := f.query(ctx, t, "SELECT * FROM v_bykeylabel", nil, nil)
+
+	want := [][]any{
+		{[]byte("t1#p1#n#rowA"), str(`"b2"`)},
+		{[]byte("t1#p1#n#rowA"), str(`"default"`)},
+		{[]byte("t1#p1#n#rowB"), str(`"default"`)},
+		{[]byte("t3#p1#m#rowE"), str(`"a\"b"`)},
+		{[]byte("t3#p1#n#rowF"), str(`"default"`)},
+	}
+	if diff := cmp.Diff(want, got.rows); diff != "" {
+		t.Errorf("SELECT * on the key and label view (-want +got):\n%s", diff)
+	}
+}
+
 func TestViewExposesKeyOnlyAsAnOutputColumn(t *testing.T) {
 	ctx := sqlContext(t)
 	f := newViewFixture(ctx, t, totalsRows)
@@ -492,6 +576,75 @@ func TestViewExecuteFailsOnceTheViewIsDeleted(t *testing.T) {
 	// Production names the project by number and the view's replica by cluster. The emulator has the project ID and
 	// no cluster, so it writes the ID in the number's slot and names its one cluster after the instance.
 	wantStatus(t, err, codes.NotFound, "Failed to read: projects/{p}/instances/i/clusters/i-c1/materializedViews/v_expired : MaterializedViewsReplicas(p,i,i-c1,v_expired) : Failed to read: projects/{p}/instances/i/clusters/i-c1/materializedViews/v_expired")
+}
+
+func TestViewExecuteUnderBareInstanceFailsOnceTheViewIsDeleted(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newSQLFixture(ctx, t)
+	admin := btapb.NewBigtableTableAdminClient(f.conn)
+	_, err := admin.CreateTable(ctx, &btapb.CreateTableRequest{
+		Parent:  "i",
+		TableId: "t",
+		Table:   &btapb.Table{ColumnFamilies: map[string]*btapb.ColumnFamily{"f": {}}},
+	})
+	if err != nil {
+		t.Fatalf("CreateTable: %v", err)
+	}
+	iadmin := btapb.NewBigtableInstanceAdminClient(f.conn)
+	_, err = iadmin.CreateMaterializedView(ctx, &btapb.CreateMaterializedViewRequest{
+		Parent:             "i",
+		MaterializedViewId: "v",
+		MaterializedView:   &btapb.MaterializedView{Query: "SELECT _key AS rowKey FROM `t` ORDER BY rowKey"},
+	})
+	if err != nil {
+		t.Fatalf("CreateMaterializedView: %v", err)
+	}
+	data := btpb.NewBigtableClient(f.conn)
+	prepared, err := data.PrepareQuery(ctx, &btpb.PrepareQueryRequest{InstanceName: "i", Query: "SELECT rowKey FROM v"})
+	if err != nil {
+		t.Fatalf("PrepareQuery: %v", err)
+	}
+	if _, err := iadmin.DeleteMaterializedView(ctx, &btapb.DeleteMaterializedViewRequest{Name: "i/materializedViews/v"}); err != nil {
+		t.Fatalf("DeleteMaterializedView: %v", err)
+	}
+
+	_, err = f.executeOn(ctx, t, "i", prepared.PreparedQuery)
+	wantStatus(t, err, codes.NotFound, "Failed to read: i/materializedViews/v")
+
+	if _, err := admin.GetTable(ctx, &btapb.GetTableRequest{Name: "i/tables/t"}); err != nil {
+		t.Errorf("GetTable after the failed query: %v", err)
+	}
+}
+
+// Production never ran a query prepared on a view after the view was deleted and recreated, as a probe of
+// production recorded on 2026-10-19.
+func TestViewExecuteExpiresOnceTheViewIsRecreated(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newViewFixture(ctx, t, totalsRows)
+	f.createView(ctx, t, "v", expiredViewQuery)
+	f.createView(ctx, t, "v_kept", expiredViewQuery)
+	old := f.prepareRaw(ctx, t, "SELECT rowKey FROM v")
+	kept := f.prepareRaw(ctx, t, "SELECT rowKey FROM v_kept")
+
+	if err := f.iadmin.DeleteMaterializedView(ctx, "i", "v"); err != nil {
+		t.Fatalf("DeleteMaterializedView: %v", err)
+	}
+	f.createView(ctx, t, "v", "SELECT SPLIT(_key, '#')[0] AS tenant, COUNT(*) AS n FROM `items-prod` GROUP BY tenant")
+
+	msgs, err := f.executeRaw(ctx, t, old)
+	checkExpired(t, msgs, err, expiredQuery)
+	if _, err := f.executeRaw(ctx, t, kept); err != nil {
+		t.Errorf("ExecuteQuery on the untouched view: %v", err)
+	}
+	got := f.query(ctx, t, "SELECT tenant, n FROM v ORDER BY tenant", nil, nil)
+	want := sqlResult{
+		cols:  []string{"tenant", "n"},
+		types: []bigtable.SQLType{bigtable.BytesSQLType{}, bigtable.Int64SQLType{}},
+		rows:  [][]any{{[]byte("t1"), i64(3)}, {[]byte("t2"), i64(1)}},
+	}
+	if diff := cmp.Diff(want, got, cmp.AllowUnexported(sqlResult{})); diff != "" {
+		t.Errorf("a fresh query on the recreated view (-want +got):\n%s", diff)
+	}
 }
 
 func (f *viewFixture) readView(ctx context.Context, t *testing.T, id string) []bigtable.Row {
@@ -606,4 +759,113 @@ func TestViewReadRowsEscapesTheKeyColumnInsideAMultiPartKey(t *testing.T) {
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("ReadRows on the multi-part _key view (-want +got):\n%s", diff)
 	}
+}
+
+func BenchmarkViewReadRow(b *testing.B) {
+	ctx := context.Background()
+	f := newViewFixture(ctx, b, totalsRows)
+	f.createView(ctx, b, "v_expired", expiredViewQuery)
+	v := f.client.OpenMaterializedView("v_expired")
+	for b.Loop() {
+		r, err := v.ReadRow(ctx, "t1#p1#n#rowB")
+		if err != nil {
+			b.Fatal(err)
+		}
+		if r.Key() != "t1#p1#n#rowB" {
+			b.Fatalf("ReadRow = %v, want row t1#p1#n#rowB", r)
+		}
+	}
+}
+
+func BenchmarkPrepareQueryOverView(b *testing.B) {
+	ctx := context.Background()
+	f := newViewFixture(ctx, b, totalsRows)
+	f.createView(ctx, b, "v_expired", expiredViewQuery)
+	for b.Loop() {
+		if _, err := f.client.PrepareStatement(ctx, "SELECT rowKey FROM v_expired", nil); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// A drop of a family a view reads fails with production's message, and the family and the view stay as they were.
+// A drop of a family no view reads succeeds.
+func TestDropFamilyFailsWhileAViewReadsIt(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newViewFixture(ctx, t, totalsRows)
+	f.createView(ctx, t, "v_labels", "SELECT _key, l FROM `items-prod`, UNNEST(JSON_QUERY_ARRAY(CAST(labels['labels'] AS STRING))) AS l ORDER BY _key")
+	before := f.readView(ctx, t, "v_labels")
+	if len(before) == 0 {
+		t.Fatal("the view has no rows before the drop")
+	}
+
+	err := f.admin.DeleteColumnFamily(ctx, "items-prod", "labels")
+
+	wantStatus(t, err, codes.FailedPrecondition, "Unable to delete the column family: projects/p/instances/i/tables/items-prod/columnFamilies/labels because it is currently referenced by the following resources: {projects/p/instances/i/materializedViews/v_labels}.")
+	info, err := f.admin.TableInfo(ctx, "items-prod")
+	if err != nil {
+		t.Fatalf("TableInfo: %v", err)
+	}
+	if !slices.Contains(info.Families, "labels") {
+		t.Errorf("families after the refused drop = %v, want labels among them", info.Families)
+	}
+	if diff := cmp.Diff(before, f.readView(ctx, t, "v_labels")); diff != "" {
+		t.Errorf("view rows after the refused drop (-before +after):\n%s", diff)
+	}
+	if err := f.admin.DeleteColumnFamily(ctx, "items-prod", "size"); err != nil {
+		t.Errorf("DeleteColumnFamily(size), which no view reads: %v", err)
+	}
+}
+
+// Concurrent ReadRows and queries on one view each return the view's rows.
+func TestViewServesConcurrentReadsAndQueries(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newViewFixture(ctx, t, totalsRows)
+	f.createView(ctx, t, "v_expired", expiredViewQuery)
+	wantKeys := []string{"t1#p1#n#rowB", "t2#p1#n#rowD"}
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			var keys []string
+			err := f.client.OpenMaterializedView("v_expired").ReadRows(ctx, bigtable.InfiniteRange(""), func(r bigtable.Row) bool {
+				keys = append(keys, r.Key())
+				return true
+			})
+			if err != nil {
+				t.Errorf("ReadRows: %v", err)
+			}
+			if diff := cmp.Diff(wantKeys, keys); diff != "" {
+				t.Errorf("ReadRows keys (-want +got):\n%s", diff)
+			}
+		})
+		wg.Go(func() {
+			ps, err := f.client.PrepareStatement(ctx, "SELECT rowKey FROM v_expired", nil)
+			if err != nil {
+				t.Errorf("PrepareStatement: %v", err)
+				return
+			}
+			bs, err := ps.Bind(nil)
+			if err != nil {
+				t.Errorf("Bind: %v", err)
+				return
+			}
+			var keys []string
+			err = bs.Execute(ctx, func(r bigtable.ResultRow) bool {
+				var k []byte
+				if err := r.GetByName("rowKey", &k); err != nil {
+					t.Errorf("GetByName: %v", err)
+				}
+				keys = append(keys, string(k))
+				return true
+			})
+			if err != nil {
+				t.Errorf("Execute: %v", err)
+			}
+			if diff := cmp.Diff(wantKeys, keys); diff != "" {
+				t.Errorf("query keys (-want +got):\n%s", diff)
+			}
+		})
+	}
+	wg.Wait()
 }

@@ -29,9 +29,7 @@ You can also run the emulator in two other ways:
 ## What the fork changes
 
 Each entry links to the Bigtable docs for the feature.
-Where the docs do not say how production behaves, a parity case shows it.
-A parity case sends the same requests to a real table and to the emulator.
-[Check behaviour against production](CONTRIBUTING.md#check-behaviour-against-production) says how to run the cases.
+Where the docs do not say how production behaves, the entry says what a real instance returned.
 
 - **[Intersection garbage collection rules](https://cloud.google.com/bigtable/docs/garbage-collection#combinations).**
   An intersection joins rules with AND.
@@ -70,11 +68,15 @@ A parity case sends the same requests to a real table and to the emulator.
   Without the `googlesql` tag, `CreateMaterializedView` stores the view without checking its query, and a read of the view returns `Unimplemented`.
   `GetMaterializedView` returns the view, and `ListMaterializedViews` returns the instance's views in name order.
   `DeleteMaterializedView` deletes the view, and fails with `FailedPrecondition` while deletion protection is on.
-  `DeleteTable` fails with `FailedPrecondition` while a view reads the table, and names the view.
+  With the `googlesql` tag, as in the `better-bttest-with-sql` image, `DeleteTable` fails with `FailedPrecondition` while a view reads the table, and names the view.
+  A drop of a family that a view reads fails the same way, and the family and the view stay as they were.
+  Without the tag, a view records no source table, and `DeleteTable` and the family drop succeed.
   `UpdateMaterializedView` changes only deletion protection.
   It fails with `InvalidArgument` when the update mask names `query` and the query differs from the stored one.
   A SQL read of a view evaluates its query and returns the rows in production's view key order. The read leaves out each source row or group whose evaluation fails, as production does.
+  It also leaves out each source row whose view rows share a key.
   Once the view is deleted, `ExecuteQuery` on a query prepared against it fails with `NotFound`, at once, since the emulator has no replication lag.
+  Once the view is deleted and created again, a query prepared against the old view expires, and a query prepared again reads the new view.
   `ReadRows` on a view returns its rows as production stores them: the encoded view key, one family `default`, an empty-qualifier cell with no value, then a cell per stored column, all at timestamp 0.
   An invalid query fails with the analyzer's message, which differs from production's in two ways.
   The message has no `while resolving DDL statement` suffix.
