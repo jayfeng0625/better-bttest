@@ -379,6 +379,10 @@ func (s *server) ModifyColumnFamilies(ctx context.Context, req *btapb.ModifyColu
 		}
 	}
 
+	if err := s.familyReferences(req.Name, req.Modifications); err != nil {
+		return nil, err
+	}
+
 	if err := checkValueTypeUpdates(req.Modifications, tbl.families); err != nil {
 		return nil, err
 	}

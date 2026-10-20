@@ -43,6 +43,9 @@ type viewPlan struct {
 // Table is the table the view's query reads.
 func (v *View) Table() string { return v.plan.Load().query.Table }
 
+// Families are the source table's families the view's query reads.
+func (v *View) Families() []string { return v.plan.Load().query.Families }
+
 // Column is one output column of a prepared query.
 type Column struct {
 	Name string

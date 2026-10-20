@@ -788,36 +788,32 @@ func BenchmarkPrepareQueryOverView(b *testing.B) {
 	}
 }
 
-// Once a family a view's query reads is dropped or recreated with another type, the view's ReadRows and queries
-// fail as its query does against the table now.
-func TestViewFailsAsItsQueryDoesOnceAFamilyItReadsChanges(t *testing.T) {
-	sum := bigtable.AggregateType{Input: bigtable.Int64Type{}, Aggregator: bigtable.SumAggregator{}}
-	for _, tc := range []struct {
-		name     string
-		recreate *bigtable.Family
-		want     string
-	}{
-		{"dropped", nil, "Unrecognized name: size [at 1:23]"},
-		{"recreated as Sum", &bigtable.Family{GCPolicy: bigtable.NoGcPolicy(), ValueType: sum}, "No matching signature for function BIGTABLE:TO_INT64\n  Argument types: INT64\n  Signature: TO_INT64(BYTES)\n    Argument 1: Unable to coerce type INT64 to expected type BYTES [at 1:14]"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			ctx := sqlContext(t)
-			f := newViewFixture(ctx, t, totalsRows)
-			f.createView(ctx, t, "v_bykey", "SELECT _key, TO_INT64(size['bytes']) AS sz FROM `items-prod` ORDER BY _key")
-			if err := f.admin.DeleteColumnFamily(ctx, "items-prod", "size"); err != nil {
-				t.Fatalf("DeleteColumnFamily: %v", err)
-			}
-			if tc.recreate != nil {
-				if err := f.admin.CreateColumnFamilyWithConfig(ctx, "items-prod", "size", *tc.recreate); err != nil {
-					t.Fatalf("CreateColumnFamilyWithConfig: %v", err)
-				}
-			}
+// A drop of a family a view reads fails with production's message, and the family and the view stay as they were.
+// A drop of a family no view reads succeeds.
+func TestDropFamilyFailsWhileAViewReadsIt(t *testing.T) {
+	ctx := sqlContext(t)
+	f := newViewFixture(ctx, t, totalsRows)
+	f.createView(ctx, t, "v_labels", "SELECT _key, l FROM `items-prod`, UNNEST(JSON_QUERY_ARRAY(CAST(labels['labels'] AS STRING))) AS l ORDER BY _key")
+	before := f.readView(ctx, t, "v_labels")
+	if len(before) == 0 {
+		t.Fatal("the view has no rows before the drop")
+	}
 
-			err := f.client.OpenMaterializedView("v_bykey").ReadRows(ctx, bigtable.InfiniteRange(""), func(bigtable.Row) bool { return true })
-			wantStatus(t, err, codes.InvalidArgument, tc.want)
-			_, err = f.client.PrepareStatement(ctx, "SELECT _key FROM v_bykey", nil)
-			wantStatus(t, err, codes.InvalidArgument, tc.want)
-		})
+	err := f.admin.DeleteColumnFamily(ctx, "items-prod", "labels")
+
+	wantStatus(t, err, codes.FailedPrecondition, "Unable to delete the column family: projects/p/instances/i/tables/items-prod/columnFamilies/labels because it is currently referenced by the following resources: {projects/p/instances/i/materializedViews/v_labels}.")
+	info, err := f.admin.TableInfo(ctx, "items-prod")
+	if err != nil {
+		t.Fatalf("TableInfo: %v", err)
+	}
+	if !slices.Contains(info.Families, "labels") {
+		t.Errorf("families after the refused drop = %v, want labels among them", info.Families)
+	}
+	if diff := cmp.Diff(before, f.readView(ctx, t, "v_labels")); diff != "" {
+		t.Errorf("view rows after the refused drop (-before +after):\n%s", diff)
+	}
+	if err := f.admin.DeleteColumnFamily(ctx, "items-prod", "size"); err != nil {
+		t.Errorf("DeleteColumnFamily(size), which no view reads: %v", err)
 	}
 }
 

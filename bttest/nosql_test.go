@@ -67,3 +67,30 @@ func TestDeleteTableIgnoresViewsWithoutTheTag(t *testing.T) {
 		t.Errorf("DeleteTable: %v, want nil", err)
 	}
 }
+
+// Without the googlesql tag, a stored view records no families, so a drop of a family the view names succeeds.
+func TestDropFamilyIgnoresViewsWithoutTheTag(t *testing.T) {
+	ctx := context.Background()
+	conn := newConn(t)
+	admin, err := bigtable.NewAdminClient(ctx, "p", "i", option.WithGRPCConn(conn))
+	if err != nil {
+		t.Fatal(err)
+	}
+	iadmin, err := bigtable.NewInstanceAdminClient(ctx, "p", option.WithGRPCConn(conn))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.CreateTable(ctx, "t"); err != nil {
+		t.Fatalf("CreateTable: %v", err)
+	}
+	if err := admin.CreateColumnFamily(ctx, "t", "size"); err != nil {
+		t.Fatalf("CreateColumnFamily: %v", err)
+	}
+	view := bigtable.MaterializedViewInfo{MaterializedViewID: "v", Query: "SELECT _key, size FROM t ORDER BY _key", DeletionProtection: bigtable.Unprotected}
+	if err := iadmin.CreateMaterializedView(ctx, "i", &view); err != nil {
+		t.Fatalf("CreateMaterializedView: %v", err)
+	}
+	if err := admin.DeleteColumnFamily(ctx, "t", "size"); err != nil {
+		t.Errorf("DeleteColumnFamily: %v, want nil", err)
+	}
+}

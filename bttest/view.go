@@ -52,6 +52,29 @@ func (s *server) viewReferences(table string) error {
 	return status.Errorf(codes.FailedPrecondition, "Unable to delete resource %s because the resource is referenced by another resource. The existing references are: {%s}", table, strings.Join(refs, ", "))
 }
 
+// familyReferences fails a drop of a table's family while a view reads it, with production's message.
+func (s *server) familyReferences(table string, mods []*btapb.ModifyColumnFamiliesRequest_Modification) error {
+	s.views.mu.Lock()
+	defer s.views.mu.Unlock()
+	for _, mod := range mods {
+		if !mod.GetDrop() {
+			continue
+		}
+		var refs []string
+		for name, v := range s.views.views {
+			if v.table == table && slices.Contains(v.view.Families(), mod.Id) {
+				refs = append(refs, name)
+			}
+		}
+		if len(refs) == 0 {
+			continue
+		}
+		slices.Sort(refs)
+		return status.Errorf(codes.FailedPrecondition, "Unable to delete the column family: %s/columnFamilies/%s because it is currently referenced by the following resources: {%s}.", table, mod.Id, strings.Join(refs, ", "))
+	}
+	return nil
+}
+
 // readRowsTable returns the table that a ReadRows reads: the request's materialized view, evaluated, when it names
 // one, and its table otherwise.
 func (s *server) readRowsTable(ctx context.Context, req *btpb.ReadRowsRequest) (*table, error) {
