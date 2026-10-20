@@ -19,14 +19,11 @@ func storedGCRule(rule *btapb.GcRule) *btapb.GcRule {
 // proto makes the state type a function of the input type and the aggregator, and for these three production returns
 // the input type.
 func storedValueType(t *btapb.Type) *btapb.Type {
-	agg := t.GetAggregateType()
-	switch agg.GetAggregator().(type) {
-	case *btapb.Type_Aggregate_Sum_, *btapb.Type_Aggregate_Min_, *btapb.Type_Aggregate_Max_:
-	default:
+	if !int64Aggregate(t) {
 		return t
 	}
 	t = proto.CloneOf(t)
-	agg = t.GetAggregateType()
+	agg := t.GetAggregateType()
 	agg.StateType = proto.CloneOf(agg.InputType)
 	return t
 }

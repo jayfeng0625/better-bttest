@@ -3,6 +3,7 @@
 package parity
 
 import (
+	"bytes"
 	"fmt"
 	"regexp"
 	"slices"
@@ -36,6 +37,7 @@ func Normalize(instance, runID string, results []Result) []Result {
 		if strings.HasPrefix(s.Message, structMessage) {
 			s.Message = structMessage
 		}
+		s.Message, _, _ = strings.Cut(s.Message, evaluatingLine)
 		return s
 	}
 	out := make([]Result, len(results))
@@ -65,14 +67,20 @@ func family(c Cell) string {
 // Production's message for a row key schema with no encoding continues with text that differs between calls.
 const structMessage = "Missing encoding for STRUCT"
 
-// Diff returns each call whose result differs between want and got, or "" when every result matches.
+// Production's runtime SQL error continues on a second line with the expression it was evaluating, in production's
+// internal names, such as to_int64_big_endian(`$col3`). The emulator does not reproduce that line, so the comparison
+// stops at it.
+const evaluatingLine = "\n(while evaluating "
+
+// Diff returns each call whose result differs between want and got, or "" when every result matches. It compares
+// bytes with bytes.Equal, because cmp compares a slice element by element, which took a minute on a 7.5 MiB result.
 func Diff(want, got []Result) string {
 	var b strings.Builder
 	if len(want) != len(got) {
 		fmt.Fprintf(&b, "want %d calls, got %d\n", len(want), len(got))
 	}
 	for i := range min(len(want), len(got)) {
-		if d := cmp.Diff(want[i], got[i], protocmp.Transform()); d != "" {
+		if d := cmp.Diff(want[i], got[i], protocmp.Transform(), cmp.Comparer(bytes.Equal)); d != "" {
 			fmt.Fprintf(&b, "call %d %s (-want +got):\n%s", i, want[i].Call, d)
 		}
 	}

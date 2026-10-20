@@ -44,20 +44,31 @@ if [ -n "$codec_in_tests" ]; then
     exit 1
 fi
 
-go vet ./...
-
 # staticcheck exits 1 on any finding, so the filtered output decides. The
 # filtered findings sit in upstream code, which keeps upstream's style.
 staticcheck_bin=$(mktemp -d)
 trap 'rm -rf "$staticcheck_bin"' EXIT
 GOBIN=$staticcheck_bin go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
-findings=$("$staticcheck_bin/staticcheck" ./... 2>&1 |
-    grep -v -e '^bttest/example_test.go:[0-9:]* google.golang.org/grpc.Dial is deprecated' \
-        -e '^bttest/inmem.go:[0-9:]* const maxValidMilliSeconds is unused' \
-        -e '^cmd/emulator/cbtemulator.go:[0-9:]* should use a simple channel send/receive' || true)
-if [ -n "$findings" ]; then
-    echo "$findings" >&2
-    exit 1
-fi
 
-go test -race ./...
+# The with-sql image builds with the googlesql tag, so vet, staticcheck, and
+# the tests run on the plain build and on the tagged build.
+# Usage: check_build <build tags> [pattern of findings to skip]
+check_build() {
+    go vet -tags "$1" ./...
+    findings=$("$staticcheck_bin/staticcheck" -tags "$1" ./... 2>&1 |
+        grep -v -e '^bttest/example_test.go:[0-9:]* google.golang.org/grpc.Dial is deprecated' \
+            -e '^bttest/inmem.go:[0-9:]* const maxValidMilliSeconds is unused' \
+            -e '^cmd/emulator/cbtemulator.go:[0-9:]* should use a simple channel send/receive' \
+            ${2:+-e "$2"} || true)
+    if [ -n "$findings" ]; then
+        echo "$findings" >&2
+        exit 1
+    fi
+    go test -race -tags "$1" ./...
+}
+
+# The plain build leaves out the SQL planner, which is the only code that
+# builds the plan nodes in sqlengine, so that package's unused findings count
+# on the tagged build alone.
+check_build '' '^bttest/internal/sqlengine/[a-z_]*\.go:[0-9:]* .* is unused (U1000)$'
+check_build googlesql

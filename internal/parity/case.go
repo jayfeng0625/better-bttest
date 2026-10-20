@@ -17,6 +17,8 @@ type Case struct {
 	Name  string
 	Setup []Call
 	Calls []Call
+	// Deadline bounds the case's calls when it is set. The tests use caseDeadline otherwise.
+	Deadline time.Duration
 }
 
 // A Call is one RPC. A data call goes to the parity table, where its rows are this case's rows, unless it sets
@@ -107,6 +109,20 @@ type SampleRowKeys struct{}
 // GetTable with SCHEMA_VIEW.
 type GetTable struct{}
 
+// PrepareQuery of SQL, with Params as the declared query parameters. {table} in SQL stands for the case's table id.
+// The run keeps the prepared query and its columns for the case's next ExecuteQuery.
+type PrepareQuery struct {
+	SQL    string
+	Params map[string]*btpb.Type
+}
+
+// ExecuteQuery of the case's last prepared query, with Params as the parameter values. When the case has no prepared
+// query, because it has called no PrepareQuery or its last one failed, it sends nothing and fails with the same status
+// on every target. When the stream fails, the result keeps the rows and messages that came before the failure.
+type ExecuteQuery struct {
+	Params map[string]*btpb.Value
+}
+
 // Builders for mutations at column c and 1000 µs, unless an option says otherwise.
 
 type cellAt struct {
@@ -195,6 +211,10 @@ func UpdateFamily(id string, cf *adminpb.ColumnFamily) *adminpb.ModifyColumnFami
 	return &adminpb.ModifyColumnFamiliesRequest_Modification{Id: id, Mod: &adminpb.ModifyColumnFamiliesRequest_Modification_Update{Update: cf}}
 }
 
+func DropFamily(id string) *adminpb.ModifyColumnFamiliesRequest_Modification {
+	return &adminpb.ModifyColumnFamiliesRequest_Modification{Id: id, Mod: &adminpb.ModifyColumnFamiliesRequest_Modification_Drop{Drop: true}}
+}
+
 // WithEmptyGCRules gives each of fs an empty GC rule, one with no rule in it, and returns fs.
 func WithEmptyGCRules(fs map[string]*adminpb.ColumnFamily) map[string]*adminpb.ColumnFamily {
 	for _, f := range fs {
@@ -231,3 +251,41 @@ func Append(f Family) *btpb.ReadModifyWriteRule {
 func Mutations(ms ...*btpb.Mutation) []*btpb.Mutation { return ms }
 
 func Rules(rs ...*btpb.ReadModifyWriteRule) []*btpb.ReadModifyWriteRule { return rs }
+
+var (
+	BytesType  = &btpb.Type{Kind: &btpb.Type_BytesType{BytesType: &btpb.Type_Bytes{}}}
+	StringType = &btpb.Type{Kind: &btpb.Type_StringType{StringType: &btpb.Type_String{}}}
+	Int64Type  = &btpb.Type{Kind: &btpb.Type_Int64Type{Int64Type: &btpb.Type_Int64{}}}
+)
+
+// A Param is a query parameter: its name, and its value with the value's type set. A Value with a type and no kind is
+// NULL.
+type Param struct {
+	Name  string
+	Value *btpb.Value
+}
+
+func BytesParam(name string, v []byte) Param {
+	return Param{name, &btpb.Value{Type: BytesType, Kind: &btpb.Value_BytesValue{BytesValue: v}}}
+}
+
+func StringParam(name, v string) Param {
+	return Param{name, &btpb.Value{Type: StringType, Kind: &btpb.Value_StringValue{StringValue: v}}}
+}
+
+func Int64Param(name string, n int64) Param {
+	return Param{name, &btpb.Value{Type: Int64Type, Kind: &btpb.Value_IntValue{IntValue: n}}}
+}
+
+func NullParam(name string, t *btpb.Type) Param { return Param{name, &btpb.Value{Type: t}} }
+
+// Query is a PrepareQuery of sql with the params' types, then an ExecuteQuery with their values.
+func Query(sql string, params ...Param) []Call {
+	types := map[string]*btpb.Type{}
+	values := map[string]*btpb.Value{}
+	for _, p := range params {
+		types[p.Name] = p.Value.Type
+		values[p.Name] = p.Value
+	}
+	return []Call{PrepareQuery{SQL: sql, Params: types}, ExecuteQuery{Params: values}}
+}
