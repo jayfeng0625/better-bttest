@@ -28,14 +28,17 @@ func NewRunID(start time.Time) string {
 // A run that started longer ago than this has ended, so its rows and tables are an interrupted run's.
 const staleAfter = time.Hour
 
-// The rows and tables of a case, with its run's id.
+// The rows, tables and views of a case, with its run's id.
 var (
 	caseRowKey  = regexp.MustCompile(`^` + rowPrefix + `([0-9a-f]{12})#`)
 	caseTableID = regexp.MustCompile(`^` + tablePrefix + `([0-9a-f]{12})-t[0-9]+$`)
+	caseViewID  = regexp.MustCompile(`^` + tablePrefix + `([0-9a-f]{12})-v[0-9]+$`)
 )
 
-// Cleanup deletes the rows that the cases wrote to the parity table and the tables they created, in the run and in
-// any run that started over staleAfter ago. It then reads both again, and returns an error naming any that remain.
+// Cleanup deletes the rows that the cases wrote to the parity table, and the views and tables they created, in the
+// run and in any run that started over staleAfter ago. It deletes the views before the tables, since production
+// refuses to delete a table while a view reads it. It then lists all three again, and returns an error naming any
+// that remain.
 func Cleanup(ctx context.Context, t Target, runID string) error {
 	now := time.Now()
 	swept := func(id string) bool {
@@ -50,6 +53,13 @@ func Cleanup(ctx context.Context, t Target, runID string) error {
 	if len(keys) > 0 {
 		errs = append(errs, deleteRows(ctx, t, keys))
 	}
+	views, err := caseViews(ctx, t, swept)
+	if err != nil {
+		return errors.Join(append(errs, err)...)
+	}
+	for _, id := range views {
+		errs = append(errs, t.deleteView(ctx, id))
+	}
 	tables, err := caseTables(ctx, t, swept)
 	if err != nil {
 		return errors.Join(append(errs, err)...)
@@ -62,12 +72,16 @@ func Cleanup(ctx context.Context, t Target, runID string) error {
 	if err != nil {
 		return errors.Join(append(errs, err)...)
 	}
+	leftViews, err := caseViews(ctx, t, swept)
+	if err != nil {
+		return errors.Join(append(errs, err)...)
+	}
 	leftTables, err := caseTables(ctx, t, swept)
 	if err != nil {
 		return errors.Join(append(errs, err)...)
 	}
-	if len(leftRows)+len(leftTables) > 0 {
-		errs = append(errs, fmt.Errorf("left after cleanup: %d rows and the tables %v", len(leftRows), leftTables))
+	if len(leftRows)+len(leftViews)+len(leftTables) > 0 {
+		errs = append(errs, fmt.Errorf("left after cleanup: %d rows, the views %v and the tables %v", len(leftRows), leftViews, leftTables))
 	}
 	return errors.Join(errs...)
 }
@@ -131,6 +145,42 @@ func caseTables(ctx context.Context, t Target, of func(runID string) bool) ([]st
 		}
 		req.PageToken = resp.NextPageToken
 	}
+}
+
+func caseViews(ctx context.Context, t Target, of func(runID string) bool) ([]string, error) {
+	req := &adminpb.ListMaterializedViewsRequest{Parent: t.Instance}
+	var ids []string
+	for {
+		resp, err := t.Instances.ListMaterializedViews(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		for _, mv := range resp.MaterializedViews {
+			id := strings.TrimPrefix(mv.Name, t.viewPath(""))
+			if m := caseViewID.FindStringSubmatch(id); m != nil && of(m[1]) {
+				ids = append(ids, id)
+			}
+		}
+		if resp.NextPageToken == "" {
+			return ids, nil
+		}
+		req.PageToken = resp.NextPageToken
+	}
+}
+
+// Delete the view, clearing deletion protection first, as deleteTable does. A view that is not found is already
+// deleted.
+func (t Target) deleteView(ctx context.Context, id string) error {
+	path := t.viewPath(id)
+	if err := t.updateView(ctx, &adminpb.MaterializedView{Name: path}, "deletion_protection"); status.Code(err) == codes.NotFound {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("clear deletion protection on the view %s: %w", id, err)
+	}
+	if _, err := t.Instances.DeleteMaterializedView(ctx, &adminpb.DeleteMaterializedViewRequest{Name: path}); err != nil && status.Code(err) != codes.NotFound {
+		return fmt.Errorf("delete the view %s: %w", id, err)
+	}
+	return nil
 }
 
 // Delete the table, clearing deletion protection first, since a case that stops partway can leave its table protected.
